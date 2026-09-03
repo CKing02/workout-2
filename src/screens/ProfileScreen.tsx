@@ -7,7 +7,7 @@
  *  - 底部：版本号 + 清除全部数据按钮（二次确认 → 占位行为）
  */
 
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -32,6 +32,8 @@ import { usePlanStore } from '@/store/planStore';
 import { useSettingsStore } from '@/store/settingsStore';
 import { useTrainingStore } from '@/store/trainingStore';
 import { useTheme } from '@/theme';
+import { exportBackup } from '@/utils/exportData';
+import { haptic } from '@/utils/haptics';
 
 const APP_VERSION = '0.1.0';
 
@@ -48,7 +50,7 @@ export function ProfileScreen({ navigation }: ProfileScreenProps) {
 
   const [usernameSheetOpen, setUsernameSheetOpen] = useState(false);
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
-  const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [exerciseLibDialogOpen, setExerciseLibDialogOpen] = useState(false);
   const [usernameDraft, setUsernameDraft] = useState('');
 
@@ -102,6 +104,23 @@ export function ProfileScreen({ navigation }: ProfileScreenProps) {
       'Diagnostics',
     );
   };
+
+  // G19: 真实导出 —— 全表读 → 写文件 → 弹分享面板。
+  // 数据导出不像清除那么不可逆，无二次确认；失败时 toast 错误并保留页面。
+  const handleExport = useCallback(async () => {
+    if (exporting) return;
+    setExporting(true);
+    toast.show('正在导出…', 'info');
+    try {
+      const { fileName } = await exportBackup();
+      toast.show(`已导出：${fileName}`, 'success');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      toast.show(`导出失败：${msg}`, 'error');
+    } finally {
+      setExporting(false);
+    }
+  }, [exporting]);
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]} edges={['bottom']}>
@@ -193,11 +212,15 @@ export function ProfileScreen({ navigation }: ProfileScreenProps) {
           />
           <ListItem
             title="数据导出"
-            subtitle="P2 占位"
+            subtitle="导出全部训练数据为 JSON"
             leftSlot={<Glyph text="↗" colors={colors} spacing={spacing} />}
             rightSlot={<Chevron colors={colors} typography={typography} />}
-            onPress={() => setExportDialogOpen(true)}
-            accessibilityLabel="数据导出，暂未上线"
+            onPress={() => {
+              haptic.selection();
+              void handleExport();
+            }}
+            accessibilityLabel="数据导出"
+            accessibilityHint="把所有训练数据导出为 JSON 文件，弹出系统分享面板"
           />
         </Card>
 
@@ -275,15 +298,6 @@ export function ProfileScreen({ navigation }: ProfileScreenProps) {
         confirmText="清除"
         onCancel={() => setClearDialogOpen(false)}
         onConfirm={handleClearAll}
-      />
-      <Dialog
-        visible={exportDialogOpen}
-        title="数据导出"
-        message="敬请期待 — 数据导出将在后续版本提供。"
-        confirmText="好的"
-        cancelText="关闭"
-        onCancel={() => setExportDialogOpen(false)}
-        onConfirm={() => setExportDialogOpen(false)}
       />
       <Dialog
         visible={exerciseLibDialogOpen}

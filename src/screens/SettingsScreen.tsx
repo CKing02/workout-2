@@ -7,7 +7,7 @@
  *  - **外观**   主题模式（浅色/深色/跟随系统）+ 重量单位（kg/lb）
  *  - **训练**   默认休息时间 + 震动反馈开关
  *  - **个人**   用户名
- *  - **数据**   导出（P2 占位）+ 清除全部数据（二次确认）
+ *  - **数据**   导出（G19）+ 清除全部数据（二次确认）
  *
  * 底部追加 `<Card>` 演示单位换算工具生效：
  *  - "示例：100 kg = 220.5 lb"
@@ -43,6 +43,7 @@ import { usePlanStore } from '@/store/planStore';
 import { useSettingsStore, type Unit, type ThemeModeSetting } from '@/store/settingsStore';
 import { useTrainingStore } from '@/store/trainingStore';
 import { useTheme } from '@/theme';
+import { exportBackup } from '@/utils/exportData';
 import { haptic } from '@/utils/haptics';
 import { formatWeight, kgToLb, lbToKg } from '@/utils/units';
 
@@ -92,7 +93,7 @@ export function SettingsScreen() {
   const [restSheetOpen, setRestSheetOpen] = useState(false);
   const [usernameSheetOpen, setUsernameSheetOpen] = useState(false);
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
-  const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [usernameDraft, setUsernameDraft] = useState('');
 
   const handleOpenUsername = () => {
@@ -140,6 +141,22 @@ export function SettingsScreen() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       toast.show('清除失败：' + msg, 'error');
+    }
+  };
+
+  // G19: 真实导出 —— 全表读 → 写文件 → 弹分享面板。
+  const handleExport = async () => {
+    if (exporting) return;
+    setExporting(true);
+    toast.show('正在导出…', 'info');
+    try {
+      const { fileName } = await exportBackup();
+      toast.show(`已导出：${fileName}`, 'success');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      toast.show(`导出失败：${msg}`, 'error');
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -255,14 +272,17 @@ export function SettingsScreen() {
         <Card padding="sm" style={{ marginTop: spacing.sm }}>
           <ListItem
             title="数据导出"
-            subtitle="导出 JSON / CSV（P2 占位）"
+            subtitle="导出全部训练数据为 JSON"
             rightSlot={
               <Text style={[typography.subtitle, { color: colors.textTertiary }]}>›</Text>
             }
-            onPress={() => setExportDialogOpen(true)}
+            onPress={() => {
+              haptic.selection();
+              void handleExport();
+            }}
             divider
-            accessibilityLabel="数据导出，暂未上线"
-            accessibilityHint="点击查看导出占位说明"
+            accessibilityLabel="数据导出"
+            accessibilityHint="把所有训练数据导出为 JSON 文件，弹出系统分享面板"
           />
           <ListItem
             title="清除全部数据"
@@ -379,17 +399,6 @@ export function SettingsScreen() {
         cancelText="取消"
         onCancel={() => setClearDialogOpen(false)}
         onConfirm={handleClearAll}
-      />
-
-      {/* ------------------- 导出 Dialog ------------------- */}
-      <Dialog
-        visible={exportDialogOpen}
-        title="数据导出"
-        message="敬请期待 — 数据导出将在后续版本提供。"
-        confirmText="好的"
-        cancelText="关闭"
-        onCancel={() => setExportDialogOpen(false)}
-        onConfirm={() => setExportDialogOpen(false)}
       />
     </SafeAreaView>
   );
