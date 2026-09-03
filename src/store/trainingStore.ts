@@ -30,6 +30,7 @@ import {
 } from '@/db/repositories/trainingRepo';
 import {
   batchInsertTrainingSetsInTransaction,
+  getLastSetsForExercises,
   type CreateTrainingSetInput,
 } from '@/db/repositories/trainingSetRepo';
 import type { TrainingSet } from '@/db/schema';
@@ -69,7 +70,29 @@ export interface TrainingStoreState {
   currentExerciseIndex: number;
   currentSetIndex: number;
 
+  /**
+   * G17: 训练中显示"上次数据"。缓存 exerciseId → 最近 N 组 set（已完成训练）。
+   * 进入训练页一次性查全部动作；切到未缓存的动作时补查。
+   * 缓存命中优先，避免重复 SQL。
+   */
+  lastSetsByExerciseId: Record<string, TrainingSet[]>;
+
   loadHistory: () => Promise<void>;
+
+  /**
+   * G17: 一次性查多个动作的最近 N 组（默认 3），写入 `lastSetsByExerciseId`。
+   * 已缓存的动作跳过；返回已新增/刷新的动作 id 列表（用于 UI 局部反馈，可选）。
+   */
+  loadLastSetsForExercises: (
+    exerciseIds: string[],
+    limit?: number,
+  ) => Promise<string[]>;
+
+  /** G17: 单动作补查（切到未缓存的动作时）。 */
+  loadLastSetsForExercise: (
+    exerciseId: string,
+    limit?: number,
+  ) => Promise<void>;
 
   /**
    * G9: delete a single history entry. Removes the training row (cascade
@@ -219,8 +242,31 @@ export const useTrainingStore = create<TrainingStoreState>((set, get) => ({
   activeTraining: null,
   currentExerciseIndex: 0,
   currentSetIndex: 0,
+  lastSetsByExerciseId: {},
   loading: false,
   error: null,
+
+  loadLastSetsForExercises: async (exerciseIds, limit = 3) => {
+    if (exerciseIds.length === 0) return [];
+    const cached = get().lastSetsByExerciseId;
+    const missing = exerciseIds.filter((id) => !(id in cached));
+    if (missing.length === 0) return [];
+    const db = await getDatabase();
+    const fresh = await getLastSetsForExercises(db, missing, limit);
+    set((state) => ({
+      lastSetsByExerciseId: { ...state.lastSetsByExerciseId, ...fresh },
+    }));
+    return Object.keys(fresh);
+  },
+
+  loadLastSetsForExercise: async (exerciseId, limit = 3) => {
+    if (exerciseId in get().lastSetsByExerciseId) return;
+    const db = await getDatabase();
+    const sets = await getLastSetsForExercises(db, [exerciseId], limit);
+    set((state) => ({
+      lastSetsByExerciseId: { ...state.lastSetsByExerciseId, ...sets },
+    }));
+  },
 
   loadHistory: async () => {
     set({ loading: true, error: null });
@@ -640,12 +686,20 @@ export const useTrainingStore = create<TrainingStoreState>((set, get) => ({
       activeTraining: null,
       currentExerciseIndex: 0,
       currentSetIndex: 0,
+      // G17: 训练结束后清缓存，下次进入是新鲜查询。
+      lastSetsByExerciseId: {},
     }));
     return { ...updated, stats };
   },
 
   cancelTraining: () => {
-    set({ activeTraining: null, currentExerciseIndex: 0, currentSetIndex: 0 });
+    set({
+      activeTraining: null,
+      currentExerciseIndex: 0,
+      currentSetIndex: 0,
+      // G17: 同上。
+      lastSetsByExerciseId: {},
+    });
   },
 
   removeFromHistory: async (id) => {

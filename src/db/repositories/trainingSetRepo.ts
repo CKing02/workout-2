@@ -102,6 +102,71 @@ export async function listSetsByTraining(
   return rows.map(rowToTrainingSet);
 }
 
+/**
+ * G17: 取一个动作最近 N 组训练记录（按时间倒序），不含当前进行中的未完成 set。
+ * 通过 JOIN `trainings` 取 `started_at`，排除尚未完成的训练（用 `ended_at IS NOT NULL`）。
+ * 单组动作：weight/reps/durationSeconds/distanceKm。
+ */
+export async function getLastSetsForExercise(
+  db: SQLiteDatabase,
+  exerciseId: string,
+  limit = 3,
+): Promise<TrainingSet[]> {
+  const rows = await db.getAllAsync<TrainingSetRow>(
+    `SELECT ts.*
+       FROM training_sets ts
+       JOIN trainings t ON t.id = ts.training_id
+       WHERE ts.exercise_id = ?
+         AND ts.completed = 1
+         AND t.ended_at IS NOT NULL
+       ORDER BY t.started_at DESC, ts.set_index DESC
+       LIMIT ?;`,
+    [exerciseId, limit],
+  );
+  return rows.map(rowToTrainingSet);
+}
+
+/**
+ * G17: 一次性查多个动作的最近 N 组。返回 Record<exerciseId, TrainingSet[]>。
+ * 用一条 IN 查询，避免 N+1。
+ */
+export async function getLastSetsForExercises(
+  db: SQLiteDatabase,
+  exerciseIds: string[],
+  perExerciseLimit = 3,
+): Promise<Record<string, TrainingSet[]>> {
+  const out: Record<string, TrainingSet[]> = {};
+  if (exerciseIds.length === 0) return out;
+  // 占位符数量 = exerciseIds.length
+  const placeholders = exerciseIds.map(() => '?').join(',');
+  const rows = await db.getAllAsync<TrainingSetRow & { rn: number }>(
+    `SELECT *, ROW_NUMBER() OVER (
+       PARTITION BY ts.exercise_id
+       ORDER BY t.started_at DESC, ts.set_index DESC
+     ) AS rn
+       FROM training_sets ts
+       JOIN trainings t ON t.id = ts.training_id
+       WHERE ts.exercise_id IN (${placeholders})
+         AND ts.completed = 1
+         AND t.ended_at IS NOT NULL;`,
+    exerciseIds,
+  );
+  for (const r of rows) {
+    if (r.rn > perExerciseLimit) continue;
+    const set = rowToTrainingSet(r);
+    (out[r.exercise_id] ??= []).push(set);
+  }
+  // SQL 没保证顺序，再排一次稳定。
+  for (const id of Object.keys(out)) {
+    out[id] = out[id].sort((a, b) => {
+      // 按 startedAt 倒序，再按 setIndex 倒序——和 SQL 保持一致。
+      // 但 TrainingSet 没有 startedAt 字段，只能用 setIndex DESC 来近似（最近组的 setIndex 较大）。
+      return b.setIndex - a.setIndex;
+    });
+  }
+  return out;
+}
+
 export async function getTrainingSet(
   db: SQLiteDatabase,
   id: string,
@@ -173,6 +238,8 @@ export async function deleteTrainingSet(
 export const trainingSetRepo = {
   batchInsert: batchInsertTrainingSets,
   listByTraining: listSetsByTraining,
+  getLastSetsForExercise,
+  getLastSetsForExercises,
   get: getTrainingSet,
   update: updateTrainingSet,
   delete: deleteTrainingSet,

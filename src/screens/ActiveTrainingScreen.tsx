@@ -77,6 +77,9 @@ import { useSettingsStore } from '@/store/settingsStore';
 import { useTrainingStore, type ActiveSet } from '@/store/trainingStore';
 import { useTheme } from '@/theme';
 import { haptic } from '@/utils/haptics';
+import { formatWeight } from '@/utils/units';
+import type { TrainingSet } from '@/db/schema';
+import type { Unit } from '@/store/settingsStore';
 
 import type { RootStackParamList } from '@/navigation/types';
 
@@ -126,6 +129,19 @@ export function ActiveTrainingScreen() {
   const detailById = usePlanStore((s) => s.detailById);
 
   const defaultRestSeconds = useSettingsStore((s) => s.defaultRestSeconds);
+
+  // G17: 训练中显示"上次数据"—— 一次性查全部动作最近 3 组。
+  const loadLastSetsForExercises = useTrainingStore(
+    (s) => s.loadLastSetsForExercises,
+  );
+  const lastSetsByExerciseId = useTrainingStore((s) => s.lastSetsByExerciseId);
+  useEffect(() => {
+    if (!activeTraining) return;
+    const ids = activeTraining.exercises.map((e) => e.exercise.id);
+    void loadLastSetsForExercises(ids, 3);
+    // 故意不依赖 lastSetsByExerciseId：避免每次 store 重写都触发重查。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTraining?.id]);
 
   const elapsed = useElapsedSeconds(activeTraining?.startedAt ?? null);
 
@@ -709,6 +725,12 @@ export function ActiveTrainingScreen() {
             >
               本组数据
             </Text>
+            {/* G17: 上次训练数据预览——按动作 id 取最近 3 组。 */}
+            <LastSetsPreview
+              exerciseId={ex.exercise.id}
+              metricType={ex.exercise.metricType}
+              lastSets={lastSetsByExerciseId[ex.exercise.id]}
+            />
             {fields.map((f) => (
               <MetricFieldInput
                 key={f}
@@ -1030,6 +1052,91 @@ function readField(set: ActiveSet, field: MetricField): number {
   if (field === 'duration_seconds') return set.durationSeconds ?? 0;
   if (field === 'distance_km') return set.distanceKm ?? 0;
   return 0;
+}
+
+/* ---------- G17: 上次数据预览 ---------- */
+
+interface LastSetsPreviewProps {
+  exerciseId: string;
+  metricType: string;
+  lastSets: TrainingSet[] | undefined;
+}
+
+const SET_TYPE_SHORT: Record<string, string> = {
+  normal: '',
+  warmup: 'W',
+  dropout: 'D',
+  failure: 'F',
+};
+
+/**
+ * 把一组 set 按 metricType + 当前单位格式化成单行简写。
+ * - reps / +kg / -kg : "60.0kg × 8"（kg 按 settingsStore.unit 换算）
+ * - kg                : "60.0kg"
+ * - time              : "30 秒"
+ * - km                : "1.50km"
+ */
+function formatLastSetRow(set: TrainingSet, metricType: string, unit: Unit): string {
+  const short = SET_TYPE_SHORT[set.setType] ?? '';
+  const prefix = short ? `${short} ` : '';
+  const m = metricType;
+  if (m === 'time') {
+    return `${prefix}${set.durationSeconds ?? 0} 秒`;
+  }
+  if (m === 'km') {
+    return `${prefix}${(set.distanceKm ?? 0).toFixed(2)}km`;
+  }
+  // kg / reps / +kg / -kg 都需要显示 weight
+  if (m === 'kg') {
+    return `${prefix}${formatWeight(set.weight ?? 0, unit)}`;
+  }
+  return `${prefix}${formatWeight(set.weight ?? 0, unit)} × ${set.reps ?? 0}`;
+}
+
+function LastSetsPreview({ exerciseId, metricType, lastSets }: LastSetsPreviewProps) {
+  const { colors, spacing, typography } = useTheme();
+  const unit = useSettingsStore((s) => s.unit);
+
+  // 缓存未填充 = 加载中，不渲染占位（避免闪烁）
+  if (lastSets === undefined) return null;
+  // 加载完成但为空 = 无历史
+  if (lastSets.length === 0) {
+    return (
+      <Text
+        accessibilityLabel={`${exerciseId} 无历史数据`}
+        style={[typography.caption, { color: colors.textTertiary }]}
+      >
+        上次：无历史数据
+      </Text>
+    );
+  }
+  return (
+    <View
+      accessibilityLabel={`${exerciseId} 最近 ${lastSets.length} 组数据`}
+      style={{
+        backgroundColor: colors.surfaceMuted,
+        borderRadius: 8,
+        paddingHorizontal: spacing.sm,
+        paddingVertical: spacing.xs + 2,
+        gap: 2,
+      }}
+    >
+      <Text style={[typography.caption, { color: colors.textTertiary }]}>
+        上次
+      </Text>
+      {lastSets.map((s, i) => (
+        <Text
+          key={s.id}
+          style={[
+            typography.body,
+            { color: colors.textSecondary, fontSize: 13 },
+          ]}
+        >
+          {`${i + 1}. ${formatLastSetRow(s, metricType, unit)}`}
+        </Text>
+      ))}
+    </View>
+  );
 }
 
 interface MetricFieldInputProps {
