@@ -1,0 +1,2 @@
+# src/store
+Zustand slices (single store, sliced by domain).

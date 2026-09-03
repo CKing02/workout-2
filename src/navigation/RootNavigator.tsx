@@ -1,0 +1,118 @@
+/**
+ * Root navigator.
+ *
+ * G1 surface: a bottom-tab navigator with three tabs.
+ * G4 addition: wraps the tab navigator in a native-stack navigator so that
+ * the exercise-library (Stack) screen can be pushed on top. Stack screens
+ * registered here automatically pick up the active theme via `useTheme()`.
+ * G10 addition: registers the Settings Stack screen, reachable from the
+ * "我的" tab. More screens (PlanCreate / TrainingIn / etc.) will follow.
+ * G6 addition: registers the ActiveTraining Stack screen with full-screen
+ * immersive mode (header hidden, iOS gesture disabled, fade animation)
+ * and Android back-handler interception happens inside the screen itself.
+ * G8 addition: registers the TrainingComplete summary screen — full-screen
+ * with gesture disabled, forcing users to tap "完成" to leave.
+ */
+
+import React from 'react';
+import { NavigationContainer, DarkTheme, DefaultTheme, type Theme } from '@react-navigation/native';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
+
+import { ActiveTrainingScreen } from '@/screens/ActiveTrainingScreen';
+import { DiagnosticsScreen } from '@/screens/DiagnosticsScreen';
+import { SettingsScreen } from '@/screens/SettingsScreen';
+import { TrainingCompleteScreen } from '@/screens/TrainingCompleteScreen';
+import { TrainingDetailScreen } from '@/screens/TrainingDetailScreen';
+import { useTheme } from '@/theme';
+
+import { ExerciseLibraryScreen } from '@/screens/ExerciseLibraryScreen';
+import { PlanEditorScreen } from '@/screens/PlanEditorScreen';
+import { TabNavigator } from './TabNavigator';
+import type { RootStackParamList } from './types';
+
+export type { RootStackParamList, TabParamList } from './types';
+
+const Stack = createNativeStackNavigator<RootStackParamList>();
+
+function buildNavTheme(scheme: 'light' | 'dark', colors: ReturnType<typeof useTheme>['colors']): Theme {
+  const base = scheme === 'dark' ? DarkTheme : DefaultTheme;
+  return {
+    ...base,
+    colors: {
+      ...base.colors,
+      primary: colors.primary,
+      background: colors.background,
+      card: colors.surfaceElevated,
+      text: colors.text,
+      border: colors.border,
+      notification: colors.primary,
+    },
+  };
+}
+
+export function RootNavigator() {
+  const { scheme, colors } = useTheme();
+  return (
+    <NavigationContainer theme={buildNavTheme(scheme, colors)}>
+      <Stack.Navigator
+        screenOptions={{
+          headerStyle: { backgroundColor: colors.surfaceElevated },
+          headerTintColor: colors.text,
+          headerTitleStyle: { fontSize: 17, fontWeight: '600' },
+          contentStyle: { backgroundColor: colors.background },
+        }}
+      >
+        <Stack.Screen
+          name="Tabs"
+          component={TabNavigator}
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="ExerciseLibrary"
+          component={ExerciseLibraryScreen}
+          options={{ title: '动作库' }}
+        />
+        <Stack.Screen
+          name="Settings"
+          component={SettingsScreen}
+          options={{ title: '设置' }}
+        />
+        <Stack.Screen
+          name="Diagnostics"
+          component={DiagnosticsScreen}
+          options={{ title: '诊断' }}
+        />
+        <Stack.Screen
+          name="PlanEditor"
+          component={PlanEditorScreen}
+          options={({ route }) => ({
+            title: route.params?.planId ? '编辑计划' : '新建计划',
+          })}
+        />
+        <Stack.Screen
+          name="ActiveTraining"
+          component={ActiveTrainingScreen}
+          options={{
+            headerShown: false,
+            gestureEnabled: false, // iOS: disable swipe-to-go-back
+            animation: 'fade', // full-screen immersive
+          }}
+        />
+        <Stack.Screen
+          name="TrainingComplete"
+          component={TrainingCompleteScreen}
+          options={{
+            headerShown: false,
+            gestureEnabled: false, // G8: 用户必须点"完成"才能离开
+            animation: 'fade',
+          }}
+        />
+        <Stack.Screen
+          name="TrainingDetail"
+          component={TrainingDetailScreen}
+          options={{ title: '训练详情' }}
+        />
+      </Stack.Navigator>
+    </NavigationContainer>
+  );
+}

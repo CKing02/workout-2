@@ -1,0 +1,2 @@
+# src/app
+Root entry: providers, navigation registration, global initialization.

@@ -1,17 +1,22 @@
 {
   "expo": {
-    "name": "temp_expo_init",
-    "slug": "temp_expo_init",
+    "name": "锻炼2点零",
+    "slug": "workout-2",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "scheme": "workout2",
+    "userInterfaceStyle": "automatic",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.workout2.app",
+      "userInterfaceStyle": "automatic"
     },
     "android": {
+      "package": "com.workout2.app",
+      "userInterfaceStyle": "automatic",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#FF6B35",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
@@ -20,6 +25,9 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      "expo-sqlite"
+    ]
   }
 }

@@ -1,0 +1,2 @@
+# src/db
+SQLite schema, migrations, and repositories.
