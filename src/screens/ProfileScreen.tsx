@@ -105,6 +105,12 @@ export function ProfileScreen({ navigation }: ProfileScreenProps) {
     );
   };
 
+  const handleGoDataOverview = () => {
+    (navigation as unknown as { navigate: (s: 'DataOverview') => void } | undefined)?.navigate(
+      'DataOverview',
+    );
+  };
+
   // G19: 真实导出 —— 全表读 → 写文件 → 弹分享面板。
   // 数据导出不像清除那么不可逆，无二次确认；失败时 toast 错误并保留页面。
   const handleExport = useCallback(async () => {
@@ -209,6 +215,15 @@ export function ProfileScreen({ navigation }: ProfileScreenProps) {
             divider
             accessibilityLabel="诊断"
             accessibilityHint="查看应用错误日志,便于排查问题"
+          />
+          <ListItem
+            title="数据"
+            subtitle="热力图 / 训练量 / 肌群分布 / 1RM"
+            leftSlot={<Glyph text="📊" colors={colors} spacing={spacing} />}
+            rightSlot={<Chevron colors={colors} typography={typography} />}
+            onPress={handleGoDataOverview}
+            accessibilityLabel="数据可视化"
+            accessibilityHint="打开数据可视化总览页"
           />
           <ListItem
             title="数据导出"

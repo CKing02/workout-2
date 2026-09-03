@@ -23,6 +23,11 @@ import { DiagnosticsScreen } from '@/screens/DiagnosticsScreen';
 import { SettingsScreen } from '@/screens/SettingsScreen';
 import { TrainingCompleteScreen } from '@/screens/TrainingCompleteScreen';
 import { TrainingDetailScreen } from '@/screens/TrainingDetailScreen';
+import { DataOverviewScreen } from '@/screens/data/DataOverviewScreen';
+import { CalendarHeatmapScreen } from '@/screens/data/CalendarHeatmapScreen';
+import { VolumeTrendScreen } from '@/screens/data/VolumeTrendScreen';
+import { MuscleGroupDistributionScreen } from '@/screens/data/MuscleGroupDistributionScreen';
+import { OneRMRecordsScreen } from '@/screens/data/OneRMRecordsScreen';
 import { useTheme } from '@/theme';
 
 import { Showcase } from '@/screens/_dev/Showcase';
@@ -118,6 +123,32 @@ export function RootNavigator() {
           name="Showcase"
           component={Showcase}
           options={{ title: '组件 Showcase（开发自检）' }}
+        />
+        {/* G18 — 数据可视化 4 屏 + 总览 */}
+        <Stack.Screen
+          name="DataOverview"
+          component={DataOverviewScreen}
+          options={{ title: '数据' }}
+        />
+        <Stack.Screen
+          name="CalendarHeatmap"
+          component={CalendarHeatmapScreen}
+          options={{ title: '日历热力图' }}
+        />
+        <Stack.Screen
+          name="VolumeTrend"
+          component={VolumeTrendScreen}
+          options={{ title: '训练量趋势' }}
+        />
+        <Stack.Screen
+          name="MuscleGroupDistribution"
+          component={MuscleGroupDistributionScreen}
+          options={{ title: '肌群分布' }}
+        />
+        <Stack.Screen
+          name="OneRMRecords"
+          component={OneRMRecordsScreen}
+          options={{ title: '1RM 记录' }}
         />
       </Stack.Navigator>
     </NavigationContainer>

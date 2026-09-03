@@ -97,6 +97,16 @@ export type RootStackParamList = {
    * `__DEV__` 守卫或 release channel 控制。
    */
   Showcase: undefined;
+  /** G18: 数据可视化总览（从 Profile 进入）。 */
+  DataOverview: undefined;
+  /** G18: 日历热力图（过去 12 周每日训练量）。 */
+  CalendarHeatmap: undefined;
+  /** G18: 训练量趋势（按周柱状）。 */
+  VolumeTrend: undefined;
+  /** G18: 肌群分布（按总训练量占比饼图）。 */
+  MuscleGroupDistribution: undefined;
+  /** G18: 1RM 记录（按动作聚合最高估算 1RM）。 */
+  OneRMRecords: undefined;
 };
 
 /**
