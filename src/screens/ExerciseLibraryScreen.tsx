@@ -33,14 +33,20 @@ import { useNavigation, useRoute, type RouteProp } from '@react-navigation/nativ
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 import { Badge, type BadgeVariant } from '@/components/Badge';
+import { Button } from '@/components/Button';
 import { Card } from '@/components/Card';
+import { Dialog } from '@/components/Dialog';
 import { EmptyState } from '@/components/EmptyState';
 import { Input } from '@/components/Input';
 import { SegmentedControl, type SegmentedOption } from '@/components/SegmentedControl';
+import { Sheet } from '@/components/Sheet';
 import { EQUIPMENT, MUSCLE_GROUPS } from '@/constants';
+import { METRIC_TYPES, type MetricType } from '@/constants/metricTypes';
 import type { Exercise } from '@/db/schema';
+import { toast } from '@/hooks/useToast';
 import { useExerciseStore } from '@/store/exerciseStore';
 import { useTheme } from '@/theme';
+import { haptic } from '@/utils/haptics';
 
 import type { RootStackParamList } from '@/navigation/types';
 
@@ -64,6 +70,8 @@ interface RowProps {
   onPress: (item: Exercise) => void;
   onLongPress: (item: Exercise) => void;
   onToggle: (item: Exercise) => void;
+  /** G15: 自定义动作删除入口（非多选模式 + isCustom 时显示）。 */
+  onDelete: (item: Exercise) => void;
 }
 
 export function ExerciseLibraryScreen() {
@@ -86,6 +94,8 @@ export function ExerciseLibraryScreen() {
   const exercises = useExerciseStore((s) => s.exercises);
   const loading = useExerciseStore((s) => s.loading);
   const loadExercises = useExerciseStore((s) => s.load);
+  const createCustom = useExerciseStore((s) => s.create);
+  const removeCustom = useExerciseStore((s) => s.remove);
 
   const [filters, setFilters] = useState<FilterState>({
     query: '',
@@ -94,6 +104,9 @@ export function ExerciseLibraryScreen() {
   });
   const [selectMode, setSelectMode] = useState<boolean>(mode === 'multiple');
   const [selected, setSelected] = useState<Set<string>>(() => new Set(initialSelectedIds));
+  // G15: 自定义动作的创建 Sheet + 删除确认 Dialog。
+  const [createSheetOpen, setCreateSheetOpen] = useState(false);
+  const [deleteDialog, setDeleteDialog] = useState<{ id: string; name: string } | null>(null);
 
   // ------------------------------------------------------------------
   // Data loading — pull from store, never duplicate.
@@ -153,16 +166,34 @@ export function ExerciseLibraryScreen() {
     navigation.setOptions({
       ...(headerTitle ? { title: headerTitle } : null),
       headerRight: () => (
-        <HeaderRight
-          selectMode={selectMode}
-          count={selected.size}
-          accent={colors.primary}
-          typography={typography}
-          // Picker mode must not return an empty selection (G11 AC-11.1).
-          disabled={pickerMode && selected.size === 0}
-          onToggle={onToggleSelectMode}
-          onConfirm={onConfirm}
-        />
+        <View style={styles.headerRight}>
+          {/* G15: 「+」始终在左边；多选 / 完成模式时不显示（避免误触） */}
+          {!selectMode ? (
+            <Pressable
+              onPress={() => {
+                haptic.selection();
+                setCreateSheetOpen(true);
+              }}
+              hitSlop={12}
+              accessibilityRole="button"
+              accessibilityLabel="新建自定义动作"
+              accessibilityHint="弹出创建表单 Sheet"
+              style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, paddingHorizontal: 8 })}
+            >
+              <Text style={[typography.title, { color: colors.primary, fontSize: 22 }]}>＋</Text>
+            </Pressable>
+          ) : null}
+          <HeaderRight
+            selectMode={selectMode}
+            count={selected.size}
+            accent={colors.primary}
+            typography={typography}
+            // Picker mode must not return an empty selection (G11 AC-11.1).
+            disabled={pickerMode && selected.size === 0}
+            onToggle={onToggleSelectMode}
+            onConfirm={onConfirm}
+          />
+        </View>
       ),
     });
   }, [
@@ -238,6 +269,51 @@ export function ExerciseLibraryScreen() {
   }, []);
 
   // ------------------------------------------------------------------
+  // G15: 自定义动作的创建 / 删除。
+  // 创建后写 exerciseStore.create → DB 插入 is_custom=1 行，列表立即
+  // 出现（listExercises 已按 is_custom ASC 排序，自定在底部）。
+  // 删除走 exerciseStore.remove → 仅能删自定义动作（内置动作无入口）。
+  // ------------------------------------------------------------------
+  const handleCreateCustom = useCallback(
+    async (input: {
+      name: string;
+      muscleGroup: string;
+      secondaryMuscles: string[];
+      equipment: string;
+      metricType: string;
+    }) => {
+      try {
+        await createCustom({ ...input, isCustom: true });
+        haptic.success();
+        toast.show(`已创建「${input.name}」`, 'success');
+        setCreateSheetOpen(false);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        toast.show('创建失败：' + msg, 'error');
+      }
+    },
+    [createCustom],
+  );
+
+  const handleDeleteRequest = useCallback((item: Exercise) => {
+    setDeleteDialog({ id: item.id, name: item.name });
+  }, []);
+
+  const handleDeleteConfirm = useCallback(async () => {
+    if (!deleteDialog) return;
+    const { id, name } = deleteDialog;
+    setDeleteDialog(null);
+    try {
+      await removeCustom(id);
+      haptic.warning();
+      toast.show(`已删除「${name}」`, 'success');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      toast.show('删除失败：' + msg, 'error');
+    }
+  }, [deleteDialog, removeCustom]);
+
+  // ------------------------------------------------------------------
   // Render
   // ------------------------------------------------------------------
   const renderItem: ListRenderItem<Exercise> = useCallback(
@@ -249,9 +325,17 @@ export function ExerciseLibraryScreen() {
         onPress={onItemPress}
         onLongPress={onItemLongPress}
         onToggle={onItemToggle}
+        onDelete={handleDeleteRequest}
       />
     ),
-    [selectMode, selected, onItemPress, onItemLongPress, onItemToggle],
+    [
+      selectMode,
+      selected,
+      onItemPress,
+      onItemLongPress,
+      onItemToggle,
+      handleDeleteRequest,
+    ],
   );
 
   const isLoading = loading && exercises.length === 0;
@@ -333,6 +417,35 @@ export function ExerciseLibraryScreen() {
           windowSize={9}
         />
       )}
+
+      {/* G15: 自定义动作创建 Sheet */}
+      <Sheet
+        visible={createSheetOpen}
+        onClose={() => setCreateSheetOpen(false)}
+        title="新建自定义动作"
+        maxHeightRatio={0.85}
+      >
+        <CreateExerciseForm
+          onSubmit={handleCreateCustom}
+          onCancel={() => setCreateSheetOpen(false)}
+        />
+      </Sheet>
+
+      {/* G15: 删除确认 Dialog */}
+      <Dialog
+        visible={deleteDialog !== null}
+        title="删除自定义动作？"
+        message={
+          deleteDialog
+            ? `「${deleteDialog.name}」将被永久删除，不影响已用此动作创建的训练记录。`
+            : ''
+        }
+        confirmText="删除"
+        cancelText="取消"
+        variant="danger"
+        onConfirm={handleDeleteConfirm}
+        onCancel={() => setDeleteDialog(null)}
+      />
     </View>
   );
 }
@@ -479,7 +592,7 @@ function EquipmentControl({ value, onChange }: EquipmentControlProps) {
   );
 }
 
-function Row({ item, selectMode, checked, onPress, onLongPress, onToggle }: RowProps) {
+function Row({ item, selectMode, checked, onPress, onLongPress, onToggle, onDelete }: RowProps) {
   const { colors, spacing, typography, radius } = useTheme();
 
   return (
@@ -523,17 +636,43 @@ function Row({ item, selectMode, checked, onPress, onLongPress, onToggle }: RowP
 
           {/* Name + badges */}
           <View style={{ flex: 1 }}>
-            <Text
-              style={[typography.subtitle, { color: colors.text }]}
-              numberOfLines={1}
-            >
-              {item.name}
-            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
+              <Text
+                style={[typography.subtitle, { color: colors.text, flexShrink: 1 }]}
+                numberOfLines={1}
+              >
+                {item.name}
+              </Text>
+              {item.isCustom ? (
+                <Badge label="自定" variant="info" size="sm" />
+              ) : null}
+            </View>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: 4 }}>
               <Badge label={item.muscleGroup} variant={muscleGroupVariant(item.muscleGroup)} size="sm" />
               <Badge label={item.equipment} variant="default" size="sm" />
             </View>
           </View>
+
+          {/* G15: 自定义动作的删除入口（非多选模式） */}
+          {!selectMode && item.isCustom ? (
+            <Pressable
+              onPress={() => onDelete(item)}
+              hitSlop={10}
+              accessibilityRole="button"
+              accessibilityLabel={`删除自定义动作 ${item.name}`}
+              accessibilityHint="弹出二次确认对话框"
+              style={({ pressed }) => ({
+                width: 36,
+                height: 36,
+                borderRadius: radius.full,
+                backgroundColor: pressed ? colors.surfaceMuted : 'transparent',
+                alignItems: 'center',
+                justifyContent: 'center',
+              })}
+            >
+              <Text style={{ color: colors.danger, fontSize: 18, fontWeight: '700' }}>×</Text>
+            </Pressable>
+          ) : null}
         </View>
       </Card>
     </Pressable>
@@ -565,6 +704,223 @@ function Avatar({ name }: { name: string }) {
 function Separator() {
   const { spacing } = useTheme();
   return <View style={{ height: ROW_GAP - spacing.xs }} />;
+}
+
+// ===========================================================================
+// G15: 自定义动作创建表单（Sheet 内容）
+// ===========================================================================
+
+interface CreateExerciseFormProps {
+  onSubmit: (input: {
+    name: string;
+    muscleGroup: string;
+    secondaryMuscles: string[];
+    equipment: string;
+    metricType: string;
+  }) => void;
+  onCancel: () => void;
+}
+
+const DEFAULT_METRIC_TYPE: MetricType['value'] = METRIC_TYPES[0]?.value ?? 'reps';
+const DEFAULT_EQUIPMENT = EQUIPMENT[0] ?? '杠铃';
+const DEFAULT_PRIMARY = MUSCLE_GROUPS[0] ?? '胸';
+
+function CreateExerciseForm({ onSubmit, onCancel }: CreateExerciseFormProps) {
+  const { colors, spacing, typography, radius } = useTheme();
+  const [name, setName] = useState('');
+  const [primary, setPrimary] = useState<string>(DEFAULT_PRIMARY);
+  const [secondary, setSecondary] = useState<Set<string>>(() => new Set());
+  const [equipment, setEquipment] = useState<string>(DEFAULT_EQUIPMENT);
+  const [metricType, setMetricType] = useState<MetricType['value']>(DEFAULT_METRIC_TYPE);
+
+  const trimmedName = name.trim();
+  const canSave = trimmedName.length > 0;
+
+  const toggleSecondary = useCallback((group: string) => {
+    setSecondary((prev) => {
+      const next = new Set(prev);
+      if (next.has(group)) next.delete(group);
+      else next.add(group);
+      return next;
+    });
+  }, []);
+
+  const handleSubmit = useCallback(() => {
+    if (!canSave) return;
+    onSubmit({
+      name: trimmedName,
+      muscleGroup: primary,
+      secondaryMuscles: Array.from(secondary),
+      equipment,
+      metricType,
+    });
+  }, [canSave, trimmedName, primary, secondary, equipment, metricType, onSubmit]);
+
+  return (
+    <ScrollView
+      style={{ width: '100%' }}
+      contentContainerStyle={{ paddingBottom: spacing.lg }}
+      keyboardShouldPersistTaps="handled"
+    >
+      {/* 名称 */}
+      <View style={{ gap: spacing.xs, marginBottom: spacing.md }}>
+        <Text style={[typography.label, { color: colors.textSecondary }]}>名称 *</Text>
+        <Input
+          value={name}
+          onChangeText={setName}
+          placeholder="例如：蝴蝶机夹胸"
+          autoCorrect={false}
+          maxLength={32}
+        />
+      </View>
+
+      {/* 主要肌群（单选 chip） */}
+      <View style={{ gap: spacing.xs, marginBottom: spacing.md }}>
+        <Text style={[typography.label, { color: colors.textSecondary }]}>主要肌群 *</Text>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ gap: spacing.xs, paddingVertical: 2 }}
+        >
+          {MUSCLE_GROUPS.map((g) => {
+            const active = g === primary;
+            return (
+              <Pressable
+                key={g}
+                onPress={() => {
+                  haptic.selection();
+                  setPrimary(g);
+                }}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: active }}
+                style={({ pressed }) => ({
+                  paddingHorizontal: spacing.md,
+                  paddingVertical: spacing.xs,
+                  borderRadius: radius.full,
+                  backgroundColor: active
+                    ? colors.primary
+                    : pressed
+                    ? colors.surfaceMuted
+                    : colors.surface,
+                  borderWidth: StyleSheet.hairlineWidth,
+                  borderColor: active ? colors.primary : colors.border,
+                })}
+              >
+                <Text
+                  style={[
+                    typography.label,
+                    { color: active ? colors.onPrimary : colors.text, fontSize: 13 },
+                  ]}
+                >
+                  {g}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      </View>
+
+      {/* 次要肌群（多选 chip） */}
+      <View style={{ gap: spacing.xs, marginBottom: spacing.md }}>
+        <Text style={[typography.label, { color: colors.textSecondary }]}>
+          次要肌群（可多选）
+        </Text>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ gap: spacing.xs, paddingVertical: 2 }}
+        >
+          {MUSCLE_GROUPS.map((g) => {
+            const active = secondary.has(g);
+            return (
+              <Pressable
+                key={g}
+                onPress={() => toggleSecondary(g)}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: active }}
+                style={({ pressed }) => ({
+                  paddingHorizontal: spacing.md,
+                  paddingVertical: spacing.xs,
+                  borderRadius: radius.full,
+                  backgroundColor: active
+                    ? colors.primaryMuted
+                    : pressed
+                    ? colors.surfaceMuted
+                    : colors.surface,
+                  borderWidth: StyleSheet.hairlineWidth,
+                  borderColor: active ? colors.primary : colors.border,
+                })}
+              >
+                <Text
+                  style={[
+                    typography.label,
+                    { color: active ? colors.primaryPressed : colors.text, fontSize: 13 },
+                  ]}
+                >
+                  {active ? `✓ ${g}` : g}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      </View>
+
+      {/* 器械 */}
+      <View style={{ gap: spacing.xs, marginBottom: spacing.md }}>
+        <Text style={[typography.label, { color: colors.textSecondary }]}>器械 *</Text>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ paddingVertical: 2 }}
+        >
+          <SegmentedControl
+            value={equipment}
+            onChange={setEquipment}
+            options={EQUIPMENT.map((eq) => ({ label: eq, value: eq }))}
+          />
+        </ScrollView>
+      </View>
+
+      {/* 运动类型 */}
+      <View style={{ gap: spacing.xs, marginBottom: spacing.lg }}>
+        <Text style={[typography.label, { color: colors.textSecondary }]}>运动类型 *</Text>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ paddingVertical: 2 }}
+        >
+          <SegmentedControl
+            value={metricType}
+            onChange={(v) => setMetricType(v as MetricType['value'])}
+            options={METRIC_TYPES.map((m) => ({ label: m.label, value: m.value }))}
+          />
+        </ScrollView>
+      </View>
+
+      {/* 按钮行 */}
+      <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+        <Button
+          variant="secondary"
+          size="md"
+          onPress={onCancel}
+          style={{ flex: 1 }}
+          accessibilityLabel="取消创建"
+        >
+          取消
+        </Button>
+        <Button
+          variant="primary"
+          size="md"
+          onPress={handleSubmit}
+          disabled={!canSave}
+          style={{ flex: 1 }}
+          accessibilityLabel="保存自定义动作"
+        >
+          保存
+        </Button>
+      </View>
+    </ScrollView>
+  );
 }
 
 // ===========================================================================
@@ -627,6 +983,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   rowInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
   },

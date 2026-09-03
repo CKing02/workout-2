@@ -102,6 +102,7 @@ export function PlanEditorScreen() {
   const addSet = usePlanStore((s) => s.addSetToPlanExercise);
   const removeSet = usePlanStore((s) => s.removeSetFromPlanExercise);
   const updateSets = usePlanStore((s) => s.updatePlanExerciseSets);
+  const reorderExercises = usePlanStore((s) => s.reorderExercises);
 
   // The plan id under which we stage this edit. For new plans we use a stub
   // sentinel until save, so the editor's local state has somewhere to live.
@@ -117,6 +118,9 @@ export function PlanEditorScreen() {
   const [saving, setSaving] = useState(false);
   const [pendingRemoveExercise, setPendingRemoveExercise] =
     useState<PlanExerciseDraft | null>(null);
+  // G16: 拖拽态 —— 哪张卡片正在被拖。当前实现只跟踪 index（用于视觉
+  // 反馈），实际位置交换在 ExerciseEditorCard 释放时一次性触发。
+  const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
 
   // ----------------------------------------------------------------
   // Bootstrap: load exercise catalog + edit-mode plan detail.
@@ -443,14 +447,25 @@ export function PlanEditorScreen() {
               </Text>
             </Card>
           ) : (
-            exercisesToShow.map((pe) => (
+            exercisesToShow.map((pe, idx) => (
               <ExerciseEditorCard
                 key={pe.id}
+                index={idx}
+                totalCount={exercisesToShow.length}
+                isDragging={draggingIndex === idx}
                 draft={pe}
                 onAddSet={() => onAddSet(pe.id)}
                 onOpenSetSheet={(idx) => openSetSheet(pe.id, idx)}
                 onUpdateSet={(idx, patch) => onUpdateSet(pe.id, idx, patch)}
                 onRequestRemove={() => setPendingRemoveExercise(pe)}
+                onDragStart={() => setDraggingIndex(idx)}
+                onDragEnd={(toIndex) => {
+                  setDraggingIndex(null);
+                  if (toIndex !== idx) {
+                    void reorderExercises(editKey, idx, toIndex);
+                    haptic.success();
+                  }
+                }}
               />
             ))
           )}
@@ -510,22 +525,44 @@ export function PlanEditorScreen() {
 /* -------------------------------------------------------------------------- */
 
 interface ExerciseEditorCardProps {
+  /** G16: 在 plan.exercises 数组中的 0-based 位置，用于拖拽计算 toIndex。 */
+  index: number;
+  /** G16: 当前 plan 动作总数，用于 clamp toIndex。 */
+  totalCount: number;
+  /** G16: 是否正在被拖（其他卡片视觉态）。 */
+  isDragging: boolean;
   draft: PlanExerciseDraft;
   onAddSet: () => void;
   onOpenSetSheet: (setIndex: number) => void;
   onUpdateSet: (setIndex: number, patch: Partial<PlanSetDraft>) => void;
   onRequestRemove: () => void;
+  /** G16: 用户长按手柄开始拖拽。 */
+  onDragStart: () => void;
+  /** G16: 用户释放手指时回调，参数为目标 index（已 clamp）。 */
+  onDragEnd: (toIndex: number) => void;
 }
 
+/**
+ * G16: 估算的卡片高度，用于把像素偏移转换成"跨越几个位置"。
+ * 实际高度随 set 数变化；用偏大的常数确保跳级时能跨越多行。
+ */
+const ESTIMATED_ROW_HEIGHT = 110;
+
 function ExerciseEditorCard({
+  index,
+  totalCount,
+  isDragging,
   draft,
   onAddSet,
   onOpenSetSheet,
   onUpdateSet,
   onRequestRemove,
+  onDragStart,
+  onDragEnd,
 }: ExerciseEditorCardProps) {
   const { colors, spacing, typography, radius } = useTheme();
   const translateX = useSharedValue(0);
+  const dragTranslateY = useSharedValue(0);
   const REVEAL_WIDTH = 80;
 
   const pan = useMemo(
@@ -566,8 +603,39 @@ function ExerciseEditorCard({
 
   const composed = useMemo(() => Gesture.Race(pan, tap), [pan, tap]);
 
+  // G16: 垂直拖拽手柄 —— 长按 220ms 后激活，避免和水平 swipe 冲突。
+  // 手柄是独立 GestureDetector，与卡片的水平 pan 不在同一 view 上。
+  const dragGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .activateAfterLongPress(220)
+        .failOffsetX([-12, 12]) // 水平偏移 → 交给卡片的 swipe 处理
+        .onStart(() => {
+          runOnJS(onDragStart)();
+        })
+        .onUpdate((e) => {
+          dragTranslateY.value = e.translationY;
+        })
+        .onEnd((e) => {
+          const offset = Math.round(e.translationY / ESTIMATED_ROW_HEIGHT);
+          const toIndex = Math.max(0, Math.min(totalCount - 1, index + offset));
+          dragTranslateY.value = withTiming(0, { duration: 180 });
+          runOnJS(onDragEnd)(toIndex);
+        })
+        .onFinalize(() => {
+          // 兜底：如果被 cancel，dragTranslateY 也归零
+          dragTranslateY.value = withTiming(0, { duration: 180 });
+        }),
+    [index, totalCount, onDragStart, onDragEnd, dragTranslateY],
+  );
+
   const cardStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: translateX.value }],
+    transform: [
+      { translateX: translateX.value },
+      { translateY: dragTranslateY.value },
+    ],
+    opacity: isDragging ? 0.7 : 1,
+    zIndex: isDragging ? 10 : 0,
   }));
 
   const trashStyle = useAnimatedStyle(() => ({
@@ -618,8 +686,38 @@ function ExerciseEditorCard({
                 alignItems: 'center',
                 justifyContent: 'space-between',
                 marginBottom: spacing.sm,
+                gap: spacing.sm,
               }}
             >
+              {/* G16: 拖拽手柄 —— 独立 GestureDetector，长按 220ms 启动 */}
+              <GestureDetector gesture={dragGesture}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="拖动以重新排序"
+                  accessibilityHint="长按拖动此手柄可调整动作顺序"
+                  hitSlop={8}
+                  style={({ pressed }) => ({
+                    width: 32,
+                    height: 32,
+                    borderRadius: radius.sm,
+                    backgroundColor: pressed ? colors.surfaceMuted : 'transparent',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  })}
+                >
+                  <Text
+                    style={{
+                      color: colors.textTertiary,
+                      fontSize: 18,
+                      fontWeight: '700',
+                      letterSpacing: 2,
+                    }}
+                  >
+                    ⋮⋮
+                  </Text>
+                </Pressable>
+              </GestureDetector>
+
               <View style={{ flex: 1 }}>
                 <Text
                   style={[typography.subtitle, { color: colors.text }]}

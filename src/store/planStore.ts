@@ -116,6 +116,18 @@ export interface PlanStoreState {
     planExerciseId: string,
     sets: PlanSetDraft[],
   ) => void;
+
+  /**
+   * G16: 重新排序计划内的动作（持久化）。
+   * 从 in-memory detail.exerciseIds 读取当前顺序，移动一项到新位置后
+   * 复用 `update({ exerciseIds })` 路径批量重写 `plan_exercises` 行。
+   * `fromIndex === toIndex` 时为 no-op。
+   */
+  reorderExercises: (
+    planId: string,
+    fromIndex: number,
+    toIndex: number,
+  ) => Promise<void>;
 }
 
 function localSetId(): string {
@@ -418,5 +430,22 @@ export const usePlanStore = create<PlanStoreState>((set, get) => ({
         },
       };
     });
+  },
+
+  // ---------- G16: 拖拽排序 ----------
+
+  reorderExercises: async (planId, fromIndex, toIndex) => {
+    if (fromIndex === toIndex) return;
+    const detail = get().detailById[planId];
+    if (!detail) return;
+    const len = detail.exerciseIds.length;
+    if (fromIndex < 0 || fromIndex >= len) return;
+    if (toIndex < 0 || toIndex >= len) return;
+    const ids = [...detail.exerciseIds];
+    const [moved] = ids.splice(fromIndex, 1);
+    ids.splice(toIndex, 0, moved);
+    // 复用 `update` 的 exerciseIds 路径：DB 事务内 DELETE 旧行 +
+    // 按新顺序 INSERT；detailById 会被重建。
+    await get().update(planId, { exerciseIds: ids });
   },
 }));
