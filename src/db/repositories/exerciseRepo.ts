@@ -36,8 +36,9 @@ export interface UpdateExerciseInput {
 }
 
 export async function listExercises(db: SQLiteDatabase): Promise<Exercise[]> {
+  // G15 自检 #3：自定义动作排在后面 + 名称次之（COLLATE NOCASE 让中英文都大小写不敏感）。
   const rows = await db.getAllAsync<ExerciseRow>(
-    'SELECT * FROM exercises ORDER BY is_custom ASC, created_at ASC;',
+    'SELECT * FROM exercises ORDER BY is_custom ASC, name COLLATE NOCASE ASC;',
   );
   return rows.map(rowToExercise);
 }
@@ -137,7 +138,7 @@ export async function queryByMuscleGroup(
   muscleGroup: string,
 ): Promise<Exercise[]> {
   const rows = await db.getAllAsync<ExerciseRow>(
-    'SELECT * FROM exercises WHERE muscle_group = ? ORDER BY is_custom ASC, created_at ASC;',
+    'SELECT * FROM exercises WHERE muscle_group = ? ORDER BY is_custom ASC, name COLLATE NOCASE ASC;',
     [muscleGroup],
   );
   return rows.map(rowToExercise);
@@ -151,7 +152,7 @@ export async function queryByEquipment(
   equipment: string,
 ): Promise<Exercise[]> {
   const rows = await db.getAllAsync<ExerciseRow>(
-    'SELECT * FROM exercises WHERE equipment = ? ORDER BY is_custom ASC, created_at ASC;',
+    'SELECT * FROM exercises WHERE equipment = ? ORDER BY is_custom ASC, name COLLATE NOCASE ASC;',
     [equipment],
   );
   return rows.map(rowToExercise);
@@ -167,7 +168,7 @@ export async function searchByName(
   const trimmed = keyword.trim();
   if (!trimmed) return listExercises(db);
   const rows = await db.getAllAsync<ExerciseRow>(
-    'SELECT * FROM exercises WHERE name LIKE ? ORDER BY is_custom ASC, created_at ASC;',
+    'SELECT * FROM exercises WHERE name LIKE ? ORDER BY is_custom ASC, name COLLATE NOCASE ASC;',
     [`%${trimmed}%`],
   );
   return rows.map(rowToExercise);

@@ -95,7 +95,10 @@ export const useExerciseStore = create<ExerciseStoreState>((set, get) => ({
   create: async (input) => {
     const db = await getDatabase();
     const created = await createExercise(db, input);
-    set((state) => ({ exercises: [...state.exercises, created] }));
+    // G15 自检 #3：创建后 reload 让 SQL 排序（is_custom ASC, name ASC）生效，
+    // 否则新动作会停留在数组末尾，破坏"自定义排在后面 + 名称次之"。
+    const fresh = await listExercises(db);
+    set({ exercises: fresh });
     return created;
   },
 

@@ -737,16 +737,34 @@ function CreateExerciseForm({ onSubmit, onCancel }: CreateExerciseFormProps) {
   const canSave = trimmedName.length > 0;
 
   const toggleSecondary = useCallback((group: string) => {
+    // G15 自检：主要肌群不应同时出现在次要肌群里。
+    if (group === primary) return;
     setSecondary((prev) => {
       const next = new Set(prev);
       if (next.has(group)) next.delete(group);
       else next.add(group);
       return next;
     });
+  }, [primary]);
+
+  const handleChangePrimary = useCallback((group: string) => {
+    haptic.selection();
+    setPrimary(group);
+    // G15 自检：换主肌群时把旧的「主」从次要集合里清掉。
+    setSecondary((prev) => {
+      if (!prev.has(group)) return prev;
+      const next = new Set(prev);
+      next.delete(group);
+      return next;
+    });
   }, []);
 
   const handleSubmit = useCallback(() => {
-    if (!canSave) return;
+    if (!canSave) {
+      // 防御兜底：按钮在 canSave=false 时已 disabled，但用户可能用键盘外的方式触发。
+      toast.show('请输入动作名称', 'warning');
+      return;
+    }
     onSubmit({
       name: trimmedName,
       muscleGroup: primary,
@@ -787,10 +805,7 @@ function CreateExerciseForm({ onSubmit, onCancel }: CreateExerciseFormProps) {
             return (
               <Pressable
                 key={g}
-                onPress={() => {
-                  haptic.selection();
-                  setPrimary(g);
-                }}
+                onPress={() => handleChangePrimary(g)}
                 accessibilityRole="radio"
                 accessibilityState={{ selected: active }}
                 style={({ pressed }) => ({
@@ -831,33 +846,50 @@ function CreateExerciseForm({ onSubmit, onCancel }: CreateExerciseFormProps) {
           contentContainerStyle={{ gap: spacing.xs, paddingVertical: 2 }}
         >
           {MUSCLE_GROUPS.map((g) => {
+            // G15 自检：主要肌群不可同时作为次要肌群——视觉禁用 + 不响应点击。
+            const disabled = g === primary;
             const active = secondary.has(g);
             return (
               <Pressable
                 key={g}
                 onPress={() => toggleSecondary(g)}
+                disabled={disabled}
                 accessibilityRole="checkbox"
-                accessibilityState={{ checked: active }}
+                accessibilityState={{ checked: active, disabled }}
                 style={({ pressed }) => ({
                   paddingHorizontal: spacing.md,
                   paddingVertical: spacing.xs,
                   borderRadius: radius.full,
                   backgroundColor: active
                     ? colors.primaryMuted
+                    : disabled
+                    ? colors.surfaceMuted
                     : pressed
                     ? colors.surfaceMuted
                     : colors.surface,
                   borderWidth: StyleSheet.hairlineWidth,
-                  borderColor: active ? colors.primary : colors.border,
+                  borderColor: active
+                    ? colors.primary
+                    : disabled
+                    ? colors.border
+                    : colors.border,
+                  opacity: disabled ? 0.4 : 1,
                 })}
               >
                 <Text
                   style={[
                     typography.label,
-                    { color: active ? colors.primaryPressed : colors.text, fontSize: 13 },
+                    {
+                      color: disabled
+                        ? colors.textTertiary
+                        : active
+                        ? colors.primaryPressed
+                        : colors.text,
+                      fontSize: 13,
+                    },
                   ]}
                 >
-                  {active ? `✓ ${g}` : g}
+                  {disabled ? `${g}（主）` : active ? `✓ ${g}` : g}
                 </Text>
               </Pressable>
             );
