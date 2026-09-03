@@ -368,6 +368,195 @@
 
 ---
 
+## G13. 震动反馈开关生效 ✅
+
+**优先级**：P1  |  **依赖**：G10  |  **阶段**：2
+
+### 涉及
+- 新增 `src/utils/haptics.ts` 单一通道 wrapper（`haptic.{selection,success,warning,error}`）
+- 替换所有裸 `Haptics.*` 调用（约 12 处：ActiveTraining ×6、RestTimerOverlay ×4、TrainingComplete ×2、PlanEditor ×2、Settings 切换反馈 ×1）
+- util 内部同步读 `settingsStore.hapticsEnabled`，关闭后全 App 静默
+
+### 验收标准（AC）
+- AC-13.1 设置关闭震动后，完成本组、休息归零、删除组、训练完成等场景**均无震动**
+- AC-13.2 切换为「开启」时立即给一次 selection 反馈，让用户感知开启生效
+
+### 自检清单
+- [x] 业务代码无 `import 'expo-haptics'`（仅 util 内一处）
+- [x] 12+ 处 `Haptics.*` 全部走 wrapper
+- [x] util 同步读 `getState()`，不订阅（fire-and-forget 不进 React 渲染）
+
+---
+
+## G14. 清除全部数据真做 ✅
+
+**优先级**：P1  |  **依赖**：G2  |  **阶段**：2
+
+### 涉及
+- 新增 `db.wipeAllData()`：事务内清 7 张表（training_sets / trainings / plan_exercises / plans / exercises / settings / error_logs）+ reseed 内置动作
+- Profile + Settings 两处「清除全部数据」按钮接上：调 wipeAllData → 4 个 store 全部 reload → toast
+- 用户设置（kg/lb / 主题 / 休息 / 震动 / 用户名）一并清，回到 defaults
+
+### 验收标准（AC）
+- AC-14.1 点击「清除全部数据」→ 二次确认 → 真实清空数据库（重启验证）
+- AC-14.2 清完后 4 个 store UI 立即清空（首页/锻炼/我的 无残留）
+- AC-14.3 内置动作库自动恢复（动作库 picker 仍有 30+ 动作）
+- AC-14.4 设置回到默认（kg、跟随系统、90s、震动开、空用户名）
+
+### 自检清单
+- [x] `wipeAllData` 事务包裹，失败回滚
+- [x] Profile + Settings 两处都接上
+- [x] `useTrainingStore.cancelTraining()` 兜底清内存 active 态
+
+---
+
+## G15. 自定义动作
+
+**优先级**：P1  |  **依赖**：G2, G3, G4  |  **阶段**：2
+
+### 涉及
+- 动作库页右上角加「+」按钮 → 创建表单 Sheet
+- 表单字段：名称、主要肌群（单选）、次要肌群（多选）、器械（单选）、运动类型（单选）
+- 提交后写 `exercises` 表 `is_custom=1`，刷新 exerciseStore
+- 动作库列表里自定义动作可长按删除（二次确认）
+- 仓库层 `exerciseRepo.createCustom` / `delete` 已有，UI 接入即可
+
+### 验收标准（AC）
+- AC-15.1 在动作库创建自定义动作 → 列表立即出现新动作（顶部 is_custom ASC 排序）
+- AC-15.2 选「自定」可在计划编辑器中被引用
+- AC-15.3 长按自定义动作可删除（带二次确认）；内置动作无删除入口
+- AC-15.4 杀进程重启后自定义动作仍存在
+
+### 自检清单
+- [ ] 表单字段全部校验（名称必填、肌群/器械/类型必选）
+- [ ] 次要肌群多选 UI 不与主肌群冲突
+- [ ] 排序：自定义排在自定义之后，名称次之
+
+---
+
+## G16. 计划内动作拖拽排序
+
+**优先级**：P1  |  **依赖**：G5, G3  |  **阶段**：2
+
+### 涉及
+- 计划编辑器动作卡片左侧加「≡」拖拽手柄
+- 拖动时卡片半透明 + 占位指示线
+- 释放后调 `planStore.reorderExercises(planId, fromIndex, toIndex)` 持久化
+- 集成 `react-native-gesture-handler` + Reanimated 4 worklet 做位移
+
+### 验收标准（AC）
+- AC-16.1 长按拖拽手柄可拖动卡片
+- AC-16.2 拖动到新位置释放后，顺序更新持久化
+- AC-16.3 跨边界拖动（最上/最下）不卡死
+
+### 自检清单
+- [ ] 拖动期间不影响其他屏渲染
+- [ ] 取消拖动（中途放手）恢复原位置
+- [ ] 拖动期间键盘/Sheet 不弹
+
+---
+
+## G17. 训练中显示上次数据
+
+**优先级**：P1  |  **依赖**：G6, G9  |  **阶段**：2
+
+### 涉及
+- 新增 `trainingSetRepo.getLastSetsForExercise(exerciseId, limit=3)`
+- `useTrainingStore` 加 `lastSetsByExerciseId: Record<string, TrainingSet[]>` 缓存
+- 进入训练中页（每个动作首次聚焦时）按需查 last sets
+- 训练中页数据录入区上方显示「上次：60kg × 8」（最近 3 组，3 行小字）
+
+### 验收标准（AC）
+- AC-17.1 当前动作下方显示最近 3 组数据（重量×次数+组类型标签）
+- AC-17.2 自由训练的动作（无历史）显示「无历史数据」占位
+- AC-17.3 单位切换（kg/lb）显示同步换算
+
+### 自检清单
+- [ ] 进入训练页一次性查全部 N 个动作的 last sets（不每切一个查一次）
+- [ ] 缓存命中优先，避免重复 DB 查询
+
+---
+
+## G18. P1 数据可视化（4 屏合一）
+
+**优先级**：P1  |  **依赖**：G9  |  **阶段**：2
+
+### 涉及
+- 我的 Tab 新增「数据」入口（Stack 屏）
+- 4 屏共享一个 Stack：`DataOverview` → `CalendarHeatmap` / `VolumeTrend` / `MuscleGroupDistribution` / `OneRMRecords`
+- 数据来源：trainings + training_sets 聚合查询（按周/月/动作）
+- 图表：日历热力图（深浅色格） + 训练量柱状图（按周/月） + 肌肉群饼图（按训练量占比） + 1RM 列表（按动作）
+
+### 验收标准（AC）
+- AC-18.1 数据屏能进 4 个子页
+- AC-18.2 热力图：过去 12 周每天一格，颜色深度 = 当日总训练量
+- AC-18.3 趋势图：过去 12 周每周训练量柱状
+- AC-18.4 肌肉群分布：饼图（按主要肌群聚合训练量）
+- AC-18.5 1RM 列表：每个动作最高 weight × reps（按 Epley 公式估算 1RM = weight × (1 + reps/30)）
+
+### 自检清单
+- [ ] 4 屏统一空状态文案
+- [ ] 浅深色都美观（用 Design Token 取色）
+- [ ] 图表无第三方依赖（用 react-native-svg + Reanimated 绘制）
+
+---
+
+## G19. 数据导出 JSON
+
+**优先级**：P1  |  **依赖**：G2  |  **阶段**：2
+
+### 涉及
+- Profile + Settings「数据导出」入口接上真逻辑
+- 导出 = 全表 dump 为 JSON（exercises / plans / plan_exercises / trainings / training_sets / settings）
+- 用 `expo-sharing` 或 `expo-document-picker` 弹原生分享面板
+- 导出文件名：`workout2-backup-YYYYMMDD-HHmm.json`
+
+### 验收标准（AC）
+- AC-19.1 点击导出 → 原生分享面板弹出（保存到文件 / 分享给他人）
+- AC-19.2 导出 JSON 包含所有用户数据 + 设置
+- AC-19.3 空数据也能导出（结构完整、数组为空）
+
+### 自检清单
+- [ ] 导出前 toast「正在导出…」
+- [ ] 失败 toast「导出失败：xxx」并保留页面状态
+- [ ] JSON 字段命名 camelCase（与 store 一致）
+
+---
+
+## G20. 技术债清理：过期注释 + Showcase 路由
+
+**优先级**：P2  |  **依赖**：G1  |  **阶段**：2
+
+### 涉及
+- 清理 3 处过期 stub 注释：
+  - `src/screens/ActiveTrainingScreen.tsx:22, 436`（"G6 stub" / "G7 will replace this stub"）
+  - `src/features/training/restTimerTrigger.ts:2`（"替换之前的 G6 stub"）
+- `_dev/Showcase.tsx` 注册为隐藏 Dev 路由：从 Profile 入口长按版本号 / 摇一摇触发，跳到 Showcase
+- 或者直接删 `_dev/Showcase.tsx`（如果只用于开发期自检、无产品价值）
+
+### 验收标准（AC）
+- AC-20.1 全文搜「stub / 占位 / G6 stub」无残留
+- AC-20.2 Showcase 有入口可进（若保留）；或者完全删除并从 components / screens 列表移除
+
+### 自检清单
+- [ ] 决策记录：保留 Showcase 作为开发期自检工具 vs 删掉（视用户偏好）
+- [ ] 若保留，路由注册后真机可访问
+
+---
+
+## Phase 2 路线（P2+，待评估优先级）
+
+> 下列项目 PRD 列入但未排期，是否纳入 Phase 2 视用户偏好决定。
+
+| 编号 | 功能 | 备注 |
+|------|------|------|
+| US-11 | 杠铃片计算器 | 独立 utility；输入目标重量 + 杠铃片配置 → 输出每侧装载方案 |
+| US-12 | 身体测量追踪 | 新增表（body_measurements：日期/体重/体脂/胸围/臂围/腰围/腿围）+ 趋势图 |
+| | Lottie 训练完成动画 | 找/做 ✓ 动画 JSON 替换当前 Reanimated 兜底 |
+| US-14 | AI 生成计划 | 需 LLM 接入（API key + 网络）—— 最大块、最远离 MVP |
+
+---
+
 ## 附录 A：数据库表结构（草图，Agent 可微调）
 
 ```sql

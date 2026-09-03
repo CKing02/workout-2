@@ -1,5 +1,5 @@
 /**
- * G7 — 触发休息计时器的入口（替换之前的 G6 stub）。
+ * G7 — 触发休息计时器的入口。
  *
  * 设计：
  * - 模块级 Zustand mini-store（`restTimerStore`）承担状态；本文件只是触发点。

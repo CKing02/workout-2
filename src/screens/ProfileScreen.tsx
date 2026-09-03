@@ -25,8 +25,12 @@ import { Input } from '@/components/Input';
 import { ListItem } from '@/components/ListItem';
 import { Sheet } from '@/components/Sheet';
 import { toast } from '@/hooks/useToast';
+import { wipeAllData } from '@/db';
 import type { RootStackParamList, TabParamList } from '@/navigation/types';
+import { useExerciseStore } from '@/store/exerciseStore';
+import { usePlanStore } from '@/store/planStore';
 import { useSettingsStore } from '@/store/settingsStore';
+import { useTrainingStore } from '@/store/trainingStore';
 import { useTheme } from '@/theme';
 
 const APP_VERSION = '0.1.0';
@@ -62,11 +66,27 @@ export function ProfileScreen({ navigation }: ProfileScreenProps) {
     }
   };
 
-  const handleClearAll = () => {
+  const handleClearAll = async () => {
     setClearDialogOpen(false);
-    // G10 范围：清空逻辑留待后续接入 SQLite DROP 之后实现，此处占位反馈。
-    // G12: 改成非阻断 toast。
-    toast.show('已清除（演示）', 'success');
+    // G14: 真正接入 SQLite — 事务内清 7 张表，再 reseed 内置动作。
+    // settings 表被清后 settingsStore 需 reload，否则内存保留旧值。
+    try {
+      await wipeAllData();
+      await Promise.all([
+        useExerciseStore.getState().reload(),
+        usePlanStore.getState().reload(),
+        useTrainingStore.getState().loadHistory(),
+        useSettingsStore.getState().load(),
+      ]);
+      // 保险：如果用户清数据时内存里恰好有 active training，DB 已经
+      // 没了，内存必须跟上；UX 上这种入口（Profile/Settings）触达不到
+      // ActiveTrainingScreen，但兜底总比脏数据好。
+      useTrainingStore.getState().cancelTraining();
+      toast.show('已清除全部数据', 'success');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      toast.show('清除失败：' + msg, 'error');
+    }
   };
 
   const handleGoSettings = () => {
@@ -191,6 +211,15 @@ export function ProfileScreen({ navigation }: ProfileScreenProps) {
             清除全部数据
           </Button>
           <Text
+            onPress={() => {
+              // G20: 长按 → 进入组件 Showcase（开发期自检页）。
+              // 隐藏入口：普通用户不会发现，开发者通过版本号进入。
+              (navigation as unknown as { navigate: (s: 'Showcase') => void } | undefined)?.navigate(
+                'Showcase',
+              );
+            }}
+            accessibilityLabel={`锻炼2点零，版本 ${APP_VERSION}。长按进入组件 Showcase。`}
+            accessibilityRole="button"
             style={[
               typography.caption,
               { color: colors.textTertiary, textAlign: 'center' },

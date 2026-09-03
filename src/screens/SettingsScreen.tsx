@@ -29,7 +29,6 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import * as Haptics from 'expo-haptics';
 
 import { Card } from '@/components/Card';
 import { Dialog } from '@/components/Dialog';
@@ -37,9 +36,14 @@ import { Input } from '@/components/Input';
 import { ListItem } from '@/components/ListItem';
 import { SegmentedControl } from '@/components/SegmentedControl';
 import { Sheet } from '@/components/Sheet';
+import { wipeAllData } from '@/db';
 import { toast } from '@/hooks/useToast';
+import { useExerciseStore } from '@/store/exerciseStore';
+import { usePlanStore } from '@/store/planStore';
 import { useSettingsStore, type Unit, type ThemeModeSetting } from '@/store/settingsStore';
+import { useTrainingStore } from '@/store/trainingStore';
 import { useTheme } from '@/theme';
+import { haptic } from '@/utils/haptics';
 import { formatWeight, kgToLb, lbToKg } from '@/utils/units';
 
 const THEME_OPTIONS: ReadonlyArray<{ label: string; value: ThemeModeSetting }> = [
@@ -61,17 +65,14 @@ const REST_PRESETS: ReadonlyArray<{ label: string; value: string }> = [
 ];
 
 /**
- * 在用户切换主题/单位时给出轻量触感反馈。
- * 即便 `hapticsEnabled = false` 也仅需 toggle 后调用一次 selection 即可；
- * 后续 G6/G7 接入 expo-haptics 的同时也会读 `hapticsEnabled` 跳过调用。
+ * 在用户切换主题/单位/默认休息时给出轻量触感反馈。
+ * G13 改写：现在统一走 `haptic.selection()` util，util 内部读
+ * `settingsStore.hapticsEnabled` —— 切换到「开启」时立即生效（因为
+ * `setHapticsEnabled(true)` 是 await 之后才调到这里），关到关闭时
+ * 自然静默。
  */
 function feedback() {
-  // best-effort：底层未挂载时静默失败
-  try {
-    void Haptics.selectionAsync();
-  } catch {
-    // ignore
-  }
+  haptic.selection();
 }
 
 export function SettingsScreen() {
@@ -123,11 +124,23 @@ export function SettingsScreen() {
     if (next) feedback(); // 开启时立即给一次反馈，让用户感知震动生效
   };
 
-  const handleClearAll = () => {
+  const handleClearAll = async () => {
     setClearDialogOpen(false);
-    // G10 范围：实际 DROP/reseed 留待 P2 接入，此处给占位反馈。
-    // G12: 改为非阻断 toast。
-    toast.show('已清除（演示）', 'success');
+    // G14: 真正接入 SQLite — 事务内清 7 张表，再 reseed 内置动作。
+    try {
+      await wipeAllData();
+      await Promise.all([
+        useExerciseStore.getState().reload(),
+        usePlanStore.getState().reload(),
+        useTrainingStore.getState().loadHistory(),
+        useSettingsStore.getState().load(),
+      ]);
+      useTrainingStore.getState().cancelTraining();
+      toast.show('已清除全部数据', 'success');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      toast.show('清除失败：' + msg, 'error');
+    }
   };
 
   return (

@@ -20,12 +20,12 @@
 
 import React, { useCallback, useEffect, useRef } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import * as Haptics from 'expo-haptics';
 
 import { Button } from '@/components/Button';
 import { Sheet } from '@/components/Sheet';
 import { TimerRing } from '@/components/TimerRing';
 import { useTheme } from '@/theme';
+import { haptic } from '@/utils/haptics';
 
 import { useRestTimerStore } from './restTimerStore';
 import { useRestTimerSecondsRemaining } from './useRestTimer';
@@ -52,10 +52,10 @@ export function RestTimerOverlay() {
 
   const autoCloseRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // 启动新一轮：selectionAsync 轻触反馈
+  // 启动新一轮：selection 轻触反馈
   useEffect(() => {
     if (isActive && completedAt === null) {
-      void Haptics.selectionAsync().catch(() => undefined);
+      haptic.selection();
     }
   }, [runId, isActive, completedAt]);
 
@@ -65,9 +65,7 @@ export function RestTimerOverlay() {
     if (remainingSec > 0) return;
 
     markCompleted();
-    void Haptics.notificationAsync(
-      Haptics.NotificationFeedbackType.Success,
-    ).catch(() => undefined);
+    haptic.success();
 
     if (autoCloseRef.current) clearTimeout(autoCloseRef.current);
     autoCloseRef.current = setTimeout(() => {
@@ -114,7 +112,7 @@ export function RestTimerOverlay() {
       autoCloseRef.current = null;
     }
     skip();
-    void Haptics.selectionAsync().catch(() => undefined);
+    haptic.selection();
   }, [skip]);
 
   const handleExtend = useCallback(() => {
@@ -124,7 +122,7 @@ export function RestTimerOverlay() {
       autoCloseRef.current = null;
     }
     extend(EXTEND_DELTA_SECONDS);
-    void Haptics.selectionAsync().catch(() => undefined);
+    haptic.selection();
   }, [extend]);
 
   // 给 TimerRing 的初始 elapsed：从 store.startedAt 推算（首次挂载时拿一次）

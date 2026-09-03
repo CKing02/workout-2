@@ -54,8 +54,6 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import * as Haptics from 'expo-haptics';
-
 import { Badge } from '@/components/Badge';
 import { Button } from '@/components/Button';
 import { Card } from '@/components/Card';
@@ -72,6 +70,7 @@ import {
 } from '@/store/planStore';
 import { useExerciseStore } from '@/store/exerciseStore';
 import { useTheme } from '@/theme';
+import { haptic } from '@/utils/haptics';
 
 import type { RootStackParamList } from '@/navigation/types';
 
@@ -306,7 +305,7 @@ export function PlanEditorScreen() {
   const onAddSet = useCallback(
     (peId: string) => {
       addSet(editKey, peId, true);
-      void Haptics.selectionAsync().catch(() => undefined);
+      haptic.selection();
     },
     [addSet, editKey],
   );
@@ -368,7 +367,7 @@ export function PlanEditorScreen() {
 
   const openSetSheet = useCallback((peId: string, setIndex: number) => {
     setSetSheet({ peId, setIndex });
-    void Haptics.selectionAsync().catch(() => undefined);
+    haptic.selection();
   }, []);
 
   const closeSetSheet = useCallback(() => setSetSheet(null), []);

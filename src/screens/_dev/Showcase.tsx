@@ -1,10 +1,12 @@
 /**
- * Design-system Showcase — renders every component on a single screen so we
- * can eyeball light + dark + sizing during development. NOT shipped to end
- * users; replaced by `TrainingScreen` once a real "训练" tab exists.
+ * Design-system Showcase — G20 注册的隐藏开发期自检页。
  *
- * Navigation entry (temporary, removed after G3 sign-off):
- *   <Tab.Screen name="Training" component={Showcase} />
+ * 把所有 G3 组件在单屏渲染，方便开发期肉眼校对浅/深色 + 间距 +
+ * 字号。**不**面向终端用户 —— 入口是 Profile 屏幕底部版本号
+ * （普通用户不会去点）。
+ *
+ * 路由：RootNavigator Stack.Screen "Showcase"，headerShown 默认
+ * （带返回箭头，开发者可一键回到 Profile）。
  */
 
 import React, { useState } from 'react';

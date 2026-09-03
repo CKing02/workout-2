@@ -25,6 +25,8 @@ import { TrainingCompleteScreen } from '@/screens/TrainingCompleteScreen';
 import { TrainingDetailScreen } from '@/screens/TrainingDetailScreen';
 import { useTheme } from '@/theme';
 
+import { Showcase } from '@/screens/_dev/Showcase';
+
 import { ExerciseLibraryScreen } from '@/screens/ExerciseLibraryScreen';
 import { PlanEditorScreen } from '@/screens/PlanEditorScreen';
 import { TabNavigator } from './TabNavigator';
@@ -111,6 +113,11 @@ export function RootNavigator() {
           name="TrainingDetail"
           component={TrainingDetailScreen}
           options={{ title: '训练详情' }}
+        />
+        <Stack.Screen
+          name="Showcase"
+          component={Showcase}
+          options={{ title: '组件 Showcase（开发自检）' }}
         />
       </Stack.Navigator>
     </NavigationContainer>

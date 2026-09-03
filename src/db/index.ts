@@ -113,6 +113,45 @@ export function isDatabaseUnavailable(): boolean {
   return dbInitFailed && dbPromise === null;
 }
 
+/**
+ * G14: 清除全部数据（用户数据 + 设置 + 内置动作重新种子）。
+ *
+ * 用途：用户从"我的"或"设置"页的"清除全部数据"按钮调用 —— 二次确认
+ * Dialog 确认后，删除 7 张表的全部行，再把内置动作库写回，让动作库
+ * picker 不会变成空。
+ *
+ * 副作用（调用方需自行处理）：
+ * - settings 表清空后，用户的 kg/lb / 主题 / 默认休息 / 震动 / 用户名
+ *   全部回到 defaults。store 内存中的 settings 仍保留旧值，调用方需要
+ *   `useSettingsStore.getState().load()` 重新拉一次。
+ * - exerciseStore / planStore / trainingStore 内存中也保留旧数据，
+ *   调用方需 reload/loadHistory 拉新。
+ * - 不主动取消进行中的训练（清数据按钮不在 ActiveTrainingScreen 屏，
+ *   触达不到；如果未来有其它入口，调用方应 cancelTraining）。
+ *
+ * 失败抛 Error：调用方 catch 后 toast。
+ */
+export async function wipeAllData(): Promise<void> {
+  const db = await getDatabase();
+  await db.withTransactionAsync(async () => {
+    // Order doesn't strictly matter (FK CASCADE is on via configurePragmas),
+    // but explicit is clearer and resilient to future schema changes.
+    // error_logs has no FK so list it separately.
+    await db.execAsync(`
+      DELETE FROM training_sets;
+      DELETE FROM trainings;
+      DELETE FROM plan_exercises;
+      DELETE FROM plans;
+      DELETE FROM exercises;
+      DELETE FROM settings;
+      DELETE FROM error_logs;
+    `);
+  });
+  // Re-seed the built-in library. seedExercisesIfEmpty is idempotent and
+  // checks `WHERE is_custom = 0` count — safe to call after wipe.
+  await seedExercisesIfEmpty(db);
+}
+
 /** 测试 / 重置用：关闭连接 + 清空缓存。下次 getDatabase() 会重新打开。 */
 export async function resetDatabaseForTests(): Promise<void> {
   if (!dbPromise) return;

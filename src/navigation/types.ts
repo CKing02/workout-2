@@ -91,6 +91,12 @@ export type RootStackParamList = {
   TrainingComplete: TrainingCompleteParams;
   /** G9: 训练详情（首页 Tab 点击历史训练进入；只读）。 */
   TrainingDetail: TrainingDetailParams | undefined;
+  /**
+   * G20: 组件 Showcase（开发期自检页）。从 Profile 屏幕底部版本号
+   * 进入；普通用户不会发现。**不进入生产 build** 的开关建议后续用
+   * `__DEV__` 守卫或 release channel 控制。
+   */
+  Showcase: undefined;
 };
 
 /**

@@ -19,7 +19,7 @@
  *  - activeTraining 在 store 中累积，完成时一次性写 DB（G8 接手）
  *  - 每个组输入 NumberInput → updateSet（每次数值变化）
  *  - "完成本组" → completeAndAdvance（mark + 焦点跳到下一组；plan 组数固定，不自动 append）
- *  - rest timer：G7 占位函数 console.log（G6 stub）
+ *  - rest timer → G7 RestTimerOverlay（基于 Date.now 时间戳，Reanimated 圆环）
  */
 
 import React, {
@@ -50,7 +50,6 @@ import Animated, {
   useSharedValue,
   withTiming,
 } from 'react-native-reanimated';
-import * as Haptics from 'expo-haptics';
 import { setStatusBarHidden } from 'expo-status-bar';
 import {
   useFocusEffect,
@@ -77,6 +76,7 @@ import { usePlanStore, type PlanSetDraft } from '@/store/planStore';
 import { useSettingsStore } from '@/store/settingsStore';
 import { useTrainingStore, type ActiveSet } from '@/store/trainingStore';
 import { useTheme } from '@/theme';
+import { haptic } from '@/utils/haptics';
 
 import type { RootStackParamList } from '@/navigation/types';
 
@@ -324,7 +324,7 @@ export function ActiveTrainingScreen() {
       const target = ex?.sets[currentSetIndex];
       if (!target) return;
       changeSetType(currentExerciseIndex, target.clientId, type);
-      void Haptics.selectionAsync().catch(() => undefined);
+      haptic.selection();
       closeSheet();
     },
     [
@@ -360,9 +360,7 @@ export function ActiveTrainingScreen() {
   const handleConfirmDelete = useCallback(() => {
     if (!pendingDelete) return;
     removeSet(pendingDelete.exerciseIndex, pendingDelete.clientId);
-    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(
-      () => undefined,
-    );
+    haptic.warning();
     setPendingDelete(null);
   }, [pendingDelete, removeSet]);
 
@@ -423,9 +421,7 @@ export function ActiveTrainingScreen() {
     );
     if (!didAdvance) return;
 
-    void Haptics.notificationAsync(
-      Haptics.NotificationFeedbackType.Success,
-    ).catch(() => undefined);
+    haptic.success();
 
     // G12: 完成一组 → 轻量 toast 反馈（不阻断）。
     // Rest timer Sheet 即将弹出，toast 与 Sheet 不会冲突：toast 在顶部，
@@ -433,7 +429,7 @@ export function ActiveTrainingScreen() {
     const setLabel = `第 ${currentSetIndex + 1} 组`;
     toast.show(`${setLabel}已完成`, 'success');
 
-    // Trigger rest timer (G7 will replace this stub with the real Sheet).
+    // G7: 触发休息计时器（restTimerStore.start → RestTimerOverlay 自动渲染）。
     triggerRestTimer(defaultRestSeconds);
 
     // Auto-jump: only when the user actually completed the last real set
@@ -458,7 +454,7 @@ export function ActiveTrainingScreen() {
   const handleSelectSet = useCallback(
     (setIndex: number) => {
       setCurrentSetIndex(setIndex);
-      void Haptics.selectionAsync().catch(() => undefined);
+      haptic.selection();
     },
     [setCurrentSetIndex],
   );
@@ -466,7 +462,7 @@ export function ActiveTrainingScreen() {
   const handleSelectExercise = useCallback(
     (exIndex: number) => {
       setCurrentExerciseIndex(exIndex);
-      void Haptics.selectionAsync().catch(() => undefined);
+      haptic.selection();
     },
     [setCurrentExerciseIndex],
   );
@@ -664,7 +660,7 @@ export function ActiveTrainingScreen() {
                   setTimeout(() => {
                     setCurrentSetIndex(ex.sets.length);
                   }, 0);
-                  void Haptics.selectionAsync().catch(() => undefined);
+                  haptic.selection();
                 }}
                 hitSlop={10}
                 style={({ pressed }) => ({

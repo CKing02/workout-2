@@ -46,7 +46,7 @@ import Animated, {
   withSequence,
   withTiming,
 } from 'react-native-reanimated';
-import * as Haptics from 'expo-haptics';
+import { haptic } from '@/utils/haptics';
 
 import { Button } from '@/components/Button';
 import { Card } from '@/components/Card';
@@ -78,9 +78,7 @@ export function TrainingCompleteScreen() {
   // Entry haptic — celebration when the screen opens.
   // ----------------------------------------------------------------
   useEffect(() => {
-    void Haptics.notificationAsync(
-      Haptics.NotificationFeedbackType.Success,
-    ).catch(() => undefined);
+    haptic.success();
   }, []);
 
   // ----------------------------------------------------------------
@@ -129,7 +127,7 @@ export function TrainingCompleteScreen() {
   const formattedVolume = formatKg(totalVolume);
 
   const handleDone = () => {
-    void Haptics.selectionAsync().catch(() => undefined);
+    haptic.selection();
     // popToTop sends the user back to the Tabs root (锻炼 tab). From there
     // Home is the initial route of Tabs — so this lands on Home.
     navigation.popToTop();
