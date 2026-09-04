@@ -32,7 +32,14 @@ export function MuscleGroupDistributionScreen() {
 
   const total = data?.muscleGroups.reduce((s, m) => s + m.volume, 0) ?? 0;
 
-  const isEmpty = !loading && (data === null || data.muscleGroups.length === 0);
+  // Empty = "no data to render" — covers both the never-loaded state
+  // (data === null) and the loaded-but-empty state. Previously gated by
+  // `!loading &&`, which routed the loading tick through the non-empty
+  // branch while `data` was still null → `data!.muscleGroups.map(...)`
+  // threw `Cannot read property 'muscleGroups' of null`. The check now
+  // depends only on `data`, which is the only thing the branches below
+  // actually read.
+  const isEmpty = data === null || data.muscleGroups.length === 0;
 
   return (
     <SafeAreaView
