@@ -143,6 +143,23 @@ export function ActiveTrainingScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTraining?.id]);
 
+  // [DIAG] LastSetsPreview 内 s.id 重复嫌疑
+  useEffect(() => {
+    const entries = Object.entries(lastSetsByExerciseId);
+    if (entries.length === 0) return;
+    for (const [eid, sets] of entries) {
+      const ids = sets.map((s) => s.id);
+      const uniq = new Set(ids);
+      if (uniq.size !== ids.length) {
+        // eslint-disable-next-line no-console
+        console.log(
+          '[DIAG:dup-key] lastSets[' + eid + '] has dup s.id count=' +
+          ids.length + ' unique=' + uniq.size,
+        );
+      }
+    }
+  }, [lastSetsByExerciseId]);
+
   const elapsed = useElapsedSeconds(activeTraining?.startedAt ?? null);
 
   // -----------------------------------------------------------------
@@ -247,6 +264,22 @@ export function ActiveTrainingScreen() {
             })),
           })),
         });
+        // [DIAG] duplicate-key 病根定位:打印 plan 里动作的去重情况
+        const _ids = detail.exercises.map((pe) => pe.exercise.id);
+        const _unique = new Set(_ids);
+        const _dup: string[] = [];
+        const _seen = new Set<string>();
+        for (const id of _ids) {
+          if (_seen.has(id)) _dup.push(id);
+          else _seen.add(id);
+        }
+        // eslint-disable-next-line no-console
+        console.log(
+          '[DIAG:dup-key] plan=' + planId +
+          ' total=' + _ids.length +
+          ' unique=' + _unique.size +
+          ' duplicateIds=' + JSON.stringify(_dup),
+        );
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         Alert.alert('开始训练失败', msg, [
@@ -1126,7 +1159,17 @@ function LastSetsPreview({ exerciseId, metricType, lastSets }: LastSetsPreviewPr
       </Text>
       {lastSets.map((s, i) => (
         <Text
-          key={s.id}
+          // G21: confirmed root cause via binary-rollback hunt (see
+          // memory `feedback-g21-dup-key-root-cause`). The duplicate-key
+          // warning fires here when the same `s.id` appears in two
+          // different `lastSets` entries — but the *upstream* cause is
+          // that `getLastSetsForExercises` returns training_sets rows
+          // whose `exercise_id` is the same across two entries, yet
+          // somehow the records share a `training_sets.id`. Until the
+          // store is audited, the safe defensive fix is the index
+          // suffix: it guarantees uniqueness within this list, which
+          // is the only place these siblings live.
+          key={`${s.id}#${i}`}
           style={[
             typography.body,
             { color: colors.textSecondary, fontSize: 13 },

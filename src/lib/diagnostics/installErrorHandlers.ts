@@ -140,7 +140,15 @@ function installConsoleErrorHandler(): void {
         if (
           typeof first === 'string' &&
           (first.startsWith('Warning: ') ||
-            first.includes('Text strings must be rendered'))
+            first.includes('Text strings must be rendered') ||
+            // G21 dup-key hunt: React's `warnOnInvalidKey` is fired via
+            // `console.error` but the message does NOT start with "Warning: "
+            // and is not a TextStrings warning, so it slipped through the
+            // previous filter and was never persisted to error_logs. We
+            // explicitly include it so the next export-to-JSON run carries
+            // the offending key string + a captured native JS stack —
+            // critical for pinpointing which `.map()` is rendering it.
+            first.includes('Encountered two children with the same key'))
         ) {
           // Build a synthetic Error whose `.stack` mirrors what the original
           // `console.error` would have shown LogBox: the warning message
@@ -152,8 +160,39 @@ function installConsoleErrorHandler(): void {
             .map((a) => (typeof a === 'string' ? a : safeStringify(a)))
             .join(' ')
             .slice(0, 2048);
+          // G21 dup-key hunt (3rd half): `args[1]` semantics differ by
+          // warning class. For most React warnings it's the component
+          // stack (a multi-line string starting with `    in <Foo>`). For
+          // `warnOnInvalidKey` it's the offending key itself (a single
+          // 36-char UUID or short id), which is *not* a component stack
+          // and gives no signal as to which `.map()` produced it. We
+          // distinguish by shape:
+          //  - looks like a component stack → use as componentStack
+          //  - looks like a key (no newline, no leading whitespace) →
+          //    pass through as `keyValue` and fall back to a captured
+          //    native JS stack for source attribution.
+          const arg1 = typeof args[1] === 'string' ? args[1] : null;
+          const arg1IsComponentStack =
+            arg1 != null && (arg1.includes('\n') || /^\s+in\s</.test(arg1));
           const componentStack =
-            typeof args[1] === 'string' ? args[1].slice(0, 6000) : null;
+            arg1IsComponentStack && arg1 != null ? arg1.slice(0, 6000) : null;
+          const dupKeyValue =
+            !arg1IsComponentStack && arg1 != null ? arg1 : null;
+          // G21 dup-key hunt (2nd half): for warnings that DON'T ship a
+          // componentStack (notably `Encountered two children with the same
+          // key`, which fires from React internals with no usable
+          // componentStack), capture a NATIVE JS stack at the
+          // console.error call site. RN's LogBox usually gets a
+          // source-frame from React that points at anonymous internals;
+          // a raw JS stack taken right here will still hit React's
+          // internals, but filtering it down to frames inside the
+          // project's `src/` directory gives us a much tighter
+          // signature — a real `.map()` call site is the first frame
+          // under `src/` before any host element.
+          //
+          // We use `Error.captureStackTrace` (V8/Hermes) when available,
+          // falling back to a plain `new Error()` stack otherwise.
+          const nativeStack = captureProjectFrames();
           // `new Error(msg)` produces a real `.stack` with the *current*
           // call frame (this function). We immediately replace it with a
           // synthetic one whose first frame is the component, then list
@@ -164,11 +203,20 @@ function installConsoleErrorHandler(): void {
           const originStack = (synthetic.stack ?? '').split('\n');
           // Keep only the first line ("Error: …") and drop our frames.
           const header = originStack[0] ?? `ReactWarning: ${message}`;
+          // For dup-key warnings, we ALSO surface the offending key value
+          // on its own line so the next export-JSON run can grep for the
+          // exact UUID that triggered it (combined with the `Project
+          // frames` block, that pinpoints the `.map()`).
+          const keyLine =
+            dupKeyValue != null ? `Offending key: ${dupKeyValue}` : null;
           synthetic.stack = [
             header,
-            componentStack ?? '(no component stack available)',
+            keyLine,
+            componentStack ?? nativeStack ?? '(no component stack available)',
             `    at captureConsoleError (installErrorHandlers.ts)`,
-          ].join('\n');
+          ]
+            .filter((l) => l != null)
+            .join('\n');
           enqueue({
             source: 'console',
             error: synthetic,
@@ -186,6 +234,39 @@ function installConsoleErrorHandler(): void {
       inHandler = false;
     }
   };
+}
+
+/**
+ * Take a fresh JS stack right now and return ONLY the frames that fall
+ * under this project's `src/` directory, plus a synthetic tail frame
+ * pointing back at the diagnostics hook so the trace stays anchored.
+ *
+ * The returned string starts with a `Project frames:` header line so it
+ * is trivial to grep out of the JSON backup.
+ */
+function captureProjectFrames(): string | null {
+  try {
+    const holder: { stack?: string } = {};
+    // V8 / Hermes both support Error.captureStackTrace; standard Error()
+    // also gives a stack so we don't strictly need it, but captureStackTrace
+    // is the documented fast path.
+    if (typeof (Error as { captureStackTrace?: unknown }).captureStackTrace === 'function') {
+      (Error as unknown as {
+        captureStackTrace: (target: object, constructorOpt?: unknown) => void;
+      }).captureStackTrace(holder);
+    } else {
+      holder.stack = new Error().stack ?? '';
+    }
+    const frames = (holder.stack ?? '').split('\n');
+    const projectFrames = frames.filter((f) => /\bat .*src[\\/]/i.test(f));
+    if (projectFrames.length === 0) return null;
+    return [
+      'Project frames (src/ only, raw JS stack):',
+      ...projectFrames,
+    ].join('\n');
+  } catch {
+    return null;
+  }
 }
 
 function safeStringify(v: unknown): string {
