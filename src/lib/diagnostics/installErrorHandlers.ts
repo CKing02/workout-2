@@ -28,7 +28,8 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 import type { ErrorUtils } from 'react-native';
 
-import { errorLogRepo, type ErrorLogInput } from '@/db/repositories/errorLogRepo';
+import { errorLogRepo, fingerprintOf, type ErrorLogInput } from '@/db/repositories/errorLogRepo';
+import { shouldRecord } from '@/lib/diagnostics/dedupByFingerprint';
 
 /** Max events buffered before the DB is online. Older entries are dropped. */
 const MAX_BUFFER = 200;
@@ -279,6 +280,12 @@ function safeStringify(v: unknown): string {
 
 function enqueue(input: ErrorLogInput): void {
   try {
+    // G23: 30s 滑动窗口去重，避免高频 warning 撑爆 error_logs 表
+    //（典型场景：React dup-key 一次触发在 5 秒内打 186 条同 fingerprint）
+    //dedupe 对 buffer / db 两条路径都生效 —— buffer 也会因 DB 未 ready
+    // 被高频写入，去重可让 drain 时不重写。
+    const fp = fingerprintOf(input.error);
+    if (!shouldRecord(fp)) return;
     if (dbHandle) {
       // Fire-and-forget; never block the caller (which may be RN's
       // exception manager itself).

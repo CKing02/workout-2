@@ -523,6 +523,114 @@
 
 ---
 
+## G21. 训练中页 duplicate-key warning 修复 ✅
+
+**优先级**：P0  |  **依赖**：G6  |  **阶段**：2
+
+### 涉及
+- 定位：`src/screens/ActiveTrainingScreen.tsx:1166`（`LastSetsPreview` 内 `lastSets.map((s, i) => <Text key={s.id} ... />)`）
+- 根因（二分回退锁定）：在用户 DB 中存在 `training_sets.id` 重复行（errorLogs 一次性写入 186 条同 fingerprint，186 次 LogBox 升级到 red overlay）
+- 修复：`key={s.id}` → `key={\`${s.id}#${i}\`}`（idx 后缀保证 React 兄弟节点唯一性）
+- 顺手：`src/lib/diagnostics/installErrorHandlers.ts` 扩 console.error 过滤条件，让 `Encountered two children with the same key` 也能进 errorLogs（之前漏抓）+ `captureProjectFrames()` 抓 native JS 栈筛 src/ 帧（Hermes dev build 下拿不到，作为诊断基建保留）
+
+### 验收标准（AC）
+- AC-21.1 用户实机走「开始训练」流程不再有红色 LogBox overlay
+- AC-21.2 `tsc --noEmit` 通过；改动仅在 `ActiveTrainingScreen.tsx:1166`（+注释）
+
+### 自检清单
+- [x] `key={\`${s.id}#${i}\`}` + 详细注释说明根因和 idx 兜底原因
+- [x] 6 个非真凶 key 全部回退原样（`ActiveTrainingScreen:855` / `TrainingDetail:331/442` / `PlanEditor:452/778` / `RestTimerOverlay:155`）
+- [x] memory 写入 `feedback-g21-dup-key-binary-rollback.md`（决策树 + 二分回退模板）
+
+> **深一层根因**（**留 G22**）：`training_sets.id` 为什么在用户 DB 中重复？需要 SQL 审计 + 客户端链路排查
+> **errorLogs 累积**（**留 G23**）：186 条同 fingerprint 在 30 秒内进表，需要 30 秒内同 fingerprint 去重
+
+---
+
+## G22. training_sets.id 重复行根因排查 + 修复 ✅ 自愈关闭
+
+**优先级**：P0  |  **依赖**：G21  |  **阶段**：2  |  **状态**：**✅ 已作为「自愈」关闭（2026-09-06）**
+
+### 自愈结论（决策记录）
+
+G21 用 `#${i}` idx 后缀掩盖了 React 重复 key，但 G22 排查发现：
+
+| 链路 | 评级 | 依据 |
+|---|---|---|
+| A. DB 真实重复行 | 当前不存在 | 用户 backup `20260906-1555.json` 26 set 0 重复 |
+| B. clientId 串入 DB id | **已排除** | 全部 id 是 36 字符 UUID，0 个 `c_` 前缀 |
+| C. completeTraining 双触发 | 极低 | `finishing` mutex + 单调用点 |
+| D. batchInsert 多次调用 | 极低 | grep 仅 1 处调用点 |
+
+**历史证据蒸发**：用户 9/3 → 9/6 之间触发 G14「清除全部数据」，G21 修前那一刻的重复行被抹除，无法回查 gold standard。
+
+**当前代码路径已无 root cause**：`ActiveSet → CreateTrainingSetInput` 显式剥掉 `clientId`，DB id 唯一来源是 `newId()` (UUID v4)。
+
+**保留**：G21 idx 后缀兜底作为 React 层幂等保护（不动）。
+
+### 涉及
+- **不做修复**：无 root cause 可修
+- **保留审计脚本**：`_diag/audit-dup-rows.js` + `_diag/audit-id-shape.js`（untracked，commit 时跳过）
+- **写 memory**：`project-g22-closed-as-self-healed.md`（决策记录 + 未来再次复现时的重开流程）
+
+### 验收标准（AC）
+- AC-22.1 ✅ 拿到用户当前 DB 状态（26 set 0 重复、0 个 c_ 前缀）
+- AC-22.2 ✅ 排查报告：4 条候选链路各给出 1-2 段代码证据 + 评级（链路 A/B/C/D 当前均不成立）
+- AC-22.3 ⚠️ 不适用 — 无修复 commit，无需重跑训练验证
+- AC-22.4 ⚠️ 不适用 — 无 DB 脏数据，无需 migration
+
+### 自检清单
+- [x] 不靠推理改代码：**只读审计，每个结论有 DB 状态/代码 grep 证据**
+- [x] 审计脚本保留在 `_diag/` 下（untracked）
+- [x] GOALS.md 标 ✅「自愈关闭」
+- [x] memory `project-g22-closed-as-self-healed.md` 写好（含未来再次复现时的"重开 G22"流程）
+
+> **未来再次复现时**（如果用户在 G21 idx 后缀保护下仍报 dup-key LogBox 升级）：
+> 1. 重跑 `_diag/audit-dup-rows.js` + `_diag/audit-id-shape.js` 看 DB 端状态
+> 2. 若 `c_` 前缀非 0 → 链路 B 命中，git blame `trainingSetRepo.ts` 找历史 clientId 串入 commit
+> 3. 若纯 UUID 重复 → 链路 A 命中，查是否有外部 SQL 写入或迁移脚本被多次执行
+> 4. 详见 [[project-g22-closed-as-self-healed]]
+
+---
+
+## G23. errorLogs 30 秒内同 fingerprint 去重 ✅
+
+**优先级**：P2  |  **依赖**：G21  |  **阶段**：2  |  **状态**：**✅ 完成（2026-09-06）**
+
+### 背景
+- G21 扩 console.error 拦截后，单次 dup-key 事件 5 秒内进表 186 条同 fingerprint（`e4227087`）
+- 同样问题会影响 P0 `Text strings must be rendered`（虽然修好后不再产生，但未来任何高频 warning 都会爆表）
+- `MAX_BUFFER=200` ring buffer 容量有限
+- 导出 JSON 越来越大（260KB → 用户能感知）
+
+### 涉及
+- `src/lib/diagnostics/installErrorHandlers.ts` 加 30 秒滑动窗口去重：
+  - 内存中维护 `Map<fingerprint, lastRecordedAt>`
+  - 进 enqueue 前查 `Date.now() - last < 30_000` → skip
+  - 否则 enqueue + 更新 `lastRecordedAt`
+- `src/db/repositories/errorLogRepo.ts` `record()` 接受 `fingerprint` 参数（已经有这个字段了）
+- 同样的去重策略也要在 `installJsErrorHandler` 和 `installPromiseRejectionHandler` 里加（js/promise 错误可能也高频）
+- **不清空已累积的脏数据**（用户可手动「清除全部数据」或迁移删）
+
+### 实现
+- 新增 `src/lib/diagnostics/dedupByFingerprint.ts`（in-memory Map + LRU 256 + `DEDUPE_WINDOW_MS=30_000` + `MAX_TRACKED=256` + 模块单例 + 测试用 `resetForTests`）
+- `errorLogRepo.ts` 新增 export `fingerprintOf(error: unknown): string`（单一真相源 wrapper，调用 computeFingerprint）
+- `installErrorHandlers.ts` `enqueue()` 入口加 dedupe 检查（同时覆盖 db 和 buffer 两条路径）
+- 9 个单测全过，覆盖 AC-23.1 / AC-23.2 / AC-23.3 + LRU 容量上限 + reset
+
+### 验收标准（AC）
+- AC-23.1 ✅ 同样 fingerprint 在 30 秒内只产生 1 条 errorLog
+- AC-23.2 ✅ 跨过 30 秒边界后再次触发，会新增第 2 条（不永久去重）
+- AC-23.3 ✅ 单测覆盖：模拟 100 次同 fingerprint 在 5 秒内触发 → errorLog 增量 = 1
+
+### 自检清单
+- [x] 去重 Map 容量上限（避免内存泄漏；超过 N 条时 LRU 淘汰）— `MAX_TRACKED=256`
+- [x] `tsc --noEmit` 通过、单元测试通过（11 套件 / 95 用例全过）
+- [x] 30 秒阈值在常量中命名清晰（`export const DEDUPE_WINDOW_MS = 30_000`）
+- [x] 写 memory `feedback-g23-errorlog-dedupe.md`：触发原因 + 设计选择
+
+---
+
 ## G20. 技术债清理：过期注释 + Showcase 路由
 
 **优先级**：P2  |  **依赖**：G1  |  **阶段**：2
