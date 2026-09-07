@@ -42,6 +42,18 @@ export const MIGRATIONS: readonly Migration[] = [
     description: 'Add plan_exercises.rest_seconds (per-exercise rest interval, default 60s).',
     sql: 'ALTER TABLE plan_exercises ADD COLUMN rest_seconds INTEGER NOT NULL DEFAULT 60;',
   },
+  {
+    version: 4,
+    description: 'Add plan_sets table for per-exercise set presets (G24a: persist 组数 + 类型).',
+    sql: `CREATE TABLE IF NOT EXISTS plan_sets (
+            id TEXT PRIMARY KEY,
+            plan_exercise_id TEXT NOT NULL,
+            set_index INTEGER NOT NULL,
+            set_type TEXT NOT NULL DEFAULT 'normal',
+            FOREIGN KEY (plan_exercise_id) REFERENCES plan_exercises(id) ON DELETE CASCADE
+          );
+          CREATE INDEX IF NOT EXISTS idx_plan_sets_plan_exercise_id ON plan_sets(plan_exercise_id);`,
+  },
 ];
 
 /**

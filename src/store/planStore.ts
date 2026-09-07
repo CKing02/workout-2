@@ -26,11 +26,14 @@ import type {
   PlanWithExercises,
 } from '@/db/repositories/planRepo';
 import {
+  appendSetForPlanExercise,
   createPlan,
   deletePlan,
   getPlan,
   listPlansWithCount,
+  removeSetForPlanExerciseByIndex,
   replaceExercise as replaceExerciseInRepo,
+  replaceSetsForPlanExercise,
   setExerciseRestSeconds as setExerciseRestSecondsInRepo,
   updatePlan,
 } from '@/db/repositories/planRepo';
@@ -101,26 +104,26 @@ export interface PlanStoreState {
   /** Remove an exercise from the plan (persisted). */
   removeExerciseFromPlan: (planId: string, planExerciseId: string) => Promise<void>;
 
-  /** In-memory only. Copy the last set's data when `copyFromLast` is true. */
+  /** G24a: persisted. Copy the last set's data when `copyFromLast` is true. */
   addSetToPlanExercise: (
     planId: string,
     planExerciseId: string,
     copyFromLast?: boolean,
-  ) => void;
+  ) => Promise<void>;
 
-  /** In-memory only. Removes the set at `setIndex` (0-based). */
+  /** G24a: persisted. Removes the set at `setIndex` (0-based). */
   removeSetFromPlanExercise: (
     planId: string,
     planExerciseId: string,
     setIndex: number,
-  ) => void;
+  ) => Promise<void>;
 
-  /** In-memory only. Replaces the full set list for an exercise. */
+  /** G24a: persisted. Replaces the full set list for an exercise. */
   updatePlanExerciseSets: (
     planId: string,
     planExerciseId: string,
     sets: PlanSetDraft[],
-  ) => void;
+  ) => Promise<void>;
 
   /**
    * Replace the underlying exercise of a single plan_exercise slot.
@@ -184,7 +187,16 @@ function toDraftState(plan: PlanWithExercises): PlanDetailState {
       position: pe.position,
       restSeconds: pe.restSeconds,
       exercise: pe.exercise,
-      sets: [],
+      // G24a: hydrate set presets from DB. weight/reps are in-memory only
+      // (G6: "数据不预填"), so default to 0 here. The visible chip strip
+      // and the training-time seed both read setIndex + setType.
+      sets: pe.sets.map((s) => ({
+        localId: localSetId(),
+        setIndex: s.setIndex,
+        weight: 0,
+        reps: 0,
+        setType: s.setType,
+      })),
     })),
     exerciseIds: plan.exercises.map((pe) => pe.exerciseId),
   };
@@ -252,25 +264,64 @@ export const usePlanStore = create<PlanStoreState>((set, get) => ({
       }
       const fresh = await getPlan(db, id);
       if (fresh) {
-        const rebuilt: PlanExerciseDraft[] = fresh.exercises.map((pe) => {
-          const carry = carriedDraftsByExId.get(pe.exerciseId);
-          return {
-            id: pe.id, // FRESH plan_exercise row id from DB
-            planId: pe.planId,
-            exerciseId: pe.exerciseId,
-            position: pe.position,
-            restSeconds: pe.restSeconds,
-            exercise: pe.exercise,
-            sets: carriedSetsByExId.get(pe.exerciseId) ?? carry?.sets ?? [],
+        // G24a: the CASCADE from plan_exercises DELETE wiped every plan_sets
+        // row whose plan_exercise_id pointed at the old (now-deleted) rows.
+        // For each carried set list, re-INSERT under the fresh plan_exercise
+        // ids so the DB state matches what the in-memory cache will reflect.
+        for (const pe of fresh.exercises) {
+          const carried = carriedSetsByExId.get(pe.exerciseId);
+          if (carried && carried.length > 0) {
+            await replaceSetsForPlanExercise(
+              db,
+              pe.id,
+              carried.map((s) => ({ setType: s.setType })),
+            );
+          }
+        }
+        // Re-fetch once more so the new plan_sets land in the in-memory
+        // view's `pe.sets` (toDraftState is the only consumer; this keeps
+        // reload-after-save honest).
+        const fresh2 = await getPlan(db, id);
+        if (fresh2) {
+          const rebuilt: PlanExerciseDraft[] = fresh2.exercises.map((pe) => {
+            const carried = carriedSetsByExId.get(pe.exerciseId);
+            if (carried) {
+              return {
+                id: pe.id, // FRESH plan_exercise row id from DB
+                planId: pe.planId,
+                exerciseId: pe.exerciseId,
+                position: pe.position,
+                restSeconds: pe.restSeconds,
+                exercise: pe.exercise,
+                sets: carried,
+              };
+            }
+            // No carry (e.g. reorder added a new exercise we didn't know
+            // about) — hydrate from the freshly-loaded DB sets.
+            return {
+              id: pe.id,
+              planId: pe.planId,
+              exerciseId: pe.exerciseId,
+              position: pe.position,
+              restSeconds: pe.restSeconds,
+              exercise: pe.exercise,
+              sets: pe.sets.map((s) => ({
+                localId: localSetId(),
+                setIndex: s.setIndex,
+                weight: 0,
+                reps: 0,
+                setType: s.setType,
+              })),
+            };
+          });
+          const nextDetail: PlanDetailState = {
+            exercises: rebuilt,
+            exerciseIds: fresh2.exercises.map((pe) => pe.exerciseId),
           };
-        });
-        const nextDetail: PlanDetailState = {
-          exercises: rebuilt,
-          exerciseIds: fresh.exercises.map((pe) => pe.exerciseId),
-        };
-        set((state) => ({
-          detailById: { ...state.detailById, [id]: nextDetail },
-        }));
+          set((state) => ({
+            detailById: { ...state.detailById, [id]: nextDetail },
+          }));
+        }
       }
     }
     return plan;
@@ -353,23 +404,45 @@ export const usePlanStore = create<PlanStoreState>((set, get) => ({
     // because we re-attach them by `exerciseId`.
     const fresh = await getPlan(db, planId);
     if (!fresh) return;
+    // G24a: any freshly-added plan_exercise (i.e. one whose `exerciseId` is
+    // not in the prior detail) starts with 0 plan_sets. Seed 1 default
+    // 'normal' set so the user has something to interact with immediately
+    // and so the "1 set per new exercise" mental model holds.
+    const priorExIds = new Set((detail?.exercises ?? []).map((e) => e.exerciseId));
+    for (const pe of fresh.exercises) {
+      if (!priorExIds.has(pe.exerciseId) && pe.sets.length === 0) {
+        await appendSetForPlanExercise(db, pe.id, 'normal');
+      }
+    }
+    // Re-fetch one more time so the seed lands in `pe.sets`.
+    const fresh2 = await getPlan(db, planId);
+    if (!fresh2) return;
     set((state) => {
       const carry = new Map<string, PlanSetDraft[]>();
       for (const e of detail?.exercises ?? []) {
         if (e.sets.length > 0) carry.set(e.exerciseId, e.sets);
       }
-      const rebuilt: PlanExerciseDraft[] = fresh.exercises.map((pe) => ({
+      const rebuilt: PlanExerciseDraft[] = fresh2.exercises.map((pe) => ({
         id: pe.id,
         planId: pe.planId,
         exerciseId: pe.exerciseId,
         position: pe.position,
         restSeconds: pe.restSeconds,
         exercise: pe.exercise,
-        sets: carry.get(pe.exerciseId) ?? [],
+        // Use the DB sets (now includes the seed) when carry has nothing;
+        // for previously-known exercises the carry (in-memory) wins so
+        // any unsaved local edits survive.
+        sets: (carry.get(pe.exerciseId) ?? pe.sets.map((s) => ({
+          localId: localSetId(),
+          setIndex: s.setIndex,
+          weight: 0,
+          reps: 0,
+          setType: s.setType,
+        }))),
       }));
       const nextDetail: PlanDetailState = {
         exercises: rebuilt,
-        exerciseIds: fresh.exercises.map((pe) => pe.exerciseId),
+        exerciseIds: fresh2.exercises.map((pe) => pe.exerciseId),
       };
       return {
         plans: state.plans.map((p) => (p.id === planId ? updated : p)),
@@ -404,59 +477,93 @@ export const usePlanStore = create<PlanStoreState>((set, get) => ({
     });
   },
 
-  addSetToPlanExercise: (planId, planExerciseId, copyFromLast = true) => {
+  addSetToPlanExercise: async (planId, planExerciseId, copyFromLast = true) => {
+    const detail = get().detailById[planId];
+    if (!detail) return;
+    const pe = detail.exercises.find((e) => e.id === planExerciseId);
+    if (!pe) return;
+    const last = pe.sets[pe.sets.length - 1];
+    const newSet: PlanSetDraft = copyFromLast && last
+      ? cloneSet(last, nextSetIndex(pe.sets))
+      : { ...makeEmptySet(), setIndex: nextSetIndex(pe.sets) };
+    // Optimistic in-memory update first — UI stays snappy even if the
+    // DB write lags. Failure path: the next loadDetail will re-fetch
+    // from DB and re-attach whatever landed.
     set((state) => {
-      const detail = state.detailById[planId];
-      if (!detail) return state;
-      const exercises = detail.exercises.map((pe) => {
-        if (pe.id !== planExerciseId) return pe;
-        const last = pe.sets[pe.sets.length - 1];
-        const newSet = copyFromLast && last
-          ? cloneSet(last, nextSetIndex(pe.sets))
-          : { ...makeEmptySet(), setIndex: nextSetIndex(pe.sets) };
-        return { ...pe, sets: [...pe.sets, newSet] };
-      });
-      return {
-        detailById: {
-          ...state.detailById,
-          [planId]: { ...detail, exercises },
-        },
-      };
-    });
-  },
-
-  removeSetFromPlanExercise: (planId, planExerciseId, setIndex) => {
-    set((state) => {
-      const detail = state.detailById[planId];
-      if (!detail) return state;
-      const exercises = detail.exercises.map((pe) => {
-        if (pe.id !== planExerciseId) return pe;
-        const filtered = pe.sets.filter((_, i) => i !== setIndex);
-        return { ...pe, sets: reindexSets(filtered) };
-      });
-      return {
-        detailById: {
-          ...state.detailById,
-          [planId]: { ...detail, exercises },
-        },
-      };
-    });
-  },
-
-  updatePlanExerciseSets: (planId, planExerciseId, sets) => {
-    set((state) => {
-      const detail = state.detailById[planId];
-      if (!detail) return state;
-      const exercises = detail.exercises.map((pe) =>
-        pe.id === planExerciseId ? { ...pe, sets: reindexSets(sets) } : pe,
+      const d = state.detailById[planId];
+      if (!d) return state;
+      const exercises = d.exercises.map((e) =>
+        e.id === planExerciseId ? { ...e, sets: [...e.sets, newSet] } : e,
       );
-      return {
-        detailById: {
-          ...state.detailById,
-          [planId]: { ...detail, exercises },
-        },
-      };
+      return { detailById: { ...state.detailById, [planId]: { ...d, exercises } } };
     });
+    // Persist. We use `replaceSetsForPlanExercise` to keep the DB row
+    // set in lockstep with in-memory — partial-appends would leave the
+    // DB with a different set_index sequence than the UI shows after
+    // deletes.
+    const updated = get().detailById[planId]?.exercises.find(
+      (e) => e.id === planExerciseId,
+    );
+    if (!updated) return;
+    const db = await getDatabase();
+    await replaceSetsForPlanExercise(
+      db,
+      planExerciseId,
+      updated.sets.map((s) => ({ setType: s.setType })),
+    );
+  },
+
+  removeSetFromPlanExercise: async (planId, planExerciseId, setIndex) => {
+    const detail = get().detailById[planId];
+    if (!detail) return;
+    const pe = detail.exercises.find((e) => e.id === planExerciseId);
+    if (!pe) return;
+    if (pe.sets.length <= 1) return; // mirror UI invariant
+    // In-memory: drop the row + reindex, same shape as before.
+    set((state) => {
+      const d = state.detailById[planId];
+      if (!d) return state;
+      const exercises = d.exercises.map((e) => {
+        if (e.id !== planExerciseId) return e;
+        const filtered = e.sets.filter((_, i) => i !== setIndex);
+        return { ...e, sets: reindexSets(filtered) };
+      });
+      return { detailById: { ...state.detailById, [planId]: { ...d, exercises } } };
+    });
+    // Persist the new full set list (the repo's renumber keeps set_index
+    // contiguous, so we use the simpler full-replace path).
+    const updated = get().detailById[planId]?.exercises.find(
+      (e) => e.id === planExerciseId,
+    );
+    if (!updated) return;
+    const db = await getDatabase();
+    await replaceSetsForPlanExercise(
+      db,
+      planExerciseId,
+      updated.sets.map((s) => ({ setType: s.setType })),
+    );
+  },
+
+  updatePlanExerciseSets: async (planId, planExerciseId, sets) => {
+    const detail = get().detailById[planId];
+    if (!detail) return;
+    const pe = detail.exercises.find((e) => e.id === planExerciseId);
+    if (!pe) return;
+    const reindexed = reindexSets(sets);
+    set((state) => {
+      const d = state.detailById[planId];
+      if (!d) return state;
+      const exercises = d.exercises.map((e) =>
+        e.id === planExerciseId ? { ...e, sets: reindexed } : e,
+      );
+      return { detailById: { ...state.detailById, [planId]: { ...d, exercises } } };
+    });
+    const db = await getDatabase();
+    await replaceSetsForPlanExercise(
+      db,
+      planExerciseId,
+      reindexed.map((s) => ({ setType: s.setType })),
+    );
   },
 
   // ---------- 替换运动 / 休息时长 ----------

@@ -10,15 +10,18 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import {
   rowToExercise,
   rowToPlanExercise,
+  rowToPlanSet,
   type ExerciseRow,
   type PlanExerciseRow,
   type PlanRow,
+  type PlanSet,
+  type PlanSetRow,
   type PlanWithExercises,
 } from '../schema';
 
 import { newId, nowMs } from './_helpers';
 
-export type { PlanExercise, PlanExerciseWithDetail, PlanWithExercises } from '../schema';
+export type { PlanExercise, PlanExerciseWithDetail, PlanSet, PlanWithExercises } from '../schema';
 
 export interface Plan {
   id: string;
@@ -114,8 +117,33 @@ export async function getPlan(
     return {
       ...rowToPlanExercise(link),
       exercise: rowToExercise(ex),
+      sets: [] as PlanSet[], // filled below
     };
   });
+
+  // G24a: load persisted set presets (count + type) per plan_exercise.
+  // Empty rows for a plan_exercise is legitimate (a brand-new plan added via
+  // the picker before any sets were configured); the UI shows an empty
+  // strip in that case.
+  if (linkRows.length > 0) {
+    const peIds = linkRows.map((r) => r.id);
+    const setPlaceholders = peIds.map(() => '?').join(',');
+    const setRows = await db.getAllAsync<PlanSetRow>(
+      `SELECT * FROM plan_sets
+        WHERE plan_exercise_id IN (${setPlaceholders})
+        ORDER BY plan_exercise_id, set_index ASC;`,
+      peIds,
+    );
+    const setsByPeId = new Map<string, PlanSet[]>();
+    for (const r of setRows) {
+      const list = setsByPeId.get(r.plan_exercise_id) ?? [];
+      list.push(rowToPlanSet(r));
+      setsByPeId.set(r.plan_exercise_id, list);
+    }
+    for (const pe of exercises) {
+      pe.sets = setsByPeId.get(pe.id) ?? [];
+    }
+  }
 
   return {
     id: planRow.id,
@@ -289,6 +317,110 @@ export async function setExerciseRestSeconds(
   );
 }
 
+/* -------------------------------------------------------------------------- */
+/* plan_sets — per plan_exercise set presets (G24a)                           */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Atomically replace all set presets for a single plan_exercise.
+ * Used by planStore whenever the set list changes (add / remove / reorder /
+ * type-change). Inserts new rows; the DB id is regenerated so the in-memory
+ * `localId` ↔ DB `id` mapping always goes through this function.
+ *
+ * `sets` is the desired final state (ordered by `setIndex`). We do a single
+ * DELETE + bulk INSERT inside one transaction so a half-applied state can
+ * never land in the DB if the process dies mid-call.
+ */
+export async function replaceSetsForPlanExercise(
+  db: SQLiteDatabase,
+  planExerciseId: string,
+  sets: ReadonlyArray<{ setType: string }>,
+): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    await db.runAsync(
+      'DELETE FROM plan_sets WHERE plan_exercise_id = ?;',
+      [planExerciseId],
+    );
+    if (sets.length === 0) return;
+    const stmt = await db.prepareAsync(
+      `INSERT INTO plan_sets (id, plan_exercise_id, set_index, set_type) VALUES (?, ?, ?, ?);`,
+    );
+    try {
+      for (let i = 0; i < sets.length; i++) {
+        await stmt.executeAsync([newId(), planExerciseId, i + 1, sets[i].setType]);
+      }
+    } finally {
+      await stmt.finalizeAsync();
+    }
+  });
+}
+
+/**
+ * Append one set preset to the end of a plan_exercise's list. Returns the
+ * freshly-inserted row's `set_index` (1-based) — the caller pairs this with
+ * the new in-memory `localId` to keep the two views in sync.
+ */
+export async function appendSetForPlanExercise(
+  db: SQLiteDatabase,
+  planExerciseId: string,
+  setType: string,
+): Promise<number> {
+  const nextIndexRow = await db.getFirstAsync<{ next_index: number }>(
+    `SELECT COALESCE(MAX(set_index), 0) + 1 AS next_index
+       FROM plan_sets WHERE plan_exercise_id = ?;`,
+    [planExerciseId],
+  );
+  const setIndex = nextIndexRow?.next_index ?? 1;
+  await db.runAsync(
+    `INSERT INTO plan_sets (id, plan_exercise_id, set_index, set_type)
+     VALUES (?, ?, ?, ?);`,
+    [newId(), planExerciseId, setIndex, setType],
+  );
+  return setIndex;
+}
+
+/**
+ * Remove a single set preset by 1-based `setIndex`. After deletion, the
+ * remaining rows are renumbered 1..N so the visible group count matches the
+ * row count. Single transaction keeps the renumbering atomic.
+ */
+export async function removeSetForPlanExerciseByIndex(
+  db: SQLiteDatabase,
+  planExerciseId: string,
+  setIndex: number,
+): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    await db.runAsync(
+      'DELETE FROM plan_sets WHERE plan_exercise_id = ? AND set_index = ?;',
+      [planExerciseId, setIndex],
+    );
+    // Re-number remaining rows so set_index stays contiguous 1..N. Two-step
+    // (negative-offset update + zero-out + positive-offset) avoids the
+    // UNIQUE-style constraint problem of "what if 1, 2, 3, then I move 1→2
+    // — there's already a 2". Since plan_sets has no UNIQUE constraint on
+    // (plan_exercise_id, set_index), a direct renumber would also work, but
+    // the offset dance is safer if a future migration adds one.
+    const remaining = await db.getAllAsync<{ id: string; set_index: number }>(
+      `SELECT id, set_index FROM plan_sets
+        WHERE plan_exercise_id = ?
+        ORDER BY set_index ASC;`,
+      [planExerciseId],
+    );
+    for (const row of remaining) {
+      await db.runAsync(
+        'UPDATE plan_sets SET set_index = ? WHERE id = ?;',
+        [-row.set_index, row.id],
+      );
+    }
+    for (const row of remaining) {
+      await db.runAsync(
+        'UPDATE plan_sets SET set_index = ? WHERE id = ?;',
+        [remaining.indexOf(row) + 1, row.id],
+      );
+    }
+  });
+}
+
 export const planRepo = {
   list: listPlans,
   listWithCount: listPlansWithCount,
@@ -298,4 +430,7 @@ export const planRepo = {
   delete: deletePlan,
   replaceExercise,
   setExerciseRestSeconds,
+  replaceSetsForPlanExercise,
+  appendSetForPlanExercise,
+  removeSetForPlanExerciseByIndex,
 };

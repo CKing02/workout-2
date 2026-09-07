@@ -44,6 +44,19 @@ export interface PlanExerciseRow {
   rest_seconds: number;
 }
 
+/**
+ * Per-plan_exercise set preset. G24a: persisted to DB (was MVP-未落库 before).
+ * Note: weight / reps are intentionally NOT stored — G6 spec says "数据不预填",
+ * the user re-enters fresh at training time. Only the count (`set_index`)
+ * and `set_type` (W/normal/D/F) survive across sessions.
+ */
+export interface PlanSetRow {
+  id: string;
+  plan_exercise_id: string;
+  set_index: number;
+  set_type: string;
+}
+
 export interface TrainingRow {
   id: string;
   plan_id: string | null;
@@ -144,6 +157,23 @@ export function rowToPlanExercise(row: PlanExerciseRow): PlanExercise {
   };
 }
 
+/** In-app shape for a set preset (camelCase + normalized). */
+export interface PlanSet {
+  id: string;
+  planExerciseId: string;
+  setIndex: number;
+  setType: 'normal' | 'warmup' | 'dropout' | 'failure';
+}
+
+export function rowToPlanSet(row: PlanSetRow): PlanSet {
+  return {
+    id: row.id,
+    planExerciseId: row.plan_exercise_id,
+    setIndex: row.set_index,
+    setType: row.set_type as PlanSet['setType'],
+  };
+}
+
 export interface PlanWithExercises {
   id: string;
   name: string;
@@ -154,6 +184,8 @@ export interface PlanWithExercises {
 
 export interface PlanExerciseWithDetail extends PlanExercise {
   exercise: Exercise;
+  /** Per-exercise set presets (count + type). Empty array = no sets configured yet. */
+  sets: PlanSet[];
 }
 
 export interface Training {
@@ -248,6 +280,16 @@ export const CREATE_TABLE_SQL: string[] = [
    );`,
 
   `CREATE INDEX IF NOT EXISTS idx_plan_exercises_plan_id ON plan_exercises(plan_id);`,
+
+  `CREATE TABLE IF NOT EXISTS plan_sets (
+     id TEXT PRIMARY KEY,
+     plan_exercise_id TEXT NOT NULL,
+     set_index INTEGER NOT NULL,
+     set_type TEXT NOT NULL DEFAULT 'normal',
+     FOREIGN KEY (plan_exercise_id) REFERENCES plan_exercises(id) ON DELETE CASCADE
+   );`,
+
+  `CREATE INDEX IF NOT EXISTS idx_plan_sets_plan_exercise_id ON plan_sets(plan_exercise_id);`,
 
   `CREATE TABLE IF NOT EXISTS trainings (
      id TEXT PRIMARY KEY,
