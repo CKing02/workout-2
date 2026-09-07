@@ -260,10 +260,14 @@ export function ActiveTrainingScreen() {
             // training timer honors `plan_exercises.rest_seconds` instead
             // of always falling back to the global default.
             restSeconds: pe.restSeconds,
-            // G5 stores `PlanSetDraft` in memory only. We pass setType hints
-            // through; numeric fields are intentionally dropped — the user
-            // enters fresh data per the G6 spec ("数据不预填").
+            // G28: plan-level 处方 (weight / reps / setType) 透传到 store。
+            // 训练时实际值可能和处方不同（重量调整 / 减次），用户改一下就行；
+            // 不改的话直接做 + 完成。
+            // G6 「数据不预填」的原意是不预填 *上一次训练* 的值（避免渐进
+            // 超负荷被"惯性拷贝"拖累），不覆盖 *计划级处方*。
             initialSets: pe.sets.map((s: PlanSetDraft) => ({
+              weight: s.weight,
+              reps: s.reps,
               setType: s.setType,
             })),
           })),

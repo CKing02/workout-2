@@ -323,9 +323,9 @@ export const useTrainingStore = create<TrainingStoreState>((set, get) => ({
       startedAt: created.startedAt,
       exercises: input.exercises.map((ex, i) => {
         const hints = ex.initialSets ?? [];
-        // If the plan editor provided a hint list, materialize each as an
-        // empty ActiveSet — preserve the count and setType, but leave the
-        // numeric fields null so the user re-enters them fresh (G6).
+        // G28: 计划级处方 (weight / reps / setType) 预填到 ActiveSet 初值。
+        // 训练时实际值可能与处方不同 → 用户改一下；不改的话直接完成。
+        // G6 「数据不预填」指的是 *不预填上一次训练* 的值，不阻止本路径。
         if (hints.length > 0) {
           return {
             position: i,
@@ -338,10 +338,10 @@ export const useTrainingStore = create<TrainingStoreState>((set, get) => ({
               exerciseNameSnapshot: ex.exercise.name,
               position: i,
               setIndex: idx + 1,
-              weight: null,
-              reps: null,
-              durationSeconds: null,
-              distanceKm: null,
+              weight: h.weight ?? null,
+              reps: h.reps ?? null,
+              durationSeconds: h.durationSeconds ?? null,
+              distanceKm: h.distanceKm ?? null,
               setType: h.setType ?? 'normal',
               completed: false,
             })),
