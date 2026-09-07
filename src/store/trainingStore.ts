@@ -11,7 +11,10 @@
  * - activeTraining 包含 plan 信息快照（nameSnapshot），删除/重命名计划不影响历史展示
  * - activeTraining.exercises[i].sets 是当前已记录的 set 数组
  * - completeTraining 把所有 set 一次性 batch insert + 更新 training 行（耗时/总训练量/动作数/组数）
- * - cancelTraining 仅清空内存，不写 DB
+ * - cancelTraining 清空内存，并删除 `startTraining` 已在 `trainings` 表
+ *   写入的孤儿行（FK CASCADE 一并清掉 sets）；万一删除失败，列表 SQL 的
+ *   `WHERE ended_at IS NOT NULL` 仍然兜底，abandoned 行不会出现在首页 /
+ *   历史。
  */
 
 import { create } from 'zustand';
@@ -693,6 +696,7 @@ export const useTrainingStore = create<TrainingStoreState>((set, get) => ({
   },
 
   cancelTraining: () => {
+    const { activeTraining } = get();
     set({
       activeTraining: null,
       currentExerciseIndex: 0,
@@ -700,6 +704,28 @@ export const useTrainingStore = create<TrainingStoreState>((set, get) => ({
       // G17: 同上。
       lastSetsByExerciseId: {},
     });
+    // The user explicitly abandoned the session. `startTraining` already
+    // wrote a row to `trainings` (with `ended_at IS NULL`); clear it now
+    // so it doesn't linger as an orphan and never surface in history.
+    // The CASCADE on the FK removes any `training_sets` rows that may
+    // have been written before the cancel. This is fire-and-forget — the
+    // SQL filter `WHERE ended_at IS NOT NULL` in `listTrainings` /
+    // `queryByDateRange` is the durable backstop in case the delete fails.
+    if (activeTraining?.id) {
+      void (async () => {
+        try {
+          const db = await getDatabase();
+          await deleteTraining(db, activeTraining.id);
+        } catch (err) {
+          // Don't block the user's "abandon" action on DB cleanup. The
+          // orphan row is filtered out by list queries; an alert/console
+          // is enough to flag the issue for diagnostics.
+          const msg = err instanceof Error ? err.message : String(err);
+          // eslint-disable-next-line no-console
+          console.warn('[cancelTraining] failed to delete training row:', msg);
+        }
+      })();
+    }
   },
 
   removeFromHistory: async (id) => {

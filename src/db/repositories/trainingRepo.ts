@@ -17,8 +17,17 @@ export type { Training } from '../schema';
 export async function listTrainings(
   db: SQLiteDatabase,
 ): Promise<Training[]> {
+  // Only completed trainings. Abandoned rows (where `cancelTraining` was
+  // called or the app crashed mid-session) keep `ended_at IS NULL` — they
+  // must not surface in the home feed or history list. The cancel path
+  // deletes them outright (see `cancelTraining` in trainingStore), and
+  // the `ended_at IS NULL` filter here is a defensive backstop in case
+  // a row slips past the delete (e.g. process crash between the two
+  // statements of a future refactor).
   const rows = await db.getAllAsync<TrainingRow>(
-    'SELECT * FROM trainings ORDER BY started_at DESC;',
+    `SELECT * FROM trainings
+       WHERE ended_at IS NOT NULL
+       ORDER BY started_at DESC;`,
   );
   return rows.map(rowToTraining);
 }
@@ -149,7 +158,9 @@ export async function deleteTraining(
 }
 
 /**
- * 按日期范围查询训练记录。返回按 started_at 倒序。
+ * Query training records within a date range. Returns completed rows
+ * sorted by `started_at` descending. Abandoned rows (`ended_at IS NULL`)
+ * are filtered out — see `listTrainings` for the rationale.
  * `groupByDate` 留给上层（按日期分组是 UI 关心的事）。
  */
 export async function queryByDateRange(
@@ -160,6 +171,7 @@ export async function queryByDateRange(
   const rows = await db.getAllAsync<TrainingRow>(
     `SELECT * FROM trainings
        WHERE started_at >= ? AND started_at <= ?
+         AND ended_at IS NOT NULL
        ORDER BY started_at DESC;`,
     [fromMs, toMs],
   );

@@ -41,6 +41,7 @@ export interface PlanExerciseRow {
   plan_id: string;
   exercise_id: string;
   position: number;
+  rest_seconds: number;
 }
 
 export interface TrainingRow {
@@ -129,6 +130,8 @@ export interface PlanExercise {
   planId: string;
   exerciseId: string;
   position: number;
+  /** Per-exercise rest interval in seconds. Defaults to 60. */
+  restSeconds: number;
 }
 
 export function rowToPlanExercise(row: PlanExerciseRow): PlanExercise {
@@ -137,6 +140,7 @@ export function rowToPlanExercise(row: PlanExerciseRow): PlanExercise {
     planId: row.plan_id,
     exerciseId: row.exercise_id,
     position: row.position,
+    restSeconds: row.rest_seconds,
   };
 }
 
@@ -238,6 +242,7 @@ export const CREATE_TABLE_SQL: string[] = [
      plan_id TEXT NOT NULL,
      exercise_id TEXT NOT NULL,
      position INTEGER NOT NULL,
+     rest_seconds INTEGER NOT NULL DEFAULT 60,
      FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE CASCADE,
      FOREIGN KEY (exercise_id) REFERENCES exercises(id)
    );`,

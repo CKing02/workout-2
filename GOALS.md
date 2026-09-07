@@ -410,7 +410,7 @@
 
 ---
 
-## G15. 自定义动作
+## G15. 自定义动作 ✅
 
 **优先级**：P1  |  **依赖**：G2, G3, G4  |  **阶段**：2
 
@@ -434,7 +434,7 @@
 
 ---
 
-## G16. 计划内动作拖拽排序
+## G16. 计划内动作拖拽排序 ✅
 
 **优先级**：P1  |  **依赖**：G5, G3  |  **阶段**：2
 
@@ -456,7 +456,7 @@
 
 ---
 
-## G17. 训练中显示上次数据
+## G17. 训练中显示上次数据 ✅
 
 **优先级**：P1  |  **依赖**：G6, G9  |  **阶段**：2
 
@@ -477,7 +477,7 @@
 
 ---
 
-## G18. P1 数据可视化（4 屏合一）
+## G18. P1 数据可视化（4 屏合一）✅
 
 **优先级**：P1  |  **依赖**：G9  |  **阶段**：2
 
@@ -501,7 +501,7 @@
 
 ---
 
-## G19. 数据导出 JSON
+## G19. 数据导出 JSON ✅
 
 **优先级**：P1  |  **依赖**：G2  |  **阶段**：2
 
@@ -631,7 +631,7 @@ G21 用 `#${i}` idx 后缀掩盖了 React 重复 key，但 G22 排查发现：
 
 ---
 
-## G20. 技术债清理：过期注释 + Showcase 路由
+## G20. 技术债清理：过期注释 + Showcase 路由 ✅
 
 **优先级**：P2  |  **依赖**：G1  |  **阶段**：2
 
@@ -649,6 +649,50 @@ G21 用 `#${i}` idx 后缀掩盖了 React 重复 key，但 G22 排查发现：
 ### 自检清单
 - [ ] 决策记录：保留 Showcase 作为开发期自检工具 vs 删掉（视用户偏好）
 - [ ] 若保留，路由注册后真机可访问
+
+---
+
+## G24. 计划编辑扩展：ReorderModal 模态化 + 槽位换动作 + 每动作休息覆盖
+
+**优先级**：P1  |  **依赖**：G5, G15, G16  |  **阶段**：2
+
+### 背景
+
+G16 原「单步 swap」式 reorder 拖一次写一次 DB，频繁拖动性能差；计划编辑器还缺两个能力：
+1. 屏幕居中的模态拖拽 UI（更稳的视觉反馈 + 一次性 commit）
+2. 槽位换动作（同一槽位换成不同动作，**保留**该槽位已配的休息/组数）
+3. 每动作独立休息时长覆盖（不再全部用全局默认）
+
+memory 反馈（2026-09-06）：「计划重排序应直接 update 整张表，别单步 swap」。
+
+### 涉及
+
+- `src/db/schema.ts` + `src/db/migrations.ts` — `plan_exercises` 新增 `rest_seconds INTEGER` 列（migration 升级）
+- `src/db/repositories/planRepo.ts` — 新增 `replaceExercise(planId, planExerciseId, newExerciseId)` / `setExerciseRestSeconds(planId, planExerciseId, seconds)`
+- `src/store/planStore.ts` — `reorderExercises(from, to)` 替换为 `replaceExerciseInPlan` + `setExerciseRestSeconds` + 整张表 commit 路径
+- `src/screens/PlanEditorScreen.tsx` — 每张动作卡新增 MoreSheet（重排序 / 替换 / 休息 / 删除），内嵌 ReorderModal
+- `src/components/NumberInput.tsx` — 重构以支持新 rest 输入场景
+- `src/db/wipeAllData.ts` + `src/db/exportBackup.ts` — 兼容 `rest_seconds` 字段（备份导出包含；清表后无残留）
+
+### 验收标准（AC）
+
+- AC-24.1 计划编辑每张动作卡点「更多」弹 MoreSheet，含「重新排序 / 替换动作 / 调整休息 / 删除」4 项
+- AC-24.2 「重新排序」打开 ReorderModal（屏幕居中），内含可拖拽列表，**松手一次性 commit**（不再单步 swap）
+- AC-24.3 「替换动作」打开 ReplaceSheet → 勾选新运动 → 槽位换运动，**保留** restSeconds + sets 草稿 + 训练中已记数据
+- AC-24.4 「调整休息」写入 `plan_exercises.rest_seconds`，仅影响该动作；全局默认休息不变
+- AC-24.5 训练计时器实际使用的秒数 = `plan_exercises.rest_seconds ?? settingsStore.defaultRestSeconds`
+- AC-24.6 `tsc --noEmit` 通过；备份/清除/重装三件套兼容新列
+- AC-24.7 杀进程重启：动作顺序、替换关系、每动作休息全部保留
+
+### 自检清单
+
+- [ ] tsc --noEmit 通过
+- [ ] 真机：MoreSheet 4 项入口都可达
+- [ ] 真机：ReorderModal 拖多次后松手 → DB 只写一次
+- [ ] 真机：替换动作后该槽位 restSeconds + 组数未丢
+- [ ] 真机：每动作休息覆盖生效（训练计时器用新值，不再用全局默认）
+- [ ] 真机：杀进程重启顺序/替换/休息全部保留
+- [ ] 备份 JSON 含 rest_seconds；wipeAllData 后无残留
 
 ---
 

@@ -241,7 +241,6 @@ function NumberInputGrid() {
         onChangeValue={setWeight}
         min={0}
         max={500}
-        step={2.5}
         precision={1}
       />
       <NumberInput
@@ -258,11 +257,10 @@ function NumberInputGrid() {
         onChangeValue={setBody}
         min={20}
         max={250}
-        step={0.1}
         precision={1}
       />
       <Text style={[typography.caption, { color: colors.textTertiary }]}>
-        提示：试着输入 "abc" —— 会被过滤；± 按钮步进 2.5 (重量) / 1 (次数) / 0.1 (体重)。
+        提示：试着输入 "abc" —— 会被过滤；空值失焦回退到 min；超长数值会自动缩字号。
       </Text>
     </View>
   );

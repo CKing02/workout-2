@@ -2,7 +2,7 @@
  * PlanEditorScreen — G5 新建 / 编辑训练计划
  *
  * 顶部：计划名称输入
- * 中部：动作列表（每个动作包含若干组；支持添加组 / 删除组 / 切换组类型）
+ * 中部：动作列表（每个动作包含若干组；支持添加组 / swipe-to-delete 组）
  * 底部：添加动作按钮（跳动作库多选；带预勾选回传）
  * 顶部右侧：保存按钮（名称为空时禁用）
  *
@@ -10,6 +10,15 @@
  *  - 新建：保存时调用 planStore.create({name, exerciseIds})
  *  - 编辑：planStore.loadDetail(planId)；保存时调用 planStore.update(...)
  *  - 组（plan_sets）属于 MVP 暂不落库的范畴：仅在 planStore.detailById 内存保留
+ *
+ * 动作卡片交互：
+ *  - 右上角 "..." 按钮 → 打开 MoreSheet,内含 3 项:
+ *      运动重排序 → 打开 ReorderModal (屏幕居中) 拖拽排序
+ *      替换运动   → 打开 ReplaceSheet 选择新动作
+ *      删除运动   → Dialog 二次确认 → 移除
+ *  - 第一组上方有 "休息定时器" 按钮 (左对齐),点击 → RestSecondsSheet
+ *  - 不再支持长按拖拽排序、也不支持从右往左滑动删除动作
+ *  - 组 (SetRow) 支持从右往左滑动揭示"删除"按钮
  *
  * 与动作库多选的连接：
  *  PlanEditor 把回调 `onSelect` 通过 `route.params` 传给 ExerciseLibrary。
@@ -37,6 +46,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -71,6 +81,7 @@ import {
 import { useExerciseStore } from '@/store/exerciseStore';
 import { useTheme } from '@/theme';
 import { haptic } from '@/utils/haptics';
+import type { Exercise } from '@/db/schema';
 
 import type { RootStackParamList } from '@/navigation/types';
 
@@ -78,6 +89,7 @@ type Navigation = NativeStackNavigationProp<RootStackParamList, 'PlanEditor'>;
 type PlanEditorRoute = RouteProp<RootStackParamList, 'PlanEditor'>;
 
 const SWIPE_THRESHOLD = 80;
+const REVEAL_WIDTH = 80;
 const STUB_NEW_PLAN_ID = '__new';
 
 export function PlanEditorScreen() {
@@ -88,12 +100,11 @@ export function PlanEditorScreen() {
   const planId = route.params?.planId;
   const isEditing = !!planId;
 
-  const { colors, spacing, typography, radius } = useTheme();
+  const { colors, spacing, typography } = useTheme();
 
   const loadExercises = useExerciseStore((s) => s.load);
   const detailById = usePlanStore((s) => s.detailById);
   const loadDetail = usePlanStore((s) => s.loadDetail);
-  const clearDetail = usePlanStore((s) => s.clearDetail);
   const createPlan = usePlanStore((s) => s.create);
   const updatePlan = usePlanStore((s) => s.update);
   const removeExerciseFromPlan = usePlanStore(
@@ -102,7 +113,8 @@ export function PlanEditorScreen() {
   const addSet = usePlanStore((s) => s.addSetToPlanExercise);
   const removeSet = usePlanStore((s) => s.removeSetFromPlanExercise);
   const updateSets = usePlanStore((s) => s.updatePlanExerciseSets);
-  const reorderExercises = usePlanStore((s) => s.reorderExercises);
+  const replaceExerciseInPlan = usePlanStore((s) => s.replaceExerciseInPlan);
+  const setExerciseRestSeconds = usePlanStore((s) => s.setExerciseRestSeconds);
 
   // The plan id under which we stage this edit. For new plans we use a stub
   // sentinel until save, so the editor's local state has somewhere to live.
@@ -116,27 +128,14 @@ export function PlanEditorScreen() {
   const [name, setName] = useState<string>('');
   const [nameTouchedFromDB, setNameTouchedFromDB] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [pendingRemoveExercise, setPendingRemoveExercise] =
-    useState<PlanExerciseDraft | null>(null);
-  // G16: 拖拽态 —— 哪张卡片正在被拖。当前实现只跟踪 index（用于视觉
-  // 反馈），实际位置交换在 ExerciseEditorCard 释放时一次性触发。
-  const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
 
   // ----------------------------------------------------------------
   // Bootstrap: load exercise catalog + edit-mode plan detail.
-  //
-  // We always re-pull `name` from DB on mount regardless of whether
-  // `detail` is already cached. Otherwise a second visit to this screen
-  // (after goBack from a save) starts with `name = ''`, the `!detail`
-  // guard short-circuits the bootstrap, and the save button stays
-  // disabled forever.
   // ----------------------------------------------------------------
   useEffect(() => {
     let cancelled = false;
     void loadExercises();
     if (isEditing && planId) {
-      // Sync name from DB — this state resets on every screen mount, the
-      // store cache does not.
       if (!nameTouchedFromDB) {
         void usePlanStore.getState().fetch(planId).then((p) => {
           if (!cancelled && p) {
@@ -145,8 +144,6 @@ export function PlanEditorScreen() {
           }
         });
       }
-      // Exercise list cache (in-memory detail cache) can survive across
-      // mounts; only load if we don't already have it.
       if (!detail) {
         void loadDetail(planId);
       }
@@ -175,8 +172,6 @@ export function PlanEditorScreen() {
       try {
         setSaving(true);
         await createPlan({ name: trimmed, exerciseIds });
-        // G12: 非阻断反馈。navigation.goBack 后 toast 仍能渲染（Toast 在
-        // App 根节点层级，独立于 Stack 屏），用户切回列表时能看到。
         toast.show('计划已保存', 'success');
         navigation.goBack();
       } catch (err) {
@@ -248,12 +243,7 @@ export function PlanEditorScreen() {
     navigation.navigate('ExerciseLibrary', {
       mode: 'multiple',
       initialSelectedIds: initial,
-      // picker mode: ExerciseLibrary 完成时调用 onSelect(ids) 并 goBack()，
-      // 而不是 navigate('Tabs', { Training.params.selectedExerciseIds })。
-      // 数据直接在回调里落 detailById，不再绕锻炼 Tab。
       onSelect: (selectedIds: string[]) => {
-        // Read latest state to avoid stale closures — PlanEditor may have
-        // re-rendered between navigate() and the picker calling us back.
         const current =
           usePlanStore.getState().detailById[editKey]?.exerciseIds ?? [];
         const fresh = selectedIds.filter((id) => !current.includes(id));
@@ -275,6 +265,7 @@ export function PlanEditorScreen() {
               planId: editKey,
               exerciseId: id,
               position: pos++,
+              restSeconds: 60,
               exercise: ex,
               sets: [],
             });
@@ -291,7 +282,6 @@ export function PlanEditorScreen() {
           };
         });
 
-        // Persist to DB if editing (skip for new plans; save() will).
         if (isEditing && planId) {
           void Promise.all(
             fresh.map((id) =>
@@ -392,6 +382,103 @@ export function PlanEditorScreen() {
   }, [setSheet, onRemoveSet, closeSetSheet]);
 
   // ----------------------------------------------------------------
+  // Per-card menus — MoreSheet / ReorderModal / ReplaceSheet / RestSheet.
+  // `targetPeId` 同时驱动 MoreSheet 和它打开的下游界面。
+  // ----------------------------------------------------------------
+  const [moreSheetPeId, setMoreSheetPeId] = useState<string | null>(null);
+  const [reorderOpen, setReorderOpen] = useState(false);
+  const [replaceSheetPeId, setReplaceSheetPeId] = useState<string | null>(null);
+  const [restSheetPeId, setRestSheetPeId] = useState<string | null>(null);
+
+  // Delete-confirm dialog state lives here so we can re-use the same Dialog
+  // for any card, regardless of which menu opened it.
+  const [pendingDeletePe, setPendingDeletePe] =
+    useState<PlanExerciseDraft | null>(null);
+
+  const openMoreSheet = useCallback((peId: string) => {
+    setMoreSheetPeId(peId);
+    haptic.selection();
+  }, []);
+
+  const closeMoreSheet = useCallback(() => setMoreSheetPeId(null), []);
+
+  const handleMorePickReorder = useCallback(() => {
+    setMoreSheetPeId(null);
+    setReorderOpen(true);
+  }, []);
+
+  const handleMorePickReplace = useCallback(() => {
+    const id = moreSheetPeId;
+    setMoreSheetPeId(null);
+    if (id) setReplaceSheetPeId(id);
+  }, [moreSheetPeId]);
+
+  const handleMorePickDelete = useCallback(() => {
+    const id = moreSheetPeId;
+    setMoreSheetPeId(null);
+    if (!id || !detail) {
+      setPendingDeletePe(null);
+      return;
+    }
+    const pe = detail.exercises.find((e) => e.id === id) ?? null;
+    setPendingDeletePe(pe);
+  }, [moreSheetPeId, detail]);
+
+  const closeReorderModal = useCallback(() => setReorderOpen(false), []);
+  const closeReplaceSheet = useCallback(() => setReplaceSheetPeId(null), []);
+  const closeRestSheet = useCallback(() => setRestSheetPeId(null), []);
+
+  const handleReplacePick = useCallback(
+    async (newExerciseId: string) => {
+      const id = replaceSheetPeId;
+      setReplaceSheetPeId(null);
+      if (!id || !isEditing || !planId) return;
+      try {
+        await replaceExerciseInPlan(planId, id, newExerciseId);
+        toast.show('已替换动作', 'success');
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        toast.show(`替换失败：${msg}`, 'error');
+      }
+    },
+    [replaceSheetPeId, isEditing, planId, replaceExerciseInPlan],
+  );
+
+  const handleRestSecondsCommit = useCallback(
+    async (seconds: number) => {
+      const id = restSheetPeId;
+      setRestSheetPeId(null);
+      if (!id) return;
+      if (isEditing && planId) {
+        try {
+          await setExerciseRestSeconds(planId, id, seconds);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          toast.show(`更新休息时长失败：${msg}`, 'error');
+        }
+      } else {
+        // 新建计划 → 直接写本地 detailById,save 时 update() 路径会保留。
+        usePlanStore.setState((state) => {
+          const d = state.detailById[editKey];
+          if (!d) return state;
+          return {
+            detailById: {
+              ...state.detailById,
+              [editKey]: {
+                ...d,
+                exercises: d.exercises.map((e) =>
+                  e.id === id ? { ...e, restSeconds: seconds } : e,
+                ),
+              },
+            },
+          };
+        });
+      }
+    },
+    [restSheetPeId, isEditing, planId, setExerciseRestSeconds, editKey],
+  );
+
+  // ----------------------------------------------------------------
   // Render.
   // ----------------------------------------------------------------
   if (detailLoading) {
@@ -447,25 +534,16 @@ export function PlanEditorScreen() {
               </Text>
             </Card>
           ) : (
-            exercisesToShow.map((pe, idx) => (
+            exercisesToShow.map((pe) => (
               <ExerciseEditorCard
                 key={pe.id}
-                index={idx}
-                totalCount={exercisesToShow.length}
-                isDragging={draggingIndex === idx}
                 draft={pe}
                 onAddSet={() => onAddSet(pe.id)}
                 onOpenSetSheet={(idx) => openSetSheet(pe.id, idx)}
                 onUpdateSet={(idx, patch) => onUpdateSet(pe.id, idx, patch)}
-                onRequestRemove={() => setPendingRemoveExercise(pe)}
-                onDragStart={() => setDraggingIndex(idx)}
-                onDragEnd={(toIndex) => {
-                  setDraggingIndex(null);
-                  if (toIndex !== idx) {
-                    void reorderExercises(editKey, idx, toIndex);
-                    haptic.success();
-                  }
-                }}
+                onRemoveSet={(idx) => onRemoveSet(pe.id, idx)}
+                onOpenMore={() => openMoreSheet(pe.id)}
+                onOpenRest={() => setRestSheetPeId(pe.id)}
               />
             ))
           )}
@@ -482,23 +560,122 @@ export function PlanEditorScreen() {
       </ScrollView>
 
       <Dialog
-        visible={!!pendingRemoveExercise}
+        visible={!!pendingDeletePe}
         variant="danger"
         title="从计划中移除此动作？"
         message={
-          pendingRemoveExercise
-            ? `动作：${pendingRemoveExercise.exercise.name}`
+          pendingDeletePe
+            ? `动作：${pendingDeletePe.exercise.name}`
             : ''
         }
         confirmText="移除"
         cancelText="取消"
-        onCancel={() => setPendingRemoveExercise(null)}
+        onCancel={() => setPendingDeletePe(null)}
         onConfirm={() => {
-          const pe = pendingRemoveExercise;
-          setPendingRemoveExercise(null);
+          const pe = pendingDeletePe;
+          setPendingDeletePe(null);
           if (pe) onDeleteExercise(pe);
         }}
       />
+
+      <Sheet
+        visible={!!moreSheetPeId}
+        onClose={closeMoreSheet}
+        title={
+          moreSheetPeId
+            ? detail?.exercises.find((e) => e.id === moreSheetPeId)?.exercise
+                .name ?? '动作'
+            : undefined
+        }
+        maxHeightRatio={0.45}
+      >
+        <MoreSheetBody
+          onReorder={handleMorePickReorder}
+          onReplace={handleMorePickReplace}
+          onDelete={handleMorePickDelete}
+        />
+      </Sheet>
+
+      <ReorderModal
+        visible={reorderOpen}
+        exercises={exercisesToShow}
+        onClose={closeReorderModal}
+        onCommit={async (newExerciseIds) => {
+          setReorderOpen(false);
+          if (!isEditing || !planId) {
+            // 新建计划 → 仅本地重排
+            usePlanStore.setState((state) => {
+              const d = state.detailById[editKey];
+              if (!d) return state;
+              // newExerciseIds 是 exercises 表的 id 序列;d.exercises 是
+              // PlanExerciseDraft 数组,通过 exerciseId 字段匹配。
+              const reordered = newExerciseIds
+                .map((exId) => d.exercises.find((e) => e.exerciseId === exId))
+                .filter((v): v is PlanExerciseDraft => v !== null);
+              return {
+                detailById: {
+                  ...state.detailById,
+                  [editKey]: {
+                    exercises: reordered,
+                    exerciseIds: reordered.map((e) => e.exerciseId),
+                  },
+                },
+              };
+            });
+            return;
+          }
+          // 编辑模式:用完整的 newExerciseIds 直接调 update(),让 store
+          // 走 DELETE 旧 plan_exercises + 按新顺序 INSERT 全行。**不**算
+          // 单步 swap —— 用户在 modal 里可能拖了多次,所有相对位置变化
+          // 都要反映到最终顺序上。
+          const current =
+            usePlanStore.getState().detailById[planId]?.exerciseIds ?? [];
+          if (
+            current.length === newExerciseIds.length &&
+            current.every((id, i) => id === newExerciseIds[i])
+          ) {
+            return; // 顺序未变,no-op
+          }
+          await usePlanStore.getState().update(planId, {
+            exerciseIds: newExerciseIds,
+          });
+          haptic.success();
+        }}
+      />
+
+      <Sheet
+        visible={!!replaceSheetPeId}
+        onClose={closeReplaceSheet}
+        title="替换运动"
+        maxHeightRatio={0.85}
+      >
+        <ReplaceSheetBody
+          currentExerciseId={
+            replaceSheetPeId
+              ? detail?.exercises.find((e) => e.id === replaceSheetPeId)
+                  ?.exerciseId
+              : undefined
+          }
+          onPick={handleReplacePick}
+        />
+      </Sheet>
+
+      <Sheet
+        visible={!!restSheetPeId}
+        onClose={closeRestSheet}
+        title="休息定时器"
+        maxHeightRatio={0.55}
+      >
+        <RestSecondsSheetBody
+          currentSeconds={
+            restSheetPeId
+              ? detail?.exercises.find((e) => e.id === restSheetPeId)
+                  ?.restSeconds ?? 60
+              : 60
+          }
+          onCommit={handleRestSecondsCommit}
+        />
+      </Sheet>
 
       <Sheet
         visible={!!setSheet}
@@ -521,49 +698,197 @@ export function PlanEditorScreen() {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Sub-components                                                             */
+/* ExerciseEditorCard                                                         */
 /* -------------------------------------------------------------------------- */
 
 interface ExerciseEditorCardProps {
-  /** G16: 在 plan.exercises 数组中的 0-based 位置，用于拖拽计算 toIndex。 */
-  index: number;
-  /** G16: 当前 plan 动作总数，用于 clamp toIndex。 */
-  totalCount: number;
-  /** G16: 是否正在被拖（其他卡片视觉态）。 */
-  isDragging: boolean;
   draft: PlanExerciseDraft;
   onAddSet: () => void;
   onOpenSetSheet: (setIndex: number) => void;
   onUpdateSet: (setIndex: number, patch: Partial<PlanSetDraft>) => void;
-  onRequestRemove: () => void;
-  /** G16: 用户长按手柄开始拖拽。 */
-  onDragStart: () => void;
-  /** G16: 用户释放手指时回调，参数为目标 index（已 clamp）。 */
-  onDragEnd: (toIndex: number) => void;
+  onRemoveSet: (setIndex: number) => void;
+  onOpenMore: () => void;
+  onOpenRest: () => void;
 }
 
-/**
- * G16: 估算的卡片高度，用于把像素偏移转换成"跨越几个位置"。
- * 实际高度随 set 数变化；用偏大的常数确保跳级时能跨越多行。
- */
-const ESTIMATED_ROW_HEIGHT = 110;
-
 function ExerciseEditorCard({
-  index,
-  totalCount,
-  isDragging,
   draft,
   onAddSet,
   onOpenSetSheet,
   onUpdateSet,
-  onRequestRemove,
-  onDragStart,
-  onDragEnd,
+  onRemoveSet,
+  onOpenMore,
+  onOpenRest,
 }: ExerciseEditorCardProps) {
   const { colors, spacing, typography, radius } = useTheme();
+
+  return (
+    <Card padding="md">
+      <View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginBottom: spacing.sm,
+          gap: spacing.sm,
+        }}
+      >
+        <View style={{ flex: 1 }}>
+          <Text
+            style={[typography.subtitle, { color: colors.text }]}
+            numberOfLines={1}
+          >
+            {draft.exercise.name}
+          </Text>
+          <View
+            style={{
+              flexDirection: 'row',
+              gap: spacing.xs,
+              marginTop: spacing.xxs,
+              flexWrap: 'wrap',
+            }}
+          >
+            <Badge
+              label={draft.exercise.muscleGroup}
+              variant="primary"
+              size="sm"
+            />
+            <Badge
+              label={draft.exercise.equipment}
+              variant="default"
+              size="sm"
+            />
+          </View>
+        </View>
+        <Button
+          size="sm"
+          variant="ghost"
+          onPress={onAddSet}
+          accessibilityLabel={`为 ${draft.exercise.name} 添加组`}
+        >
+          添加组
+        </Button>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`${draft.exercise.name} 更多操作`}
+          accessibilityHint="打开运动重排序、替换、删除菜单"
+          hitSlop={8}
+          onPress={onOpenMore}
+          style={({ pressed }) => ({
+            width: 32,
+            height: 32,
+            borderRadius: radius.sm,
+            backgroundColor: pressed ? colors.surfaceMuted : 'transparent',
+            alignItems: 'center',
+            justifyContent: 'center',
+          })}
+        >
+          <Text
+            style={{
+              color: colors.textTertiary,
+              fontSize: 20,
+              fontWeight: '700',
+              lineHeight: 22,
+            }}
+          >
+            ⋯
+          </Text>
+        </Pressable>
+      </View>
+
+      {/* 休息定时器按钮 (左对齐) — 仅在有组时显示;空组下"添加组"已存在,
+          再放按钮反而拥挤。 */}
+      {draft.sets.length > 0 ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="设置休息时长"
+          accessibilityHint={`当前 ${draft.restSeconds} 秒`}
+          onPress={onOpenRest}
+          style={({ pressed }) => ({
+            alignSelf: 'flex-start',
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: spacing.xs,
+            paddingVertical: spacing.xs,
+            paddingHorizontal: spacing.sm,
+            marginBottom: spacing.xs,
+            borderRadius: radius.sm,
+            backgroundColor: pressed
+              ? colors.surfaceMuted
+              : colors.surface,
+            borderWidth: StyleSheet.hairlineWidth,
+            borderColor: colors.border,
+          })}
+        >
+          <Text style={{ fontSize: 14 }}>⏱</Text>
+          <Text
+            style={[typography.label, { color: colors.textSecondary }]}
+          >
+            休息 {draft.restSeconds}s
+          </Text>
+        </Pressable>
+      ) : null}
+
+      {draft.sets.length === 0 ? (
+        <Text
+          style={[
+            typography.bodySmall,
+            {
+              color: colors.textTertiary,
+              textAlign: 'center',
+              paddingVertical: spacing.sm,
+            },
+          ]}
+        >
+          还没有组。点击右上角"添加组"开始。
+        </Text>
+      ) : (
+        <View style={{ gap: spacing.xs, marginTop: spacing.xs }}>
+          {draft.sets.map((s, idx) => (
+            <SetRow
+              key={s.localId}
+              setRow={s}
+              onPressIndex={() => onOpenSetSheet(idx)}
+              onChangeWeight={(w) => onUpdateSet(idx, { weight: w })}
+              onChangeReps={(r) => onUpdateSet(idx, { reps: r })}
+              onRemove={() => onRemoveSet(idx)}
+            />
+          ))}
+        </View>
+      )}
+    </Card>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* SetRow — supports swipe-to-delete                                          */
+/* -------------------------------------------------------------------------- */
+
+interface SetRowProps {
+  setRow: PlanSetDraft;
+  onPressIndex: () => void;
+  onChangeWeight: (next: number) => void;
+  onChangeReps: (next: number) => void;
+  onRemove: () => void;
+}
+
+function SetRow({
+  setRow,
+  onPressIndex,
+  onChangeWeight,
+  onChangeReps,
+  onRemove,
+}: SetRowProps) {
+  const { colors, spacing, typography, radius } = useTheme();
+  const meta = SET_TYPES.find((t) => t.value === setRow.setType) ?? SET_TYPES[0];
+
   const translateX = useSharedValue(0);
-  const dragTranslateY = useSharedValue(0);
-  const REVEAL_WIDTH = 80;
+
+  const handleTrashPress = useCallback(() => {
+    translateX.value = withTiming(0, { duration: 180 }, (finished) => {
+      if (finished) runOnJS(onRemove)();
+    });
+  }, [onRemove, translateX]);
 
   const pan = useMemo(
     () =>
@@ -603,50 +928,13 @@ function ExerciseEditorCard({
 
   const composed = useMemo(() => Gesture.Race(pan, tap), [pan, tap]);
 
-  // G16: 垂直拖拽手柄 —— 长按 220ms 后激活，避免和水平 swipe 冲突。
-  // 手柄是独立 GestureDetector，与卡片的水平 pan 不在同一 view 上。
-  const dragGesture = useMemo(
-    () =>
-      Gesture.Pan()
-        .activateAfterLongPress(220)
-        .failOffsetX([-12, 12]) // 水平偏移 → 交给卡片的 swipe 处理
-        .onStart(() => {
-          runOnJS(onDragStart)();
-        })
-        .onUpdate((e) => {
-          dragTranslateY.value = e.translationY;
-        })
-        .onEnd((e) => {
-          const offset = Math.round(e.translationY / ESTIMATED_ROW_HEIGHT);
-          const toIndex = Math.max(0, Math.min(totalCount - 1, index + offset));
-          dragTranslateY.value = withTiming(0, { duration: 180 });
-          runOnJS(onDragEnd)(toIndex);
-        })
-        .onFinalize(() => {
-          // 兜底：如果被 cancel，dragTranslateY 也归零
-          dragTranslateY.value = withTiming(0, { duration: 180 });
-        }),
-    [index, totalCount, onDragStart, onDragEnd, dragTranslateY],
-  );
-
   const cardStyle = useAnimatedStyle(() => ({
-    transform: [
-      { translateX: translateX.value },
-      { translateY: dragTranslateY.value },
-    ],
-    opacity: isDragging ? 0.7 : 1,
-    zIndex: isDragging ? 10 : 0,
+    transform: [{ translateX: translateX.value }],
   }));
 
   const trashStyle = useAnimatedStyle(() => ({
     opacity: translateX.value === 0 ? 0 : 1,
   }));
-
-  const handleTrashPress = useCallback(() => {
-    translateX.value = withTiming(0, { duration: 180 }, () => {
-      runOnJS(onRequestRemove)();
-    });
-  }, [onRequestRemove, translateX]);
 
   return (
     <View style={{ position: 'relative' }}>
@@ -656,7 +944,7 @@ function ExerciseEditorCard({
           styles.trashLayer,
           {
             backgroundColor: colors.danger,
-            borderRadius: radius.lg,
+            borderRadius: radius.md,
             right: 0,
           },
           trashStyle,
@@ -664,7 +952,7 @@ function ExerciseEditorCard({
       >
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="移除动作"
+          accessibilityLabel={`删除第 ${setRow.setIndex} 组`}
           onPress={handleTrashPress}
           style={({ pressed }) => [
             styles.trashButton,
@@ -672,189 +960,727 @@ function ExerciseEditorCard({
           ]}
         >
           <Text style={{ color: colors.onPrimary, fontWeight: '700' }}>
-            移除
+            删除
           </Text>
         </Pressable>
       </Animated.View>
 
       <GestureDetector gesture={composed}>
         <Animated.View style={cardStyle}>
-          <Card padding="md">
-            <View
-              style={{
-                flexDirection: 'row',
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: spacing.sm,
+            }}
+          >
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`第 ${setRow.setIndex} 组 ${meta.label}`}
+              accessibilityHint="点击修改组类型或删除组"
+              onPress={onPressIndex}
+              style={({ pressed }) => ({
+                width: 40,
+                height: 40,
+                borderRadius: radius.full,
+                backgroundColor: colors.primaryMuted,
                 alignItems: 'center',
-                justifyContent: 'space-between',
-                marginBottom: spacing.sm,
-                gap: spacing.sm,
-              }}
+                justifyContent: 'center',
+                opacity: pressed ? 0.7 : 1,
+              })}
             >
-              {/* G16: 拖拽手柄 —— 独立 GestureDetector，长按 220ms 启动 */}
-              <GestureDetector gesture={dragGesture}>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="拖动以重新排序"
-                  accessibilityHint="长按拖动此手柄可调整动作顺序"
-                  hitSlop={8}
-                  style={({ pressed }) => ({
-                    width: 32,
-                    height: 32,
-                    borderRadius: radius.sm,
-                    backgroundColor: pressed ? colors.surfaceMuted : 'transparent',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  })}
-                >
-                  <Text
-                    style={{
-                      color: colors.textTertiary,
-                      fontSize: 18,
-                      fontWeight: '700',
-                      letterSpacing: 2,
-                    }}
-                  >
-                    ⋮⋮
-                  </Text>
-                </Pressable>
-              </GestureDetector>
-
-              <View style={{ flex: 1 }}>
-                <Text
-                  style={[typography.subtitle, { color: colors.text }]}
-                  numberOfLines={1}
-                >
-                  {draft.exercise.name}
-                </Text>
-                <View
-                  style={{
-                    flexDirection: 'row',
-                    gap: spacing.xs,
-                    marginTop: spacing.xxs,
-                    flexWrap: 'wrap',
-                  }}
-                >
-                  <Badge
-                    label={draft.exercise.muscleGroup}
-                    variant="primary"
-                    size="sm"
-                  />
-                  <Badge
-                    label={draft.exercise.equipment}
-                    variant="default"
-                    size="sm"
-                  />
-                </View>
-              </View>
-              <Button
-                size="sm"
-                variant="ghost"
-                onPress={onAddSet}
-                accessibilityLabel={`为 ${draft.exercise.name} 添加组`}
-              >
-                添加组
-              </Button>
-            </View>
-
-            {draft.sets.length === 0 ? (
               <Text
-                style={[
-                  typography.bodySmall,
-                  {
-                    color: colors.textTertiary,
-                    textAlign: 'center',
-                    paddingVertical: spacing.sm,
-                  },
-                ]}
+                style={[typography.label, { color: colors.primaryPressed }]}
               >
-                还没有组。点击右上角"添加组"开始。
+                {meta.short
+                  ? `${meta.short}${setRow.setIndex}`
+                  : `${setRow.setIndex}`}
               </Text>
-            ) : (
-              <View style={{ gap: spacing.xs, marginTop: spacing.xs }}>
-                {draft.sets.map((s, idx) => (
-                  <SetRow
-                    key={s.localId}
-                    setRow={s}
-                    onPressIndex={() => onOpenSetSheet(idx)}
-                    onChangeWeight={(w) => onUpdateSet(idx, { weight: w })}
-                    onChangeReps={(r) => onUpdateSet(idx, { reps: r })}
-                  />
-                ))}
-              </View>
-            )}
-          </Card>
+            </Pressable>
+
+            <View
+              style={{ flex: 1 }}
+              accessible
+              accessibilityLabel={`第 ${setRow.setIndex} 组 重量`}
+            >
+              <NumberInput
+                value={setRow.weight}
+                onChangeValue={onChangeWeight}
+                min={0}
+                max={500}
+                precision={1}
+                unitLabel="kg"
+              />
+            </View>
+            <View
+              style={{ flex: 1 }}
+              accessible
+              accessibilityLabel={`第 ${setRow.setIndex} 组 次数`}
+            >
+              <NumberInput
+                value={setRow.reps}
+                onChangeValue={onChangeReps}
+                min={0}
+                max={50}
+              />
+            </View>
+          </View>
         </Animated.View>
       </GestureDetector>
     </View>
   );
 }
 
-interface SetRowProps {
-  setRow: PlanSetDraft;
-  onPressIndex: () => void;
-  onChangeWeight: (next: number) => void;
-  onChangeReps: (next: number) => void;
+/* -------------------------------------------------------------------------- */
+/* MoreSheetBody — 动作卡片 "..." 菜单                                         */
+/* -------------------------------------------------------------------------- */
+
+interface MoreSheetBodyProps {
+  onReorder: () => void;
+  onReplace: () => void;
+  onDelete: () => void;
 }
 
-function SetRow({
-  setRow,
-  onPressIndex,
-  onChangeWeight,
-  onChangeReps,
-}: SetRowProps) {
-  const { colors, spacing, typography, radius } = useTheme();
-  const meta = SET_TYPES.find((t) => t.value === setRow.setType) ?? SET_TYPES[0];
-
+function MoreSheetBody({
+  onReorder,
+  onReplace,
+  onDelete,
+}: MoreSheetBodyProps) {
+  const { spacing, colors, typography, radius } = useTheme();
   return (
-    <View
-      style={{
+    <View style={{ gap: spacing.xs }}>
+      <MenuRow
+        label="运动重排序"
+        hint="拖动调整动作顺序"
+        onPress={onReorder}
+      />
+      <MenuRow label="替换运动" hint="更换为动作库中的其他动作" onPress={onReplace} />
+      <MenuRow
+        label="删除运动"
+        hint="从此计划中移除该动作"
+        onPress={onDelete}
+        danger
+      />
+    </View>
+  );
+}
+
+interface MenuRowProps {
+  label: string;
+  hint?: string;
+  onPress: () => void;
+  danger?: boolean;
+}
+
+function MenuRow({ label, hint, onPress, danger }: MenuRowProps) {
+  const { spacing, colors, typography, radius } = useTheme();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityHint={hint}
+      onPress={onPress}
+      style={({ pressed }) => ({
+        paddingVertical: spacing.md,
+        paddingHorizontal: spacing.md,
+        borderRadius: radius.md,
+        backgroundColor: pressed
+          ? colors.surfaceMuted
+          : colors.surface,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.border,
         flexDirection: 'row',
         alignItems: 'center',
-        gap: spacing.sm,
-      }}
+        justifyContent: 'space-between',
+      })}
     >
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={`第 ${setRow.setIndex} 组 ${meta.label}`}
-        accessibilityHint="点击修改组类型或删除组"
-        onPress={onPressIndex}
-        style={({ pressed }) => ({
-          width: 40,
-          height: 40,
-          borderRadius: radius.full,
-          backgroundColor: colors.primaryMuted,
-          alignItems: 'center',
-          justifyContent: 'center',
-          opacity: pressed ? 0.7 : 1,
-        })}
-      >
-        <Text style={[typography.label, { color: colors.primaryPressed }]}>
-          {meta.short ? `${meta.short}${setRow.setIndex}` : `${setRow.setIndex}`}
+      <View style={{ flex: 1 }}>
+        <Text
+          style={[
+            typography.body,
+            { color: danger ? colors.danger : colors.text },
+          ]}
+        >
+          {label}
         </Text>
-      </Pressable>
-
-      <View style={{ flex: 1 }} accessible accessibilityLabel={`第 ${setRow.setIndex} 组 重量`}>
-        <NumberInput
-          value={setRow.weight}
-          onChangeValue={onChangeWeight}
-          min={0}
-          max={500}
-          step={2.5}
-          precision={1}
-          unitLabel="kg"
-        />
+        {hint ? (
+          <Text
+            style={[
+              typography.caption,
+              { color: colors.textTertiary, marginTop: 2 },
+            ]}
+          >
+            {hint}
+          </Text>
+        ) : null}
       </View>
-      <View style={{ flex: 1 }} accessible accessibilityLabel={`第 ${setRow.setIndex} 组 次数`}>
-        <NumberInput
-          value={setRow.reps}
-          onChangeValue={onChangeReps}
-          min={0}
-          max={50}
-          step={1}
-        />
+      <Text style={{ color: colors.textTertiary, fontSize: 18 }}>›</Text>
+    </Pressable>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* ReorderModal — 屏幕居中,内含可拖拽的动作列表                                */
+/* -------------------------------------------------------------------------- */
+
+interface ReorderModalProps {
+  visible: boolean;
+  exercises: PlanExerciseDraft[];
+  onClose: () => void;
+  onCommit: (newOrder: string[]) => void;
+}
+
+const REORDER_ROW_HEIGHT = 56;
+const REORDER_ROW_GAP = 6;
+
+function ReorderModal({
+  visible,
+  exercises,
+  onClose,
+  onCommit,
+}: ReorderModalProps) {
+  const { colors, spacing, typography, radius } = useTheme();
+  const insets = useSafeAreaInsets();
+
+  // 本地顺序:用户拖拽 swap 时改这里,松手 commit 时推到父级。
+  // 用父级 exercises 的 id 序列签名作为 useState 的"隐式同步触发":
+  // exercises 一旦内容变化,orderKey 变,useEffect 立即 setOrder 跟上。
+  const orderKey = exercises.map((e) => e.id).join('|');
+  const [order, setOrder] = useState<string[]>(() =>
+    exercises.map((e) => e.id),
+  );
+
+  useEffect(() => {
+    setOrder(exercises.map((e) => e.id));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orderKey, visible]);
+
+  // 按 visualOrder 索引查找 planExercise。
+  const byId = useMemo(
+    () => new Map(exercises.map((e) => [e.id, e])),
+    [exercises],
+  );
+
+  /**
+   * ReorderRow 在 pan end 时调用:把 id 从 fromIndex 一次 swap 到 toIndex。
+   * 不在拖拽过程中 step-by-step 改 order — 那样会让 key 变化触发组件
+   * unmount/mount,把 GestureDetector 也带走,导致拖拽中断。
+   * 视觉上的"跨行"由卡片自身的 translateY 共享值实时跟随手指完成,
+   * 松手时一次性把数据层同步到正确位置。
+   */
+  const handleDrop = useCallback(
+    (id: string, translationY: number) => {
+      haptic.selection();
+      const fromIdx = order.indexOf(id);
+      if (fromIdx === -1) return;
+      const stepOffset = Math.round(
+        translationY / (REORDER_ROW_HEIGHT + REORDER_ROW_GAP),
+      );
+      const toIdx = Math.max(
+        0,
+        Math.min(order.length - 1, fromIdx + stepOffset),
+      );
+      if (toIdx === fromIdx) return;
+      setOrder((prev) => {
+        const next = [...prev];
+        const [moved] = next.splice(fromIdx, 1);
+        next.splice(toIdx, 0, moved);
+        return next;
+      });
+    },
+    [order],
+  );
+
+  const handleConfirm = useCallback(() => {
+    // 把 plan_exercises.id 序列翻译成 exerciseId 序列再交给父级 ——
+    // 父级 detailById[planId].exerciseIds 与父级 reorder/update 逻辑都用
+    // exerciseId 作为顺序真源。如果直接传 plan_exercises.id,父级
+    // update(exerciseIds) 路径会用 id 跟 exerciseId 比对,所有元素都不等,
+    // 整张表就被错位重写。
+    const newExerciseIds = order
+      .map((id) => byId.get(id)?.exerciseId)
+      .filter((v): v is string => !!v);
+    onCommit(newExerciseIds);
+  }, [order, byId, onCommit]);
+
+  if (!visible) return null;
+
+  // 不用 RN Modal —— Modal 走原生 UIViewController/Dialog,事件路径不经过
+  // gesture-handler 的 native view 树,内部的 GestureDetector 收不到 touch。
+  // 改成 absoluteFill 全屏覆盖 View 嵌在 PlanEditorScreen 根级 child,
+  // 这样 row 在正常的 RN view tree 里,长按拖拽才能 attach。
+  //
+  // 高度策略:modalCard 是 flex column,标题/提示/按钮各占自然高度,
+  // 中间 row 列表用 flex: 1 + overflow:'hidden' 吃掉所有剩余空间 —
+  // 任何动作数下按钮都贴在 modalCard 底部,row 超出部分被裁切(常见做法,
+  // 配合 6 行 maxHeight 用户已够用)。
+  return (
+    <View style={styles.modalBackdrop} pointerEvents="box-none">
+      <Pressable
+        style={StyleSheet.absoluteFill}
+        onPress={onClose}
+        accessibilityRole="button"
+        accessibilityLabel="关闭"
+      />
+      <View style={styles.modalCardWrap} pointerEvents="box-none">
+        <View
+          style={[
+            styles.modalCard,
+            {
+              backgroundColor: colors.surfaceElevated,
+              borderRadius: radius.xl,
+              padding: spacing.lg,
+              paddingBottom: spacing.lg + insets.bottom,
+              flex: 1,
+            },
+          ]}
+        >
+          <Text
+            style={[
+              typography.h3,
+              { color: colors.text, marginBottom: spacing.xs },
+            ]}
+          >
+            调整动作顺序
+          </Text>
+          <Text
+            style={[
+              typography.caption,
+              { color: colors.textTertiary, marginBottom: spacing.md },
+            ]}
+          >
+            长按任意位置拖动到目标行
+          </Text>
+
+          <View
+            style={{
+              gap: REORDER_ROW_GAP,
+              flex: 1,
+              minHeight: 0,
+              overflow: 'hidden',
+            }}
+          >
+            {order.length === 0 ? (
+              <Text
+                style={[
+                  typography.bodySmall,
+                  {
+                    color: colors.textTertiary,
+                    textAlign: 'center',
+                    paddingVertical: spacing.lg,
+                  },
+                ]}
+              >
+                暂无可排序的动作
+              </Text>
+            ) : (
+              order.map((id, idx) => {
+                const pe = byId.get(id);
+                if (!pe) return null;
+                return (
+                  <ReorderRow
+                    key={id}
+                    pe={pe}
+                    index={idx}
+                    onDrop={handleDrop}
+                  />
+                );
+              })
+            )}
+          </View>
+
+          <View
+            style={{
+              flexDirection: 'row',
+              gap: spacing.sm,
+              marginTop: spacing.lg,
+              justifyContent: 'flex-end',
+            }}
+          >
+            <Button variant="ghost" onPress={onClose}>
+              取消
+            </Button>
+            <Button variant="primary" onPress={handleConfirm}>
+              完成
+            </Button>
+          </View>
+        </View>
       </View>
     </View>
   );
 }
+
+interface ReorderRowProps {
+  pe: PlanExerciseDraft;
+  index: number;
+  /** Pan end: parent swaps this id from current index to `translationY` 推断的目标位置。 */
+  onDrop: (id: string, translationY: number) => void;
+}
+
+/**
+ * 整张 ROW 都是 GestureDetector — 长按 220ms 启动后,卡片视觉位置
+ * 由共享值 `translateY` 直接跟随手指 (无 setState 中间过程,绝无抖动),
+ * 松手时把 translationY 交回父级算 toIndex 一次性 setOrder。
+ * 视觉上的"跨过 N 行"由其他行 gap 自然撑开 — 数据没动就只是这一行浮起。
+ */
+function ReorderRow({ pe, index, onDrop }: ReorderRowProps) {
+  const { colors, spacing, typography, radius } = useTheme();
+
+  const translateY = useSharedValue(0);
+  const isActive = useSharedValue(0);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: translateY.value }],
+    zIndex: isActive.value === 1 ? 10 : 0,
+    opacity: isActive.value === 1 ? 0.92 : 1,
+    elevation: isActive.value === 1 ? 6 : 0,
+  }));
+
+  const dragGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .activateAfterLongPress(220)
+        .failOffsetX([-12, 12])
+        .onStart(() => {
+          isActive.value = 1;
+        })
+        .onUpdate((e) => {
+          translateY.value = e.translationY;
+        })
+        .onEnd((e) => {
+          isActive.value = 0;
+          runOnJS(onDrop)(pe.id, e.translationY);
+          translateY.value = withTiming(0, { duration: 160 });
+        })
+        .onFinalize(() => {
+          // 兜底:手势被中途取消(Modal 关闭 / 焦点丢失等)也要归位。
+          isActive.value = 0;
+          translateY.value = withTiming(0, { duration: 160 });
+        }),
+    [pe.id, translateY, isActive, onDrop],
+  );
+
+  return (
+    <GestureDetector gesture={dragGesture}>
+      <Animated.View
+        style={[
+          {
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: spacing.sm,
+            paddingVertical: spacing.sm,
+            paddingHorizontal: spacing.md,
+            borderRadius: radius.md,
+            backgroundColor: colors.surface,
+            borderWidth: StyleSheet.hairlineWidth,
+            borderColor: colors.border,
+            minHeight: REORDER_ROW_HEIGHT,
+          },
+          animatedStyle,
+        ]}
+      >
+        <Text
+          style={[
+            typography.label,
+            { color: colors.textTertiary, width: 24, textAlign: 'center' },
+          ]}
+        >
+          {index + 1}
+        </Text>
+        <View style={{ flex: 1 }}>
+          <Text
+            style={[typography.body, { color: colors.text }]}
+            numberOfLines={1}
+          >
+            {pe.exercise.name}
+          </Text>
+          <Text
+            style={[
+              typography.caption,
+              { color: colors.textTertiary, marginTop: 2 },
+            ]}
+          >
+            {pe.exercise.muscleGroup} · {pe.exercise.equipment}
+          </Text>
+        </View>
+        <View
+          accessibilityLabel="长按整行拖动排序"
+          style={{
+            width: 36,
+            height: 36,
+            borderRadius: radius.sm,
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <Text
+            style={{
+              color: colors.textTertiary,
+              fontSize: 18,
+              fontWeight: '700',
+              letterSpacing: 2,
+            }}
+          >
+            ⋮⋮
+          </Text>
+        </View>
+      </Animated.View>
+    </GestureDetector>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* ReplaceSheetBody — 选择替换动作                                             */
+/* -------------------------------------------------------------------------- */
+
+interface ReplaceSheetBodyProps {
+  currentExerciseId?: string;
+  onPick: (newExerciseId: string) => void;
+}
+
+function ReplaceSheetBody({
+  currentExerciseId,
+  onPick,
+}: ReplaceSheetBodyProps) {
+  const { colors, spacing, typography, radius } = useTheme();
+  const exercises = useExerciseStore((s) => s.exercises);
+  const [query, setQuery] = useState('');
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return exercises.filter((e) => e.id !== currentExerciseId);
+    return exercises.filter((e) => {
+      if (e.id === currentExerciseId) return false;
+      return (
+        e.name.toLowerCase().includes(q) ||
+        e.muscleGroup.toLowerCase().includes(q) ||
+        e.equipment.toLowerCase().includes(q)
+      );
+    });
+  }, [exercises, query, currentExerciseId]);
+
+  return (
+    <View style={{ gap: spacing.sm }}>
+      <TextInput
+        placeholder="搜索动作"
+        placeholderTextColor={colors.textTertiary}
+        value={query}
+        onChangeText={setQuery}
+        autoCapitalize="none"
+        autoCorrect={false}
+        style={{
+          paddingHorizontal: spacing.md,
+          paddingVertical: spacing.sm,
+          borderRadius: radius.md,
+          backgroundColor: colors.surface,
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: colors.border,
+          color: colors.text,
+          fontSize: 14,
+        }}
+      />
+
+      {filtered.length === 0 ? (
+        <Text
+          style={[
+            typography.bodySmall,
+            {
+              color: colors.textTertiary,
+              textAlign: 'center',
+              paddingVertical: spacing.lg,
+            },
+          ]}
+        >
+          没有匹配的动作
+        </Text>
+      ) : (
+        <ScrollView
+          style={{ maxHeight: 360 }}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={{ gap: spacing.xs }}>
+            {filtered.map((ex) => (
+              <ReplaceRow key={ex.id} ex={ex} onPick={onPick} />
+            ))}
+          </View>
+        </ScrollView>
+      )}
+    </View>
+  );
+}
+
+function ReplaceRow({
+  ex,
+  onPick,
+}: {
+  ex: Exercise;
+  onPick: (id: string) => void;
+}) {
+  const { colors, spacing, typography, radius } = useTheme();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`替换为 ${ex.name}`}
+      onPress={() => onPick(ex.id)}
+      style={({ pressed }) => ({
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.sm,
+        paddingVertical: spacing.sm,
+        paddingHorizontal: spacing.md,
+        borderRadius: radius.md,
+        backgroundColor: pressed ? colors.surfaceMuted : colors.surface,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.border,
+      })}
+    >
+      <View
+        style={{
+          width: 32,
+          height: 32,
+          borderRadius: radius.full,
+          backgroundColor: colors.primaryMuted,
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <Text style={[typography.label, { color: colors.primaryPressed }]}>
+          {ex.name.slice(0, 1)}
+        </Text>
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={[typography.body, { color: colors.text }]}>{ex.name}</Text>
+        <Text
+          style={[typography.caption, { color: colors.textTertiary, marginTop: 2 }]}
+        >
+          {ex.muscleGroup} · {ex.equipment}
+        </Text>
+      </View>
+    </Pressable>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* RestSecondsSheetBody — 配置休息时长                                         */
+/* -------------------------------------------------------------------------- */
+
+interface RestSecondsSheetBodyProps {
+  currentSeconds: number;
+  onCommit: (seconds: number) => void;
+}
+
+const REST_PRESETS = [30, 45, 60, 90, 120, 180, 240];
+
+function RestSecondsSheetBody({
+  currentSeconds,
+  onCommit,
+}: RestSecondsSheetBodyProps) {
+  const { spacing, colors, typography, radius } = useTheme();
+  const [value, setValue] = useState<number>(currentSeconds);
+
+  useEffect(() => {
+    setValue(currentSeconds);
+  }, [currentSeconds]);
+
+  const clamped = Math.max(0, Math.min(600, Math.round(value)));
+
+  return (
+    <View style={{ gap: spacing.md }}>
+      <Text
+        style={[
+          typography.label,
+          { color: colors.textSecondary, textTransform: 'uppercase' },
+        ]}
+      >
+        常用时长
+      </Text>
+      <View
+        style={{
+          flexDirection: 'row',
+          flexWrap: 'wrap',
+          gap: spacing.xs,
+        }}
+      >
+        {REST_PRESETS.map((preset) => {
+          const active = clamped === preset;
+          return (
+            <Pressable
+              key={preset}
+              accessibilityRole="radio"
+              accessibilityLabel={`${preset} 秒`}
+              accessibilityState={{ selected: active }}
+              onPress={() => setValue(preset)}
+              style={({ pressed }) => ({
+                paddingVertical: spacing.sm,
+                paddingHorizontal: spacing.md,
+                borderRadius: radius.full,
+                backgroundColor: active
+                  ? colors.primary
+                  : pressed
+                  ? colors.surfaceMuted
+                  : colors.surface,
+                borderWidth: StyleSheet.hairlineWidth,
+                borderColor: active ? colors.primary : colors.border,
+              })}
+            >
+              <Text
+                style={[
+                  typography.label,
+                  { color: active ? colors.onPrimary : colors.text },
+                ]}
+              >
+                {preset}s
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      <View>
+        <Text
+          style={[
+            typography.label,
+            {
+              color: colors.textSecondary,
+              textTransform: 'uppercase',
+              marginBottom: spacing.xs,
+            },
+          ]}
+        >
+          自定义 (秒)
+        </Text>
+        <NumberInput
+          value={value}
+          onChangeValue={setValue}
+          min={0}
+          max={600}
+          unitLabel="s"
+        />
+      </View>
+
+      <View
+        style={{
+          flexDirection: 'row',
+          gap: spacing.sm,
+          justifyContent: 'flex-end',
+          marginTop: spacing.xs,
+        }}
+      >
+        <Button
+          variant="primary"
+          onPress={() => onCommit(clamped)}
+          disabled={clamped === currentSeconds}
+        >
+          保存
+        </Button>
+      </View>
+    </View>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* SetSheetBody                                                               */
+/* -------------------------------------------------------------------------- */
 
 interface SetSheetBodyProps {
   peId: string;
@@ -977,5 +1803,27 @@ const styles = StyleSheet.create({
     width: '100%',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  modalBackdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'center',
+    zIndex: 1000,
+  },
+  modalCardWrap: {
+    width: '100%',
+    maxHeight: '90%',
+    height: '90%',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    justifyContent: 'center',
+  },
+  modalCard: {
+    width: '100%',
+    maxWidth: 480,
   },
 });

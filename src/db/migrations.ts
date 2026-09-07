@@ -37,6 +37,11 @@ export const MIGRATIONS: readonly Migration[] = [
     description: 'Add error_logs table for in-app diagnostics.',
     sql: '-- placeholder; CREATE TABLE IF NOT EXISTS runs via applyCreateTables',
   },
+  {
+    version: 3,
+    description: 'Add plan_exercises.rest_seconds (per-exercise rest interval, default 60s).',
+    sql: 'ALTER TABLE plan_exercises ADD COLUMN rest_seconds INTEGER NOT NULL DEFAULT 60;',
+  },
 ];
 
 /**

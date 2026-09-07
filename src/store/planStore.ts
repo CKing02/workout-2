@@ -30,8 +30,11 @@ import {
   deletePlan,
   getPlan,
   listPlansWithCount,
+  replaceExercise as replaceExerciseInRepo,
+  setExerciseRestSeconds as setExerciseRestSecondsInRepo,
   updatePlan,
 } from '@/db/repositories/planRepo';
+import { getExercise } from '@/db/repositories/exerciseRepo';
 import type { Exercise } from '@/db/schema';
 import type { SetTypeValue } from '@/constants/setTypes';
 
@@ -52,6 +55,8 @@ export interface PlanExerciseDraft {
   planId: string;
   exerciseId: string;
   position: number;
+  /** Per-exercise rest interval in seconds. Mirrors `plan_exercises.rest_seconds`. */
+  restSeconds: number;
   exercise: Exercise;
   sets: PlanSetDraft[];
 }
@@ -118,15 +123,21 @@ export interface PlanStoreState {
   ) => void;
 
   /**
-   * G16: 重新排序计划内的动作（持久化）。
-   * 从 in-memory detail.exerciseIds 读取当前顺序，移动一项到新位置后
-   * 复用 `update({ exerciseIds })` 路径批量重写 `plan_exercises` 行。
-   * `fromIndex === toIndex` 时为 no-op。
+   * Replace the underlying exercise of a single plan_exercise slot.
+   * Persists via `replaceExercise` repo call and updates the in-memory
+   * cache (position, sets, restSeconds stay; exercise metadata swap).
    */
-  reorderExercises: (
+  replaceExerciseInPlan: (
     planId: string,
-    fromIndex: number,
-    toIndex: number,
+    planExerciseId: string,
+    newExerciseId: string,
+  ) => Promise<void>;
+
+  /** Update the per-exercise rest interval. */
+  setExerciseRestSeconds: (
+    planId: string,
+    planExerciseId: string,
+    seconds: number,
   ) => Promise<void>;
 }
 
@@ -171,6 +182,7 @@ function toDraftState(plan: PlanWithExercises): PlanDetailState {
       planId: pe.planId,
       exerciseId: pe.exerciseId,
       position: pe.position,
+      restSeconds: pe.restSeconds,
       exercise: pe.exercise,
       sets: [],
     })),
@@ -337,6 +349,7 @@ export const usePlanStore = create<PlanStoreState>((set, get) => ({
         planId: pe.planId,
         exerciseId: pe.exerciseId,
         position: pe.position,
+        restSeconds: pe.restSeconds,
         exercise: pe.exercise,
         sets: carry.get(pe.exerciseId) ?? [],
       }));
@@ -432,20 +445,58 @@ export const usePlanStore = create<PlanStoreState>((set, get) => ({
     });
   },
 
-  // ---------- G16: 拖拽排序 ----------
+  // ---------- 替换运动 / 休息时长 ----------
 
-  reorderExercises: async (planId, fromIndex, toIndex) => {
-    if (fromIndex === toIndex) return;
+  replaceExerciseInPlan: async (planId, planExerciseId, newExerciseId) => {
+    // 防御性：如果新运动没换，什么都不做。
     const detail = get().detailById[planId];
-    if (!detail) return;
-    const len = detail.exerciseIds.length;
-    if (fromIndex < 0 || fromIndex >= len) return;
-    if (toIndex < 0 || toIndex >= len) return;
-    const ids = [...detail.exerciseIds];
-    const [moved] = ids.splice(fromIndex, 1);
-    ids.splice(toIndex, 0, moved);
-    // 复用 `update` 的 exerciseIds 路径：DB 事务内 DELETE 旧行 +
-    // 按新顺序 INSERT；detailById 会被重建。
-    await get().update(planId, { exerciseIds: ids });
+    const target = detail?.exercises.find((e) => e.id === planExerciseId);
+    if (!target) return;
+    if (target.exerciseId === newExerciseId) return;
+
+    const db = await getDatabase();
+    await replaceExerciseInRepo(db, planId, planExerciseId, newExerciseId);
+    // 加载新运动的 Exercise 详情并替换 detailById 中的元数据。
+    // restSeconds/position/sets 都保留 —— 用户为该 *槽位* 配的休息
+    // 时长与新运动一并迁移。
+    const newExercise = await getExercise(db, newExerciseId);
+    if (!newExercise) return;
+    set((state) => {
+      const d = state.detailById[planId];
+      if (!d) return state;
+      const newExercises = d.exercises.map((e) =>
+        e.id === planExerciseId
+          ? { ...e, exerciseId: newExerciseId, exercise: newExercise }
+          : e,
+      );
+      const newIds = newExercises.map((e) => e.exerciseId);
+      return {
+        detailById: {
+          ...state.detailById,
+          [planId]: { exercises: newExercises, exerciseIds: newIds },
+        },
+      };
+    });
+  },
+
+  setExerciseRestSeconds: async (planId, planExerciseId, seconds) => {
+    const bounded = Math.max(0, Math.min(600, Math.round(seconds)));
+    const db = await getDatabase();
+    await setExerciseRestSecondsInRepo(db, planId, planExerciseId, bounded);
+    set((state) => {
+      const d = state.detailById[planId];
+      if (!d) return state;
+      return {
+        detailById: {
+          ...state.detailById,
+          [planId]: {
+            ...d,
+            exercises: d.exercises.map((e) =>
+              e.id === planExerciseId ? { ...e, restSeconds: bounded } : e,
+            ),
+          },
+        },
+      };
+    });
   },
 }));

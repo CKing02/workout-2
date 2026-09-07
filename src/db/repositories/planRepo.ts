@@ -137,6 +137,9 @@ async function countPlanExercises(
   return row?.count ?? 0;
 }
 
+/** Default per-exercise rest interval (seconds). */
+const DEFAULT_REST_SECONDS = 60;
+
 export async function createPlan(
   db: SQLiteDatabase,
   input: { name: string; exerciseIds?: string[] },
@@ -151,11 +154,11 @@ export async function createPlan(
     const exIds = input.exerciseIds ?? [];
     if (exIds.length > 0) {
       const stmt = await db.prepareAsync(
-        `INSERT INTO plan_exercises (id, plan_id, exercise_id, position) VALUES (?, ?, ?, ?);`,
+        `INSERT INTO plan_exercises (id, plan_id, exercise_id, position, rest_seconds) VALUES (?, ?, ?, ?, ?);`,
       );
       try {
         for (let i = 0; i < exIds.length; i++) {
-          await stmt.executeAsync([newId(), id, exIds[i], i]);
+          await stmt.executeAsync([newId(), id, exIds[i], i, DEFAULT_REST_SECONDS]);
         }
       } finally {
         await stmt.finalizeAsync();
@@ -189,14 +192,32 @@ export async function updatePlan(
       [nextName, now, id],
     );
     if (patch.exerciseIds) {
-      // Replace strategy: delete all links then reinsert in given order.
+      // Reconcile strategy: keep each existing row's `rest_seconds` if its
+      // `exercise_id` is still in the new list, otherwise default to
+      // DEFAULT_REST_SECONDS for genuinely new exercises. This preserves
+      // user-configured rest intervals across reorders/adds/removes that
+      // go through `updatePlan` (which is most paths; only the dedicated
+      // `replaceExercise` / `setExerciseRestSeconds` helpers bypass this).
+      const existingRows = await db.getAllAsync<{
+        exercise_id: string;
+        rest_seconds: number;
+      }>(
+        'SELECT exercise_id, rest_seconds FROM plan_exercises WHERE plan_id = ?;',
+        [id],
+      );
+      const restByExId = new Map<string, number>(
+        existingRows.map((r) => [r.exercise_id, r.rest_seconds]),
+      );
+
       await db.runAsync('DELETE FROM plan_exercises WHERE plan_id = ?;', [id]);
       const stmt = await db.prepareAsync(
-        `INSERT INTO plan_exercises (id, plan_id, exercise_id, position) VALUES (?, ?, ?, ?);`,
+        `INSERT INTO plan_exercises (id, plan_id, exercise_id, position, rest_seconds) VALUES (?, ?, ?, ?, ?);`,
       );
       try {
         for (let i = 0; i < patch.exerciseIds.length; i++) {
-          await stmt.executeAsync([newId(), id, patch.exerciseIds[i], i]);
+          const exId = patch.exerciseIds[i];
+          const restSeconds = restByExId.get(exId) ?? DEFAULT_REST_SECONDS;
+          await stmt.executeAsync([newId(), id, exId, i, restSeconds]);
         }
       } finally {
         await stmt.finalizeAsync();
@@ -223,6 +244,51 @@ export async function deletePlan(
   await db.runAsync('DELETE FROM plans WHERE id = ?;', [id]);
 }
 
+/**
+ * Replace the `exercise_id` of a single `plan_exercises` row without
+ * disturbing its position or `rest_seconds` setting. Used by the plan
+ * editor's "替换运动" flow — the user keeps the existing rest interval
+ * (which was configured for that *slot*, not for the original exercise)
+ * and the new exercise inherits it.
+ */
+export async function replaceExercise(
+  db: SQLiteDatabase,
+  planId: string,
+  planExerciseId: string,
+  newExerciseId: string,
+): Promise<void> {
+  const result = await db.runAsync(
+    `UPDATE plan_exercises
+        SET exercise_id = ?
+        WHERE id = ? AND plan_id = ?;`,
+    [newExerciseId, planExerciseId, planId],
+  );
+  if (result.changes === 0) {
+    throw new Error(
+      `replaceExercise: no row updated (planExerciseId=${planExerciseId})`,
+    );
+  }
+}
+
+/**
+ * Update the per-exercise rest interval. No-op on `seconds === existing`,
+ * but we always issue the SQL — cheaper than the round-trip to read
+ * first, and `rest_seconds` is the only column touched.
+ */
+export async function setExerciseRestSeconds(
+  db: SQLiteDatabase,
+  planId: string,
+  planExerciseId: string,
+  seconds: number,
+): Promise<void> {
+  await db.runAsync(
+    `UPDATE plan_exercises
+        SET rest_seconds = ?
+        WHERE id = ? AND plan_id = ?;`,
+    [seconds, planExerciseId, planId],
+  );
+}
+
 export const planRepo = {
   list: listPlans,
   listWithCount: listPlansWithCount,
@@ -230,4 +296,6 @@ export const planRepo = {
   create: createPlan,
   update: updatePlan,
   delete: deletePlan,
+  replaceExercise,
+  setExerciseRestSeconds,
 };

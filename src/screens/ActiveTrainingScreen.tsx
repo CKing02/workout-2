@@ -1204,7 +1204,6 @@ function MetricFieldInput({
         onChangeValue={onChange}
         min={0}
         max={500}
-        step={2.5}
         precision={1}
         disabled={disabled}
       />
@@ -1218,7 +1217,6 @@ function MetricFieldInput({
         onChangeValue={onChange}
         min={0}
         max={50}
-        step={1}
         disabled={disabled}
       />
     );
@@ -1232,7 +1230,6 @@ function MetricFieldInput({
         onChangeValue={onChange}
         min={0}
         max={3600}
-        step={5}
         disabled={disabled}
       />
     );
@@ -1246,7 +1243,6 @@ function MetricFieldInput({
       onChangeValue={onChange}
       min={0}
       max={100}
-      step={0.1}
       precision={2}
       disabled={disabled}
     />
