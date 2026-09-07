@@ -947,9 +947,12 @@ reps: null,
 - [ ] 点底部 CTA 自动跳到下一未完成组（同动作内 → 跨动作 → 跳到第一未完成）
 - [ ] 顶部 ▾ 打开 ExerciseOverviewSheet，列出全部动作 + 进度，行点击直接跳
 - [ ] ExerciseOverviewSheet 无"跳过当前动作"按钮
-- [ ] 已完成组折叠显示（如 `60.0kg × 10 ✓`）
+- [ ] 已完成组折叠显示（如 `60.0kg × 10 ✓`） — 包括"刚做完的最后一组"也立刻变灰
 - [ ] 当前组 inline 输入只有 NumberInput（无 label），字段意义靠 unitLabel + placeholder
 - [ ] 不影响 G6：plan 级处方仍预填（G28）— 用户不改就照着做
+- [ ] G29 hotfix: 完成最后一组 → 自动跳下一动作（若有未完成）；无则 → 整体收尾
+- [ ] G29 hotfix: NumberInput 在已有值时，focus 选中全部让用户覆盖输入（不与旧值冲突）
+- [ ] G29 hotfix: 「+ 添加组」不跳焦点，新组出现在列表底部让用户自己点过去
 - [ ] tsc 通过、单测全过
 - [ ] commit
 

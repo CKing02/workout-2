@@ -153,6 +153,21 @@ export function NumberInput({
   // clobber the text the user just typed.
   const skipNextSyncRef = useRef(false);
 
+  // Ref to the underlying TextInput — used by `handleFocus` to select
+  // the entire committed value on focus, so the user can type a new
+  // number to overwrite without first deleting the old one. (The
+  // platform-native `selectTextOnFocus` prop only works on the FIRST
+  // focus on Android; we want cross-platform consistency across
+  // subsequent focuses too — hence the explicit ref-based selection.)
+  const inputRef = useRef<TextInput>(null);
+
+  const handleFocus = useCallback(() => {
+    if (isPrefill) return;
+    if (text.length === 0) return;
+    // RN's `setSelection` takes positional (start, end), not an object.
+    inputRef.current?.setSelection?.(0, text.length);
+  }, [isPrefill, text.length]);
+
   // Sync external value -> internal text when the parent changes the
   // value *outside* of the user's typing flow. The skip flag above keeps
   // the round-trip from `onChangeText -> onChangeValue -> parent rerender
@@ -242,10 +257,12 @@ export function NumberInput({
         ]}
       >
         <TextInput
+          ref={inputRef}
           testID={testID}
           editable={!disabled}
           value={text}
           onChangeText={onChangeText}
+          onFocus={handleFocus}
           onBlur={finalize}
           onSubmitEditing={finalize}
           keyboardType={precision > 0 ? 'decimal-pad' : 'number-pad'}

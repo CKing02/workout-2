@@ -494,14 +494,16 @@ export function ActiveTrainingScreen() {
       return; // already done — CTA disabled but defensive
     }
 
-    // G8: detect "last intended set" — if the set being completed is the
-    // final one across every exercise, auto-finish the training + jump to
-    // the TrainingComplete summary. We compute this BEFORE the mutation,
-    // using the plan-derived group count (the atomic action no longer
-    // appends, so `allSetsBefore.length` stays stable across completes).
-    const allSetsBefore = activeTraining.exercises.flatMap((e) => e.sets);
-    const completedBefore = allSetsBefore.filter((s) => s.completed).length;
-    const wouldAllBeDone = completedBefore + 1 >= allSetsBefore.length;
+    // G29: 检测"这是当前动作的最后一组未完成"。
+    // - 真：要么跳下一个还有未完成组的动作，要么（没有就）整体收尾。
+    // - 假：什么都不做，依赖 completeAndAdvance 在动作内自动跳到下一未完成组。
+    //
+    // 必须 *在 mutate 之前* 用 closure 捕获的 exBefore 来算：
+    // store 改写后再读就读到的是 mutate 之后的状态，会得到 0 个未完成，
+    // 误判为"最后一组"。
+    const exBefore = ex;
+    const wasLastUncompletedInExercise =
+      exBefore.sets.filter((s) => !s.completed).length === 1;
 
     // Bug-3 fix: single atomic mutation. Marks completed + advances focus
     // to the next uncompleted set in ONE set() call. Does NOT auto-append
@@ -529,12 +531,25 @@ export function ActiveTrainingScreen() {
     const restSeconds = activeEx?.restSeconds ?? defaultRestSeconds;
     triggerRestTimer(restSeconds);
 
-    // Auto-jump: only when the user actually completed the last real set
-    // (not after they accidentally tapped, e.g. on a freshly-appended set).
-    if (wouldAllBeDone) {
-      // Skip the dialog — auto-completion is intentional & already confirmed
-      // by the user's CTA press.
-      void completeAndNavigate();
+    // G29: 跨动作跳转 / 整体收尾。当前动作做完后：
+    //   1. 找下一个还有未完成组的动作 → 跳过去（store 自动把 currentSetIndex 重置为 0）
+    //   2. 找不到 → 整体收尾（→ TrainingComplete 总结页）
+    // 注意：wasLastUncompletedInExercise=true 在单动作训练 + 最后一组 时也会触发，
+    // 自然走到分支 2，无需单独的 wouldAllBeDone 判断。
+    if (wasLastUncompletedInExercise) {
+      let jumpedTo = -1;
+      for (let i = currentExerciseIndex + 1; i < activeTraining.exercises.length; i++) {
+        const nextEx = activeTraining.exercises[i];
+        if (nextEx.sets.some((s) => !s.completed)) {
+          setCurrentExerciseIndex(i);
+          jumpedTo = i;
+          break;
+        }
+      }
+      if (jumpedTo < 0) {
+        // 没找到下一个 → 整体收尾。直接跳，不再二次确认（用户主动点的 CTA）。
+        void completeAndNavigate();
+      }
     }
   }, [
     activeTraining,
@@ -543,6 +558,7 @@ export function ActiveTrainingScreen() {
     completeAndAdvance,
     defaultRestSeconds,
     completeAndNavigate,
+    setCurrentExerciseIndex,
   ]);
 
   // -----------------------------------------------------------------
@@ -732,10 +748,9 @@ export function ActiveTrainingScreen() {
               accessibilityLabel={`为 ${ex.exercise.name} 添加组`}
               onPress={() => {
                 appendEmptySet(currentExerciseIndex);
-                // 焦点跳到新组（下一帧 store 同步完后再读 length）。
-                setTimeout(() => {
-                  setCurrentSetIndex(ex.sets.length);
-                }, 0);
+                // G29 细化：*不*把焦点跳到新组 —— 用户可能正在做当前的
+                // 一组输入，只是先多开几组备用。焦点留在原 set 上，新组
+                // 出现在列表底部，想用时自己点过去即可。
                 haptic.selection();
               }}
               hitSlop={10}
@@ -1450,10 +1465,46 @@ function SetRow({
         ) : null}
       </Pressable>
 
-      {/* Right: state-dependent body. Active row hosts the inputs; other
-          rows show a one-liner. Pressing the body of an inactive row
-          focuses it; pressing the active row body is a no-op. */}
-      {isActive ? (
+      {/* Right: state-dependent body. Render priority is *completed >
+          isActive > future* — once a set is done it shows the ✓ UI no
+          matter whether focus happens to be on it (covers the "just
+          completed the LAST set of an exercise" path where
+          completeAndAdvance keeps currentSetIndex on the just-completed
+          set). Pressing the body of an incomplete inactive row focuses
+          it; completed rows aren't pressable (no edit semantics). */}
+      {completed ? (
+        <View
+          style={{
+            flex: 1,
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: spacing.xs,
+            paddingVertical: spacing.sm,
+          }}
+        >
+          <Text
+            style={[
+              typography.body,
+              {
+                color: colors.textTertiary,
+                textDecorationLine: 'line-through',
+              },
+            ]}
+            numberOfLines={1}
+          >
+            {summary}
+          </Text>
+          <Text
+            style={{
+              color: colors.success,
+              fontSize: 16,
+              fontWeight: '700',
+            }}
+          >
+            ✓
+          </Text>
+        </View>
+      ) : isActive ? (
         <View style={{ flex: 1, gap: spacing.sm }}>
           {fields.length === 1 ? (
             <MetricFieldInput
@@ -1497,44 +1548,12 @@ function SetRow({
             backgroundColor: pressed ? rowPressedBg : colors.transparent,
           })}
         >
-          {completed ? (
-            <View
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: spacing.xs,
-              }}
-            >
-              <Text
-                style={[
-                  typography.body,
-                  {
-                    color: colors.textTertiary,
-                    textDecorationLine: 'line-through',
-                  },
-                ]}
-                numberOfLines={1}
-              >
-                {summary}
-              </Text>
-              <Text
-                style={{
-                  color: colors.success,
-                  fontSize: 16,
-                  fontWeight: '700',
-                }}
-              >
-                ✓
-              </Text>
-            </View>
-          ) : (
-            <Text
-              style={[typography.body, { color: colors.textTertiary }]}
-              numberOfLines={1}
-            >
-              {summary}
-            </Text>
-          )}
+          <Text
+            style={[typography.body, { color: colors.textTertiary }]}
+            numberOfLines={1}
+          >
+            {summary}
+          </Text>
         </Pressable>
       )}
     </View>
