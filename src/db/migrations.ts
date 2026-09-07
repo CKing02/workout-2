@@ -54,6 +54,12 @@ export const MIGRATIONS: readonly Migration[] = [
           );
           CREATE INDEX IF NOT EXISTS idx_plan_sets_plan_exercise_id ON plan_sets(plan_exercise_id);`,
   },
+  {
+    version: 5,
+    description: 'Add plan_sets.weight + plan_sets.reps (G24a: persist prescription values, not just count/type).',
+    sql: `ALTER TABLE plan_sets ADD COLUMN weight REAL NOT NULL DEFAULT 0;
+          ALTER TABLE plan_sets ADD COLUMN reps INTEGER NOT NULL DEFAULT 0;`,
+  },
 ];
 
 /**

@@ -187,14 +187,17 @@ function toDraftState(plan: PlanWithExercises): PlanDetailState {
       position: pe.position,
       restSeconds: pe.restSeconds,
       exercise: pe.exercise,
-      // G24a: hydrate set presets from DB. weight/reps are in-memory only
-      // (G6: "数据不预填"), so default to 0 here. The visible chip strip
-      // and the training-time seed both read setIndex + setType.
+      // G24a follow-up: persist the plan-level prescription (weight, reps)
+      // so the editor's "10kg × 10 reps" template survives restarts. G6's
+      // "数据不预填" still applies at training time — `training_sets.weight`
+      // / `.reps` are the actual values the user re-enters during the
+      // session. plan_sets.* is the planned/prescribed value, kept across
+      // sessions.
       sets: pe.sets.map((s) => ({
         localId: localSetId(),
         setIndex: s.setIndex,
-        weight: 0,
-        reps: 0,
+        weight: s.weight,
+        reps: s.reps,
         setType: s.setType,
       })),
     })),
@@ -274,7 +277,11 @@ export const usePlanStore = create<PlanStoreState>((set, get) => ({
             await replaceSetsForPlanExercise(
               db,
               pe.id,
-              carried.map((s) => ({ setType: s.setType })),
+              carried.map((s) => ({
+                setType: s.setType,
+                weight: s.weight,
+                reps: s.reps,
+              })),
             );
           }
         }
@@ -297,7 +304,8 @@ export const usePlanStore = create<PlanStoreState>((set, get) => ({
               };
             }
             // No carry (e.g. reorder added a new exercise we didn't know
-            // about) — hydrate from the freshly-loaded DB sets.
+            // about) — hydrate from the freshly-loaded DB sets (including
+            // the just-re-INSERTed weight + reps from the carried sets).
             return {
               id: pe.id,
               planId: pe.planId,
@@ -308,8 +316,8 @@ export const usePlanStore = create<PlanStoreState>((set, get) => ({
               sets: pe.sets.map((s) => ({
                 localId: localSetId(),
                 setIndex: s.setIndex,
-                weight: 0,
-                reps: 0,
+                weight: s.weight,
+                reps: s.reps,
                 setType: s.setType,
               })),
             };
@@ -431,12 +439,13 @@ export const usePlanStore = create<PlanStoreState>((set, get) => ({
         exercise: pe.exercise,
         // Use the DB sets (now includes the seed) when carry has nothing;
         // for previously-known exercises the carry (in-memory) wins so
-        // any unsaved local edits survive.
+        // any unsaved local edits survive. weight + reps round-trip from
+        // the DB so a reloaded plan shows the user's prescription.
         sets: (carry.get(pe.exerciseId) ?? pe.sets.map((s) => ({
           localId: localSetId(),
           setIndex: s.setIndex,
-          weight: 0,
-          reps: 0,
+          weight: s.weight,
+          reps: s.reps,
           setType: s.setType,
         }))),
       }));
@@ -500,7 +509,8 @@ export const usePlanStore = create<PlanStoreState>((set, get) => ({
     // Persist. We use `replaceSetsForPlanExercise` to keep the DB row
     // set in lockstep with in-memory — partial-appends would leave the
     // DB with a different set_index sequence than the UI shows after
-    // deletes.
+    // deletes. G24a follow-up: also persist the new set's weight + reps
+    // (e.g. copied from the last set via "复制上组").
     const updated = get().detailById[planId]?.exercises.find(
       (e) => e.id === planExerciseId,
     );
@@ -509,7 +519,7 @@ export const usePlanStore = create<PlanStoreState>((set, get) => ({
     await replaceSetsForPlanExercise(
       db,
       planExerciseId,
-      updated.sets.map((s) => ({ setType: s.setType })),
+      updated.sets.map((s) => ({ setType: s.setType, weight: s.weight, reps: s.reps })),
     );
   },
 
@@ -540,7 +550,7 @@ export const usePlanStore = create<PlanStoreState>((set, get) => ({
     await replaceSetsForPlanExercise(
       db,
       planExerciseId,
-      updated.sets.map((s) => ({ setType: s.setType })),
+      updated.sets.map((s) => ({ setType: s.setType, weight: s.weight, reps: s.reps })),
     );
   },
 
@@ -562,7 +572,7 @@ export const usePlanStore = create<PlanStoreState>((set, get) => ({
     await replaceSetsForPlanExercise(
       db,
       planExerciseId,
-      reindexed.map((s) => ({ setType: s.setType })),
+      reindexed.map((s) => ({ setType: s.setType, weight: s.weight, reps: s.reps })),
     );
   },
 

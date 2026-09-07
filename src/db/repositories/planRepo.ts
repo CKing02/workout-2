@@ -324,17 +324,22 @@ export async function setExerciseRestSeconds(
 /**
  * Atomically replace all set presets for a single plan_exercise.
  * Used by planStore whenever the set list changes (add / remove / reorder /
- * type-change). Inserts new rows; the DB id is regenerated so the in-memory
- * `localId` ↔ DB `id` mapping always goes through this function.
+ * type-change / weight+reps edit). Inserts new rows; the DB id is
+ * regenerated so the in-memory `localId` ↔ DB `id` mapping always goes
+ * through this function.
  *
  * `sets` is the desired final state (ordered by `setIndex`). We do a single
  * DELETE + bulk INSERT inside one transaction so a half-applied state can
  * never land in the DB if the process dies mid-call.
+ *
+ * G24a follow-up: each set carries its full prescription (`weight`, `reps`,
+ * `setType`). All three are persisted so the plan editor's
+ * "10kg × 10 reps" template survives restarts.
  */
 export async function replaceSetsForPlanExercise(
   db: SQLiteDatabase,
   planExerciseId: string,
-  sets: ReadonlyArray<{ setType: string }>,
+  sets: ReadonlyArray<{ setType: string; weight: number; reps: number }>,
 ): Promise<void> {
   await db.withTransactionAsync(async () => {
     await db.runAsync(
@@ -343,11 +348,20 @@ export async function replaceSetsForPlanExercise(
     );
     if (sets.length === 0) return;
     const stmt = await db.prepareAsync(
-      `INSERT INTO plan_sets (id, plan_exercise_id, set_index, set_type) VALUES (?, ?, ?, ?);`,
+      `INSERT INTO plan_sets (id, plan_exercise_id, set_index, set_type, weight, reps)
+       VALUES (?, ?, ?, ?, ?, ?);`,
     );
     try {
       for (let i = 0; i < sets.length; i++) {
-        await stmt.executeAsync([newId(), planExerciseId, i + 1, sets[i].setType]);
+        const s = sets[i];
+        await stmt.executeAsync([
+          newId(),
+          planExerciseId,
+          i + 1,
+          s.setType,
+          s.weight,
+          s.reps,
+        ]);
       }
     } finally {
       await stmt.finalizeAsync();
@@ -359,11 +373,16 @@ export async function replaceSetsForPlanExercise(
  * Append one set preset to the end of a plan_exercise's list. Returns the
  * freshly-inserted row's `set_index` (1-based) — the caller pairs this with
  * the new in-memory `localId` to keep the two views in sync.
+ *
+ * G24a follow-up: also accepts initial `weight` + `reps` (e.g. when copying
+ * the last set's values via the editor's "复制上组" button).
  */
 export async function appendSetForPlanExercise(
   db: SQLiteDatabase,
   planExerciseId: string,
   setType: string,
+  weight: number = 0,
+  reps: number = 0,
 ): Promise<number> {
   const nextIndexRow = await db.getFirstAsync<{ next_index: number }>(
     `SELECT COALESCE(MAX(set_index), 0) + 1 AS next_index
@@ -372,9 +391,9 @@ export async function appendSetForPlanExercise(
   );
   const setIndex = nextIndexRow?.next_index ?? 1;
   await db.runAsync(
-    `INSERT INTO plan_sets (id, plan_exercise_id, set_index, set_type)
-     VALUES (?, ?, ?, ?);`,
-    [newId(), planExerciseId, setIndex, setType],
+    `INSERT INTO plan_sets (id, plan_exercise_id, set_index, set_type, weight, reps)
+     VALUES (?, ?, ?, ?, ?, ?);`,
+    [newId(), planExerciseId, setIndex, setType, weight, reps],
   );
   return setIndex;
 }
