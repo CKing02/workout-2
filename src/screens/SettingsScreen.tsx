@@ -29,6 +29,8 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system/legacy';
 
 import { Card } from '@/components/Card';
 import { Dialog } from '@/components/Dialog';
@@ -45,6 +47,11 @@ import { useTrainingStore } from '@/store/trainingStore';
 import { useTheme } from '@/theme';
 import { exportBackup } from '@/utils/exportData';
 import { haptic } from '@/utils/haptics';
+import {
+  importFromBackup,
+  validateBackupPayload,
+  type ValidatablePayload,
+} from '@/utils/importData';
 import { formatWeight, kgToLb, lbToKg } from '@/utils/units';
 
 const THEME_OPTIONS: ReadonlyArray<{ label: string; value: ThemeModeSetting }> = [
@@ -95,6 +102,12 @@ export function SettingsScreen() {
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [usernameDraft, setUsernameDraft] = useState('');
+  // G31: 导入流程状态。pendingImport 是已通过 schema 校验、待二次确认的 payload。
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [pendingImport, setPendingImport] = useState<ValidatablePayload | null>(
+    null,
+  );
 
   const handleOpenUsername = () => {
     setUsernameDraft(username);
@@ -158,6 +171,88 @@ export function SettingsScreen() {
     } finally {
       setExporting(false);
     }
+  };
+
+  // G31: 导入流程 — 拉起文件选择 → 读 → 校验 → 二次确认 → 全表覆盖。
+  // 失败/取消不修改 DB；只有用户点 Dialog 「确认导入」才走 importFromBackup。
+  const handleImport = async () => {
+    if (importing) return;
+    setImporting(true);
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['application/json', 'public.json'],
+        copyToCacheDirectory: true,
+      });
+      if (result.canceled) {
+        // 用户取消选文件 — 不报错也不 toast。
+        return;
+      }
+      const asset = result.assets[0];
+      if (!asset) {
+        toast.show('导入失败：未选择文件', 'error');
+        return;
+      }
+      // 读文件。content:// / file:// URI 在 legacy API 下都能直接 readAsStringAsync。
+      const text = await FileSystem.readAsStringAsync(asset.uri, {
+        encoding: FileSystem.EncodingType.UTF8,
+      });
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(text);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        toast.show(`导入失败：不是有效的 JSON（${msg}）`, 'error');
+        return;
+      }
+      const v = validateBackupPayload(parsed);
+      if (!v.ok) {
+        // 校验失败：文件存在但结构不对。给具体原因（schemaVersion/缺字段/类型错）。
+        toast.show(`导入失败：${v.error}`, 'error');
+        return;
+      }
+      // 校验通过 — 等用户二次确认。pendingImport 持有 payload，Dialog 关闭就清。
+      setPendingImport(v.payload);
+      setImportDialogOpen(true);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      toast.show(`导入失败：${msg}`, 'error');
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const handleConfirmImport = async () => {
+    const payload = pendingImport;
+    setImportDialogOpen(false);
+    setPendingImport(null);
+    if (!payload) return;
+    setImporting(true);
+    toast.show('正在导入…', 'info');
+    try {
+      const counts = await importFromBackup(payload);
+      // 刷新所有 store — store 内存里还保留旧数据，要手动 reload 才能反映新数据。
+      await Promise.all([
+        useExerciseStore.getState().reload(),
+        usePlanStore.getState().reload(),
+        useTrainingStore.getState().loadHistory(),
+        useSettingsStore.getState().load(),
+      ]);
+      useTrainingStore.getState().cancelTraining();
+      toast.show(
+        `已导入：${counts.plans} 个计划 / ${counts.trainings} 次训练 / ${counts.exercises} 个动作`,
+        'success',
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      toast.show(`导入失败：${msg}`, 'error');
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const handleCancelImport = () => {
+    setImportDialogOpen(false);
+    setPendingImport(null);
   };
 
   return (
@@ -285,6 +380,20 @@ export function SettingsScreen() {
             accessibilityHint="把所有训练数据导出为 JSON 文件，弹出系统分享面板"
           />
           <ListItem
+            title="数据导入"
+            subtitle="从 JSON 备份还原所有数据"
+            rightSlot={
+              <Text style={[typography.subtitle, { color: colors.textTertiary }]}>›</Text>
+            }
+            onPress={() => {
+              haptic.selection();
+              void handleImport();
+            }}
+            divider
+            accessibilityLabel="数据导入"
+            accessibilityHint="从系统文件选择器选 JSON 备份文件，覆盖现有全部数据"
+          />
+          <ListItem
             title="清除全部数据"
             subtitle="删除计划、历史、设置；重新种子动作库"
             onPress={() => setClearDialogOpen(true)}
@@ -399,6 +508,20 @@ export function SettingsScreen() {
         cancelText="取消"
         onCancel={() => setClearDialogOpen(false)}
         onConfirm={handleClearAll}
+      />
+
+      {/* G31: 导入二次确认 — 文案明示「覆盖现有全部数据」「不可撤销（除非你已经导出过）」。 */}
+      <Dialog
+        visible={importDialogOpen}
+        variant="danger"
+        title="确认导入？"
+        message="导入将覆盖现有全部数据，此操作不可撤销（除非你已经导出过）。建议导入前先做一次导出作为当前快照。"
+        confirmText={importing ? '导入中…' : '确认导入'}
+        cancelText="取消"
+        onCancel={handleCancelImport}
+        onConfirm={() => {
+          void handleConfirmImport();
+        }}
       />
     </SafeAreaView>
   );
