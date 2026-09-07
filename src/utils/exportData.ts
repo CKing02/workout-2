@@ -18,7 +18,7 @@
  *   await buildBackupPayload()  // 只构造 JSON 对象（便于测试 / 复用）
  */
 
-import * as FileSystem from 'expo-file-system/legacy';
+import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 
 import { getDatabase } from '@/db';
@@ -138,29 +138,32 @@ function backupTimestamp(ms: number): string {
 }
 
 /**
- * 全流程导出：构造 JSON → 写到 cacheDirectory → expo-sharing 弹面板。
+ * 全流程导出：构造 JSON → 写到 documentDirectory → expo-sharing 弹面板。
  * 失败抛 Error（UI 层 catch 后 toast）。
+ *
+ * G31 fix: 同步迁移到 v57 新 `expo-file-system` API — 写路径走
+ * `new File(Paths.document, name).write()`(同步迁移到非 legacy 入口,避免
+ * 后续 SDK 升级再次踩 deprecated 警告)。
  */
 export async function exportBackup(): Promise<{ fileName: string }> {
   const payload = await buildBackupPayload();
   const fileName = `workout2-backup-${backupTimestamp(payload.exportedAtMs)}.json`;
   const json = JSON.stringify(payload, null, 2);
 
-  // 兼容 legacy：documentDirectory 在 SDK 57 仍然存在（FileSystem.documentDirectory）。
-  const baseDir = FileSystem.documentDirectory;
-  if (!baseDir) {
+  // G31 fix: 用新 API `File` + `Paths.document` 写文件。`Paths.document.uri`
+  // 在原生平台始终非空；这里保留显式兜底(返回空字符串时 = web / 异常环境)。
+  const file = new File(Paths.document, fileName);
+  if (!file.uri || !file.uri.startsWith('file://')) {
     throw new Error('无法获取应用文档目录');
   }
-  const fileUri = `${baseDir}${fileName}`;
-  await FileSystem.writeAsStringAsync(fileUri, json, {
-    encoding: FileSystem.EncodingType.UTF8,
-  });
+  // G31 fix: 新 API `file.write()` 默认覆盖写、自动创建文件;UTF8 是默认值。
+  file.write(json);
 
   // 模拟器上 Sharing.isAvailableAsync() 返回 false —— 仍然写到文件，
   // 但跳过分享面板（用户可以手动从 Files / 文件管理 找到）。
   const canShare = await Sharing.isAvailableAsync();
   if (canShare) {
-    await Sharing.shareAsync(fileUri, {
+    await Sharing.shareAsync(file.uri, {
       dialogTitle: '导出训练数据',
       mimeType: 'application/json',
       UTI: 'public.json',

@@ -30,7 +30,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as DocumentPicker from 'expo-document-picker';
-import * as FileSystem from 'expo-file-system/legacy';
+import { File } from 'expo-file-system';
 
 import { Card } from '@/components/Card';
 import { Dialog } from '@/components/Dialog';
@@ -181,7 +181,7 @@ export function SettingsScreen() {
     try {
       const result = await DocumentPicker.getDocumentAsync({
         type: ['application/json', 'public.json'],
-        copyToCacheDirectory: true,
+        copyToCacheDirectory: false, // G31 fix: 新 File API 直读 content://,不需要 copy
       });
       if (result.canceled) {
         // 用户取消选文件 — 不报错也不 toast。
@@ -192,10 +192,11 @@ export function SettingsScreen() {
         toast.show('导入失败：未选择文件', 'error');
         return;
       }
-      // 读文件。content:// / file:// URI 在 legacy API 下都能直接 readAsStringAsync。
-      const text = await FileSystem.readAsStringAsync(asset.uri, {
-        encoding: FileSystem.EncodingType.UTF8,
-      });
+      // G31 fix: legacy `readAsStringAsync` 在 Android 16 撞 #32706(拒绝读 cacheDir file://)。
+      // 改用 v57 新 API `new File(uri).text()` — Android 走 `ContentProviderFile.kt` 走
+      // `ContentResolver.openInputStream`,完全绕过 `FileInputStream` 路径。
+      // picker 设 `copyToCacheDirectory: false` 让 picker 给原始 content:// URI。
+      const text = await new File(asset.uri).text();
       let parsed: unknown;
       try {
         parsed = JSON.parse(text);
