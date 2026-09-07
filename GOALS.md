@@ -776,6 +776,60 @@ HomeScreen 顶部的「开始锻炼」按钮只是 `navigation.navigate('Tabs', 
 
 ---
 
+## G26. 「我的」Tab 动作库入口接通（browse 模式）
+
+**优先级**：P3（入口连通性）  |  **依赖**：G4（动作库）+ G15（自定义动作）  |  **阶段**：3
+
+### 背景
+
+ProfileScreen 的「动作库」ListItem 当前是占位 Dialog：
+> 「可通过『锻炼』 Tab → 『添加动作』 进入动作库。」
+
+用户从「我的」无法直接浏览动作库。
+
+### 设计决策
+
+- 复用 `ExerciseLibraryScreen`，新增 `mode: 'browse'`
+  - `selectMode` 强制为 false（用户进来就是浏览态）
+  - 隐藏 ☑/完成 切换按钮（保留 `+` 创建自定义）
+  - 不显示 picker hint
+  - 长按仍可进入多选态（保留 G4 行为）
+- Profile 入口 `navigation.navigate('ExerciseLibrary', { title: '动作库', mode: 'browse' })`
+- 删除 Profile 中的占位 Dialog 与 `exerciseLibDialogOpen` state
+
+### 涉及
+
+- `src/navigation/types.ts` — `ExerciseLibraryMode` 增 `'browse'`
+- `src/screens/ExerciseLibraryScreen.tsx` — `mode === 'browse'` 分支：强制 selectMode=false、隐藏 headerRight 切换按钮
+- `src/screens/ProfileScreen.tsx` — 替换 ListItem onPress；删 Dialog 与 state
+
+### 验收标准（AC）
+
+- AC-26.1 Profile → 动作库 → 进入 ExerciseLibraryScreen，title = "动作库"
+- AC-26.2 browse 模式下右上角无 ☑/完成 按钮，只显示 `+`（新建自定义）
+- AC-26.3 browse 模式下顶部不显示 picker hint
+- AC-26.4 长按动作仍可进入多选态（G4 行为保留）
+- AC-26.5 浏览 / 搜索 / 肌群筛选 / 器械筛选 功能未受影响
+- AC-26.6 自定义动作的删除按钮仍可见可点
+- AC-26.7 Profile 占位 Dialog 与 `exerciseLibDialogOpen` state 已删除
+- AC-26.8 tsc --noEmit 通过；既有单测无 regression
+
+### 自检清单
+
+- [ ] tsc --noEmit 通过
+- [ ] 单测 11 套件 / 95 用例全过（无 regression）
+- [ ] 真机：Profile → 动作库 → 进入浏览页（无多选 UI）
+- [ ] 真机：搜索 / 肌群 / 器械筛选正常
+- [ ] 真机：长按动作 → 进入多选态（与 G4 行为一致）
+- [ ] 真机：自定义动作仍可删除
+- [ ] 真机：原"锻炼" Tab → "添加动作" 路径仍走 picker 模式未破坏
+
+---
+
+## Phase 2 路线（P2+，待评估优先级）
+
+---
+
 ## Phase 2 路线（P2+，待评估优先级）
 
 > 下列项目 PRD 列入但未排期，是否纳入 Phase 2 视用户偏好决定。

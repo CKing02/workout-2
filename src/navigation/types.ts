@@ -7,7 +7,7 @@
 
 import type { NavigatorScreenParams } from '@react-navigation/native';
 
-export type ExerciseLibraryMode = 'single' | 'multiple';
+export type ExerciseLibraryMode = 'single' | 'multiple' | 'browse';
 
 export interface ExerciseLibraryParams {
   /** Selection mode. Defaults to `'multiple'` in G4. */

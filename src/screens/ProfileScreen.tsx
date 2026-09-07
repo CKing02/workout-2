@@ -51,7 +51,6 @@ export function ProfileScreen({ navigation }: ProfileScreenProps) {
   const [usernameSheetOpen, setUsernameSheetOpen] = useState(false);
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
-  const [exerciseLibDialogOpen, setExerciseLibDialogOpen] = useState(false);
   const [usernameDraft, setUsernameDraft] = useState('');
 
   const handleOpenUsername = () => {
@@ -109,6 +108,13 @@ export function ProfileScreen({ navigation }: ProfileScreenProps) {
     (navigation as unknown as { navigate: (s: 'DataOverview') => void } | undefined)?.navigate(
       'DataOverview',
     );
+  };
+
+  const handleGoExerciseLibrary = () => {
+    // G26: 进入动作库浏览模式（不进入选择态、不显示 ☑/完成 切换）。
+    (navigation as unknown as {
+      navigate: (s: 'ExerciseLibrary', p: { title: string; mode: 'browse' }) => void;
+    } | undefined)?.navigate('ExerciseLibrary', { title: '动作库', mode: 'browse' });
   };
 
   // G19: 真实导出 —— 全表读 → 写文件 → 弹分享面板。
@@ -201,10 +207,10 @@ export function ProfileScreen({ navigation }: ProfileScreenProps) {
             subtitle="按肌群 / 器械浏览"
             leftSlot={<Glyph text="●" colors={colors} spacing={spacing} />}
             rightSlot={<Chevron colors={colors} typography={typography} />}
-            onPress={() => setExerciseLibDialogOpen(true)}
+            onPress={handleGoExerciseLibrary}
             divider
             accessibilityLabel="动作库入口"
-            accessibilityHint="点击查看动作库说明"
+            accessibilityHint="打开动作库浏览页"
           />
           <ListItem
             title="诊断"
@@ -313,15 +319,6 @@ export function ProfileScreen({ navigation }: ProfileScreenProps) {
         confirmText="清除"
         onCancel={() => setClearDialogOpen(false)}
         onConfirm={handleClearAll}
-      />
-      <Dialog
-        visible={exerciseLibDialogOpen}
-        title="动作库"
-        message={'可通过"锻炼" Tab → "添加动作" 进入动作库。'}
-        confirmText="好的"
-        cancelText="关闭"
-        onCancel={() => setExerciseLibDialogOpen(false)}
-        onConfirm={() => setExerciseLibDialogOpen(false)}
       />
     </SafeAreaView>
   );

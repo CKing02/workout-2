@@ -87,6 +87,14 @@ export function ExerciseLibraryScreen() {
    */
   const onSelect = route.params?.onSelect;
   const pickerMode = typeof onSelect === 'function';
+  /**
+   * G26: browse mode. Entered from the Profile "动作库" entry — user wants
+   * to look around, not pick. selectMode is locked to false, the header
+   * ☑/完成 toggle is hidden, and long-press doesn't enable multi-select.
+   * Existing per-row affordances (search / filter / +create / custom-delete)
+   * keep working as in the multiple/single modes.
+   */
+  const browseMode = mode === 'browse';
   const headerTitle = route.params?.title;
 
   const { colors, spacing, typography } = useTheme();
@@ -102,7 +110,7 @@ export function ExerciseLibraryScreen() {
     muscleGroup: ALL,
     equipment: ALL,
   });
-  const [selectMode, setSelectMode] = useState<boolean>(mode === 'multiple');
+  const [selectMode, setSelectMode] = useState<boolean>(mode === 'multiple' && !browseMode);
   const [selected, setSelected] = useState<Set<string>>(() => new Set(initialSelectedIds));
   // G15: 自定义动作的创建 Sheet + 删除确认 Dialog。
   const [createSheetOpen, setCreateSheetOpen] = useState(false);
@@ -152,6 +160,7 @@ export function ExerciseLibraryScreen() {
   }, [selected, onSelect, navigation]);
 
   const onToggleSelectMode = useCallback(() => {
+    if (browseMode) return; // G26: browse mode = locked browse, no toggle.
     setSelectMode((prev) => {
       if (prev) {
         // Exiting — clear selection.
@@ -160,14 +169,15 @@ export function ExerciseLibraryScreen() {
       }
       return true;
     });
-  }, []);
+  }, [browseMode]);
 
   useLayoutEffect(() => {
     navigation.setOptions({
       ...(headerTitle ? { title: headerTitle } : null),
       headerRight: () => (
         <View style={styles.headerRight}>
-          {/* G15: 「+」始终在左边；多选 / 完成模式时不显示（避免误触） */}
+          {/* G15: 「+」始终在左边；多选 / 完成模式时不显示（避免误触）。
+              G26: browse mode 也保留 `+`，让用户能新建自定义动作。 */}
           {!selectMode ? (
             <Pressable
               onPress={() => {
@@ -183,16 +193,19 @@ export function ExerciseLibraryScreen() {
               <Text style={[typography.title, { color: colors.primary, fontSize: 22 }]}>＋</Text>
             </Pressable>
           ) : null}
-          <HeaderRight
-            selectMode={selectMode}
-            count={selected.size}
-            accent={colors.primary}
-            typography={typography}
-            // Picker mode must not return an empty selection (G11 AC-11.1).
-            disabled={pickerMode && selected.size === 0}
-            onToggle={onToggleSelectMode}
-            onConfirm={onConfirm}
-          />
+          {/* G26: browse 模式隐藏 ☑/完成 切换按钮（browse 不进入选择态） */}
+          {browseMode ? null : (
+            <HeaderRight
+              selectMode={selectMode}
+              count={selected.size}
+              accent={colors.primary}
+              typography={typography}
+              // Picker mode must not return an empty selection (G11 AC-11.1).
+              disabled={pickerMode && selected.size === 0}
+              onToggle={onToggleSelectMode}
+              onConfirm={onConfirm}
+            />
+          )}
         </View>
       ),
     });
@@ -204,6 +217,7 @@ export function ExerciseLibraryScreen() {
     typography,
     headerTitle,
     pickerMode,
+    browseMode,
     onToggleSelectMode,
     onConfirm,
   ]);
@@ -256,13 +270,15 @@ export function ExerciseLibraryScreen() {
   );
 
   const onItemLongPress = useCallback((item: Exercise) => {
+    // G26: browse mode 锁死浏览态，不进入选择模式。
+    if (browseMode) return;
     setSelectMode(true);
     setSelected((prev) => {
       const next = new Set(prev);
       next.add(item.id);
       return next;
     });
-  }, []);
+  }, [browseMode]);
 
   const onItemToggle = useCallback((item: Exercise) => {
     setSelected((prev) => toggleInSet(prev, item.id));
@@ -363,8 +379,9 @@ export function ExerciseLibraryScreen() {
         <EquipmentControl value={filters.equipment} onChange={onChangeEquipment} />
       </View>
 
-      {/* G11 picker hint — tells the user what to do next and why 完成 is dim */}
-      {pickerMode ? (
+      {/* G11 picker hint — tells the user what to do next and why 完成 is dim.
+          G26: browse 模式也不显示（browse 不进入选择）。 */}
+      {pickerMode && !browseMode ? (
         <View
           style={{
             paddingHorizontal: spacing.lg,
