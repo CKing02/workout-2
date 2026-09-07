@@ -699,32 +699,35 @@ memory 反馈（2026-09-06）：「计划重排序应直接 update 整张表，�
 - [ ] 真机：杀进程重启顺序/替换/休息全部保留
 - [ ] 备份 JSON 含 rest_seconds；wipeAllData 后无残留
 
-### G24a — 修复 commit（2026-09-07，commit `bf80e82` + `4dd5f80` + `7599c32`）
+### G24a — 修复 commit（2026-09-07，commit `bf80e82` + `4dd5f80` + `7599c32` + `dd67b43`）
 
-> G24 WIP 落地后真机测出 3 个真 bug + 1 个设计冲突，1 个 AC 写错。诊断 + 修复 commit：
+> G24 WIP 落地后真机测出 4 个真 bug + 1 个设计冲突，1 个 AC 写错。诊断 + 修复 commit：
 >
 > | 编号 | 真根因 | commit |
 > |---|---|---|
 > | BUG-A | `planStore.update` 在 DELETE+INSERT 后没刷新 `pe.id` 缓存，导致 replaceExerciseInPlan / setExerciseRestSeconds 用 stale id 找行 → SQL changes=0 → 抛 "no row updated" | `bf80e82` |
 > | BUG-B | `ActiveExercise` 类型没 `restSeconds` 字段 + `startTraining` 入参不接 + ActiveTrainingScreen 写死 `defaultRestSeconds` | `4dd5f80` |
 > | BUG-6 | plan_sets 表从未建立过（"MVP 暂不落库"），G24 WIP 加了 UI 但没建表，杀进程重启组数 / 类型全丢。新表 `plan_sets(id, plan_exercise_id, set_index, set_type)` + migration v4，set 草稿每改一次自动写 DB | `7599c32` |
+> | BUG-7 | BUG-6 commit 没存 weight / reps（组数保留了但具体值置 0）。G24a 跟单：plan_sets 加 `weight REAL` + `reps INTEGER`（migration v5），repo + toDraftState 全链路透传 | `dd67b43` |
 > | AC 修 | AC-24.1 写 4 项，实际是 3 项（休息入口独立在卡片上） | `68f6c8f` |
 
 ### G24a — 新增 AC
 
-- AC-24.9 计划编辑器加 / 删 / 改组后立即写 DB；杀进程重启组数 + 类型保留
+- AC-24.9 计划编辑器加 / 删 / 改组后立即写 DB；杀进程重启组数 + 类型 + weight + reps 全部保留
 - AC-24.10 新加动作通过 picker → 自动种 1 组 `normal`（G24a 设计选择：始终 ≥1 组）
-- AC-24.11 reorder 后 plan_sets 跟着新 plan_exercise id 重新插入（cascade 删 → 重写）
-- AC-24.12 替换动作不破坏 plan_sets（UPDATE 不触发 CASCADE，sets 自动保留）
+- AC-24.11 reorder 后 plan_sets 跟着新 plan_exercise id 重新插入（cascade 删 → 重写，含 weight + reps）
+- AC-24.12 替换动作不破坏 plan_sets（UPDATE 不触发 CASCADE，sets 自动保留，含 weight + reps）
+- AC-24.13 weight / reps 是**处方级**持久化（plan_sets.weight/reps）；训练时实际值仍走 training_sets（守 G6「数据不预填」）
 
 ### G24a — 自检清单追加
 
 - [x] tsc --noEmit 通过
 - [x] 单测 11 套件 / 95 用例全过（无 regression）
 - [ ] 真机：加 / 删 / 改组后杀进程 → 状态保留
-- [ ] 真机：从 picker 加新动作 → 自动有 1 组
-- [ ] 真机：reorder → 重开计划 → sets 数仍对得上
-- [ ] 真机：替换动作 → 该动作 sets 仍在
+- [ ] 真机：填 weight=10 / reps=10 → 杀进程 → 重开仍是 10 / 10
+- [ ] 真机：从 picker 加新动作 → 自动有 1 组（默认 0/0）
+- [ ] 真机：reorder → 重开计划 → sets 数仍对得上 + 处方未丢
+- [ ] 真机：替换动作 → 该动作 sets（含 weight/reps）仍在
 
 ---
 
