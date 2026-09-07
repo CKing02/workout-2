@@ -919,9 +919,39 @@ reps: null,
 
 ---
 
-## G29. ActiveTrainingScreen UX 重构（待用户从 ABC 中选）
+## G29. ActiveTrainingScreen UX 重构（最小干扰 + 沉浸式打钩）
 
-详见会话内 ASCII 布局对比（A 保留键盘流 / B 全键盘流 / C 全手势流）。
+### 设计原则
+
+- **垂直列出当前动作的全部组**：每组一行，上→下顺序对应 setIndex 1→N；用户视觉焦点不需要横跳。
+- **完成 → 自动跳下一组**：底部 CTA `完成本组 ✓` 沿用现行；点击后由 `completeAndAdvance` 自动把焦点跳到下一个未完成组（已经在 store 里实现），不再要求用户手动点 chip。
+- **当前组 inline 输入**：只有当前激活行展开 NumberInput（无 label，纯靠 unitLabel / placeholder 暗示字段意义），其余已完成的组折叠成"60kg × 10 ✓"等一行总结，未来组折叠成"60kg × 10"灰字。
+- **点组序号改类型**：`②` 这块数字可点 → 打开 `Sheet「选择组类型」`（沿用 G6 现成 sheet 复用），同 sheet 底部还放「删除此组」（替代原来左滑删除 — 列表行里做 swipe 容易误触）。
+- **全宽进度条**：放在顶部状态栏 *下面* 一条贴边进度条，width = screenWidth，高度 4px，pct = 已完成组数 / 总组数。和原来只在 set 状态卡里塞个 `current/total` 文字相比，沉浸感更强、且一眼看到整个训练的进度。
+- **顶部 ▾ 进动作总览**：原"动作导航"卡片移除。顶部右侧放一个 `▾` IconButton（和 × 同尺寸），点开 `ExerciseOverviewSheet`，列出本训练所有动作 + 每动作已完成组数；点行直接跳到该动作（同时把 currentSetIndex 重置为 0，从头开始）。**不**在总览里加"跳过当前动作"按钮 — 用户可以直接跳到想做的动作，自由度最高。
+- **三档 rest 优先级（架构层已就绪，UI 暂缓）**：`per-exercise rest` 来源链是 `activeEx.restSeconds ?? defaultRestSeconds`，G24 已经实现。训练内 rest override UI（"我想这组休息 90 秒"）作为 *预留任务* 不在 G29 范围。
+
+### 改动文件
+
+| 文件 | 改动 |
+|------|------|
+| `src/screens/ActiveTrainingScreen.tsx` | 大改：top bar（去掉 X/Y，加 ▾）+ 全宽进度条 + body 重写（set 列表 / inline 输入 / 点序号改类型）+ 新增 `ExerciseOverviewSheet`（在同文件末尾） |
+| `src/store/trainingStore.ts` | 不动：`completeAndAdvance` + `setCurrentExerciseIndex` 已有 API 支持 |
+| `src/store/planStore.ts` | 不动 |
+
+### AC / self-check
+
+- [ ] 全宽进度条紧贴 status bar 下方，左右两端对齐屏幕边缘，无 padding
+- [ ] 当前激活组高亮（背景色 / 边框区分），其他组无强调
+- [ ] 点 `②` 等序号打开 sheet，sheet 里能切 4 个 setType + 删除组
+- [ ] 点底部 CTA 自动跳到下一未完成组（同动作内 → 跨动作 → 跳到第一未完成）
+- [ ] 顶部 ▾ 打开 ExerciseOverviewSheet，列出全部动作 + 进度，行点击直接跳
+- [ ] ExerciseOverviewSheet 无"跳过当前动作"按钮
+- [ ] 已完成组折叠显示（如 `60.0kg × 10 ✓`）
+- [ ] 当前组 inline 输入只有 NumberInput（无 label），字段意义靠 unitLabel + placeholder
+- [ ] 不影响 G6：plan 级处方仍预填（G28）— 用户不改就照着做
+- [ ] tsc 通过、单测全过
+- [ ] commit
 
 ---
 

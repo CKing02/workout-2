@@ -1,13 +1,17 @@
 /**
  * ActiveTrainingScreen — G6 训练执行核心（全屏沉浸）
  *
- * 布局（自上而下）：
- *  1. 顶部状态栏  — × 取消 / 训练总计时 / 动作进度
- *  2. 动作标题    — 动作名 + 肌群·器械
- *  3. 组状态横条  — 全部组的横向 chip；当前激活用主色；左滑出现删除
- *  4. 数据录入    — 根据动作的 metricType 显示 NumberInput
- *  5. 组类型行    — 当前组类型 chip → Sheet（4 类型 + 红色删除组）
- *  6. 底部 CTA    — "完成本组 ✓" 大按钮 → 保存 + mark + triggerRestTimer
+ * 布局（自上而下，G29 重构后）：
+ *  1. 顶部状态栏  — × 取消 / 训练总计时 / ▾ 进动作总览 / "结束训练"
+ *  2. 全宽进度条  — 贴边，pct = 已完成组数 / 总组数
+ *  3. 动作标题    — 动作名 + "动作 X/Y" + 肌群·器械 + "+ 添加组"
+ *  4. Set 垂直列表 — 每个 set 一行：
+ *     - 已完成：折叠 "60kg × 10 ✓"（淡色）
+ *     - 当前激活：高亮背景 + inline NumberInput（无 label，靠 unitLabel 暗示）
+ *                  + 紧凑"上次"参考
+ *     - 未开始：折叠 "60kg × 10"（灰字）
+ *     - 点行左边的 `②` 序号 → Sheet「选择组类型 + 删除此组」
+ *  5. 底部 CTA    — "完成本组 ✓" 大按钮 → 保存 + mark + 焦点自动跳到下一未完成组
  *
  * 交互约束：
  *  - Android 硬件返回 → BackHandler 拦截（必须通过 × 才能退出）
@@ -18,14 +22,14 @@
  * 数据流：
  *  - activeTraining 在 store 中累积，完成时一次性写 DB（G8 接手）
  *  - 每个组输入 NumberInput → updateSet（每次数值变化）
- *  - "完成本组" → completeAndAdvance（mark + 焦点跳到下一组；plan 组数固定，不自动 append）
+ *  - "完成本组" → completeAndAdvance（mark + 焦点跳到下一未完成组；plan 组数固定，不自动 append）
  *  - rest timer → G7 RestTimerOverlay（基于 Date.now 时间戳，Reanimated 圆环）
+ *  - G24: per-exercise rest 用 activeEx.restSeconds ?? defaultRestSeconds
  */
 
 import React, {
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
 } from 'react';
@@ -42,14 +46,6 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Animated, {
-  Easing,
-  runOnJS,
-  useAnimatedStyle,
-  useSharedValue,
-  withTiming,
-} from 'react-native-reanimated';
 import { setStatusBarHidden } from 'expo-status-bar';
 import {
   useFocusEffect,
@@ -88,9 +84,6 @@ type Navigation = NativeStackNavigationProp<
   'ActiveTraining'
 >;
 type Route = RouteProp<RootStackParamList, 'ActiveTraining'>;
-
-const SWIPE_REVEAL = 72; // px
-const SWIPE_THRESHOLD = 40; // px past origin to commit reveal
 
 /* ============================================================================
  * Screen
@@ -174,9 +167,18 @@ export function ActiveTrainingScreen() {
   const [finishing, setFinishing] = useState(false);
 
   // -----------------------------------------------------------------
-  // Set-type sheet state (current exerciseIndex + setIndex)
+  // G29: Set-type sheet state — targets an explicit (exIdx, setIdx)
+  // so any row's `②` number can open it (not only the current).
   // -----------------------------------------------------------------
-  const [sheetOpen, setSheetOpen] = useState(false);
+  const [typeSheetTarget, setTypeSheetTarget] = useState<
+    { exerciseIndex: number; setIndex: number } | null
+  >(null);
+
+  // -----------------------------------------------------------------
+  // G29: Exercise-overview sheet — list every exercise in the
+  // current training with its progress; tap a row to jump.
+  // -----------------------------------------------------------------
+  const [overviewSheetOpen, setOverviewSheetOpen] = useState(false);
 
   // -----------------------------------------------------------------
   // Delete-confirm dialog state (used by swipe-delete & sheet-delete)
@@ -369,50 +371,84 @@ export function ActiveTrainingScreen() {
   }, [completeAndNavigate]);
 
   // -----------------------------------------------------------------
-  // Set-type sheet handlers
+  // G29: Set-type sheet handlers — target a specific (exIdx, setIdx),
+  // not only the current set.
   // -----------------------------------------------------------------
-  const openSheet = useCallback(() => setSheetOpen(true), []);
-  const closeSheet = useCallback(() => setSheetOpen(false), []);
+  const closeTypeSheet = useCallback(() => setTypeSheetTarget(null), []);
+  const handleOpenTypeSheet = useCallback(
+    (exerciseIndex: number, setIndex: number) => {
+      setTypeSheetTarget({ exerciseIndex, setIndex });
+      haptic.selection();
+    },
+    [],
+  );
 
   const handlePickSetType = useCallback(
     (type: SetTypeValue) => {
-      if (!activeTraining) return;
-      const ex = activeTraining.exercises[currentExerciseIndex];
-      const target = ex?.sets[currentSetIndex];
-      if (!target) return;
-      changeSetType(currentExerciseIndex, target.clientId, type);
+      if (!activeTraining || !typeSheetTarget) return;
+      const ex = activeTraining.exercises[typeSheetTarget.exerciseIndex];
+      const target = ex?.sets[typeSheetTarget.setIndex];
+      if (!target) {
+        setTypeSheetTarget(null);
+        return;
+      }
+      changeSetType(
+        typeSheetTarget.exerciseIndex,
+        target.clientId,
+        type,
+      );
       haptic.selection();
-      closeSheet();
+      setTypeSheetTarget(null);
     },
-    [
-      activeTraining,
-      currentExerciseIndex,
-      currentSetIndex,
-      changeSetType,
-      closeSheet,
-    ],
+    [activeTraining, typeSheetTarget, changeSetType],
   );
 
   const handleRequestDeleteFromSheet = useCallback(() => {
-    if (!activeTraining) return;
-    const ex = activeTraining.exercises[currentExerciseIndex];
-    const target = ex?.sets[currentSetIndex];
-    if (!target) return;
+    if (!activeTraining || !typeSheetTarget) return;
+    const ex = activeTraining.exercises[typeSheetTarget.exerciseIndex];
+    const target = ex?.sets[typeSheetTarget.setIndex];
+    if (!target) {
+      setTypeSheetTarget(null);
+      return;
+    }
     if (ex.sets.length <= 1) {
       // G12: 用 toast 替代 Alert —— 这种保护性提示不需要阻断式弹窗，
       // 让用户继续操作即可。
       toast.show('至少保留 1 组', 'warning');
-      closeSheet();
+      setTypeSheetTarget(null);
       return;
     }
     setPendingDelete({
-      exerciseIndex: currentExerciseIndex,
-      setIndex: currentSetIndex,
+      exerciseIndex: typeSheetTarget.exerciseIndex,
+      setIndex: typeSheetTarget.setIndex,
       clientId: target.clientId,
-      label: `第 ${currentSetIndex + 1} 组`,
+      label: `第 ${typeSheetTarget.setIndex + 1} 组`,
     });
-    closeSheet();
-  }, [activeTraining, currentExerciseIndex, currentSetIndex, closeSheet]);
+    setTypeSheetTarget(null);
+  }, [activeTraining, typeSheetTarget]);
+
+  // -----------------------------------------------------------------
+  // G29: Exercise overview sheet handlers — list every exercise with
+  // its progress; tap a row to jump straight to it.
+  // -----------------------------------------------------------------
+  const handleOpenOverview = useCallback(() => {
+    setOverviewSheetOpen(true);
+    haptic.selection();
+  }, []);
+
+  const handleCloseOverview = useCallback(
+    () => setOverviewSheetOpen(false),
+    [],
+  );
+
+  const handleJumpToExercise = useCallback(
+    (exIndex: number) => {
+      setCurrentExerciseIndex(exIndex);
+      setOverviewSheetOpen(false);
+      haptic.selection();
+    },
+    [setCurrentExerciseIndex],
+  );
 
   const handleConfirmDelete = useCallback(() => {
     if (!pendingDelete) return;
@@ -510,47 +546,12 @@ export function ActiveTrainingScreen() {
   ]);
 
   // -----------------------------------------------------------------
-  // Chip-select handler
+  // G29: Chip-select / chip-delete / exercise-chip handlers — REMOVED.
+  // The horizontal chip strip is gone (replaced by a vertical set list).
+  // Set-type change is initiated by tapping the row's set number;
+  // set delete lives inside the type sheet. Exercise jumping is done
+  // via the new ExerciseOverviewSheet (▾ button).
   // -----------------------------------------------------------------
-  const handleSelectSet = useCallback(
-    (setIndex: number) => {
-      setCurrentSetIndex(setIndex);
-      haptic.selection();
-    },
-    [setCurrentSetIndex],
-  );
-
-  const handleSelectExercise = useCallback(
-    (exIndex: number) => {
-      setCurrentExerciseIndex(exIndex);
-      haptic.selection();
-    },
-    [setCurrentExerciseIndex],
-  );
-
-  // -----------------------------------------------------------------
-  // Swipe-delete from chip — same target as the sheet delete, routed
-  // through the same confirm dialog.
-  // -----------------------------------------------------------------
-  const handleRequestDeleteFromChip = useCallback(
-    (exerciseIndex: number, setIndex: number) => {
-      if (!activeTraining) return;
-      const ex = activeTraining.exercises[exerciseIndex];
-      const target = ex?.sets[setIndex];
-      if (!target) return;
-      if (ex.sets.length <= 1) {
-        toast.show('至少保留 1 组', 'warning');
-        return;
-      }
-      setPendingDelete({
-        exerciseIndex,
-        setIndex,
-        clientId: target.clientId,
-        label: `${ex.exercise.name} · 第 ${setIndex + 1} 组`,
-      });
-    },
-    [activeTraining],
-  );
 
   // -----------------------------------------------------------------
   // Render
@@ -594,12 +595,19 @@ export function ActiveTrainingScreen() {
     0,
   );
 
+  // G29: 全宽进度条用 —— 整训练范围内已完成组数 / 总组数。
+  const totalAllSets = activeTraining.exercises.reduce(
+    (acc, e) => acc + e.sets.length,
+    0,
+  );
+  const completedAllSets = completedSetCount;
+
   return (
     <KeyboardAvoidingView
       style={{ flex: 1, backgroundColor: colors.background }}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      {/* ====== Top status bar ====== */}
+      {/* ====== Top status bar (G29: ▾ opens ExerciseOverviewSheet) ====== */}
       <View
         style={[
           styles.topBar,
@@ -630,14 +638,16 @@ export function ActiveTrainingScreen() {
             {formatElapsed(elapsed)}
           </Text>
         </View>
-        <View style={styles.progressWrap}>
-          <Text
-            style={[typography.subtitle, { color: colors.textSecondary }]}
-            accessibilityLabel={`第 ${currentExerciseIndex + 1} 个动作，共 ${totalExercises} 个`}
-          >
-            {currentExerciseIndex + 1}/{totalExercises}
-          </Text>
-        </View>
+        {/* G29: ▾ button → ExerciseOverviewSheet. Lives next to × for
+            symmetry (both are navigator-style controls); 结束训练 stays
+            on the right as the "commit and exit" action. */}
+        <IconButton
+          icon="▾"
+          variant="ghost"
+          accessibilityLabel="动作总览"
+          accessibilityHint="弹出本训练所有动作的进度列表"
+          onPress={handleOpenOverview}
+        />
         {/* G8: 主动"结束训练"按钮 — 与左侧 × 互不影响。 */}
         <Pressable
           accessibilityRole="button"
@@ -667,6 +677,20 @@ export function ActiveTrainingScreen() {
         </Pressable>
       </View>
 
+      {/* ====== G29: Full-width progress bar (edge-to-edge) ======
+          4px 高，pct = 已完成组数 / 总组数，贴边无 padding。和顶部状态栏
+          之间留 spacing.sm 让"计时器"+"▾"不至于视觉上挤到进度条。 */}
+      <ProgressBarEdgeToEdge
+        percent={
+          totalAllSets === 0
+            ? 0
+            : Math.min(100, Math.round((completedAllSets / totalAllSets) * 100))
+        }
+        trackColor={colors.surfaceMuted}
+        fillColor={colors.primary}
+        accessibilityLabel={`训练进度 ${completedAllSets}/${totalAllSets} 组`}
+      />
+
       {/* ====== Body (scrollable) ====== */}
       <ScrollView
         contentContainerStyle={{
@@ -677,246 +701,106 @@ export function ActiveTrainingScreen() {
         }}
         keyboardShouldPersistTaps="handled"
       >
-        {/* ----- Exercise title ----- */}
+        {/* ----- Exercise title (with "动作 X/Y" + "+ 添加组") ----- */}
         <View style={{ gap: spacing.xs }}>
-          <Text
-            style={[typography.h1, { color: colors.text }]}
-            numberOfLines={2}
-            accessibilityRole="header"
-          >
-            {ex.exercise.name}
-          </Text>
-          <Text
-            style={[typography.body, { color: colors.textSecondary }]}
-            numberOfLines={1}
-          >
-            {ex.exercise.muscleGroup} · {ex.exercise.equipment}
-          </Text>
-        </View>
-
-        {/* ----- Set chips row ----- */}
-        <Card padding="md">
-          <View style={{ gap: spacing.sm }}>
-            <View
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-              }}
-            >
-              <Text
-                style={[
-                  typography.label,
-                  { color: colors.textSecondary },
-                ]}
-              >
-                组状态 · {totalSets} 组
-              </Text>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={`为 ${ex.exercise.name} 添加组`}
-                onPress={() => {
-                  appendEmptySet(currentExerciseIndex);
-                  // Move focus to the newly-added set.
-                  setTimeout(() => {
-                    setCurrentSetIndex(ex.sets.length);
-                  }, 0);
-                  haptic.selection();
-                }}
-                hitSlop={10}
-                style={({ pressed }) => ({
-                  paddingHorizontal: spacing.sm,
-                  paddingVertical: spacing.xxs,
-                  borderRadius: radius.full,
-                  backgroundColor: pressed
-                    ? colors.primaryMuted
-                    : colors.transparent,
-                })}
-              >
-                <Text
-                  style={[typography.label, { color: colors.primaryPressed }]}
-                >
-                  + 添加组
-                </Text>
-              </Pressable>
-            </View>
-
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ gap: spacing.sm }}
-            >
-              {ex.sets.map((s, idx) => (
-                <SetChip
-                  key={s.clientId}
-                  setRow={s}
-                  active={idx === currentSetIndex}
-                  canDelete={ex.sets.length > 1}
-                  onPress={() => handleSelectSet(idx)}
-                  onRequestDelete={() =>
-                    handleRequestDeleteFromChip(currentExerciseIndex, idx)
-                  }
-                />
-              ))}
-            </ScrollView>
-          </View>
-        </Card>
-
-        {/* ----- Input fields ----- */}
-        <Card padding="md">
-          <View style={{ gap: spacing.md }}>
-            <Text
-              style={[typography.label, { color: colors.textSecondary }]}
-            >
-              本组数据
-            </Text>
-            {/* G17: 上次训练数据预览——按动作 id 取最近 3 组。 */}
-            <LastSetsPreview
-              exerciseId={ex.exercise.id}
-              metricType={ex.exercise.metricType}
-              lastSets={lastSetsByExerciseId[ex.exercise.id]}
-            />
-            {fields.map((f) => (
-              <MetricFieldInput
-                key={f}
-                field={f}
-                value={readField(set, f)}
-                disabled={!!set.completed}
-                onChange={(v) => onFieldChange(f, v)}
-              />
-            ))}
-            {set.completed ? (
-              <Text
-                style={[
-                  typography.caption,
-                  { color: colors.textTertiary },
-                ]}
-              >
-                该组已完成，数据已保存
-              </Text>
-            ) : null}
-          </View>
-        </Card>
-
-        {/* ----- Set type row ----- */}
-        <Card padding="md">
           <View
             style={{
               flexDirection: 'row',
-              alignItems: 'center',
+              alignItems: 'flex-start',
               justifyContent: 'space-between',
-              gap: spacing.md,
+              gap: spacing.sm,
             }}
           >
-            <View style={{ flex: 1 }}>
+            <View style={{ flex: 1, gap: spacing.xs }}>
               <Text
-                style={[
-                  typography.label,
-                  { color: colors.textSecondary, marginBottom: spacing.xs },
-                ]}
+                style={[typography.h1, { color: colors.text }]}
+                numberOfLines={2}
+                accessibilityRole="header"
               >
-                组类型
+                {ex.exercise.name}
               </Text>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="切换组类型"
-                accessibilityHint="弹出选择面板"
-                onPress={openSheet}
-                hitSlop={6}
-                style={({ pressed }) => ({
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  gap: spacing.sm,
-                })}
+              <Text
+                style={[typography.body, { color: colors.textSecondary }]}
+                numberOfLines={1}
               >
-                <SetTypeBadge type={(set.setType ?? 'normal') as SetTypeValue} />
-                <Text
-                  style={[typography.caption, { color: colors.textTertiary }]}
-                >
-                  点击切换 ›
-                </Text>
-              </Pressable>
+                {`动作 ${currentExerciseIndex + 1}/${totalExercises} · ${ex.exercise.muscleGroup} · ${ex.exercise.equipment}`}
+              </Text>
             </View>
+            {/* G29: "+ 添加组" 紧贴标题右侧，不再藏在 chip 卡里。 */}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`为 ${ex.exercise.name} 添加组`}
+              onPress={() => {
+                appendEmptySet(currentExerciseIndex);
+                // 焦点跳到新组（下一帧 store 同步完后再读 length）。
+                setTimeout(() => {
+                  setCurrentSetIndex(ex.sets.length);
+                }, 0);
+                haptic.selection();
+              }}
+              hitSlop={10}
+              style={({ pressed }) => ({
+                paddingHorizontal: spacing.sm,
+                paddingVertical: spacing.xxs + 2,
+                borderRadius: radius.full,
+                backgroundColor: pressed
+                  ? colors.primaryMuted
+                  : colors.surfaceMuted,
+                borderWidth: StyleSheet.hairlineWidth,
+                borderColor: colors.border,
+              })}
+            >
+              <Text
+                style={[typography.label, { color: colors.primaryPressed }]}
+              >
+                + 添加组
+              </Text>
+            </Pressable>
           </View>
-        </Card>
+        </View>
 
-        {/* ----- Exercise navigator (when more than one exercise) ----- */}
-        {totalExercises > 1 ? (
-          <Card padding="md">
-            <View style={{ gap: spacing.sm }}>
-              <Text
-                style={[
-                  typography.label,
-                  { color: colors.textSecondary },
-                ]}
-              >
-                动作导航
-              </Text>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={{ gap: spacing.sm }}
-              >
-                {activeTraining.exercises.map((otherEx, idx) => {
-                  const isActive = idx === currentExerciseIndex;
-                  const completedCount = otherEx.sets.filter(
-                    (s) => s.completed,
-                  ).length;
-                  return (
-                    <Pressable
-                      key={otherEx.exercise.id}
-                      accessibilityRole="tab"
-                      accessibilityLabel={`${otherEx.exercise.name}，${completedCount}/${otherEx.sets.length} 组已完成`}
-                      accessibilityState={{ selected: isActive }}
-                      onPress={() => handleSelectExercise(idx)}
-                      style={({ pressed }) => ({
-                        paddingHorizontal: spacing.md,
-                        paddingVertical: spacing.sm,
-                        borderRadius: radius.md,
-                        backgroundColor: isActive
-                          ? colors.primary
-                          : pressed
-                          ? colors.surfaceMuted
-                          : colors.surface,
-                        borderWidth: StyleSheet.hairlineWidth,
-                        borderColor: isActive
-                          ? colors.primary
-                          : colors.border,
-                      })}
-                    >
-                      <Text
-                        style={[
-                          typography.label,
-                          {
-                            color: isActive
-                              ? colors.onPrimary
-                              : colors.text,
-                          },
-                        ]}
-                        numberOfLines={1}
-                      >
-                        {idx + 1}. {otherEx.exercise.name}
-                      </Text>
-                      <Text
-                        style={[
-                          typography.caption,
-                          {
-                            color: isActive
-                              ? colors.onPrimary
-                              : colors.textTertiary,
-                            opacity: 0.8,
-                          },
-                        ]}
-                      >
-                        {completedCount}/{otherEx.sets.length} 组
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </ScrollView>
-            </View>
-          </Card>
-        ) : null}
+        {/* ----- G29: Vertical set list -----
+            每个 set 一行：左是 `②` 序号 tap target，右是状态相关内容。
+            - 已完成：折叠 "60kg × 10 ✓"
+            - 当前激活：高亮 + inline NumberInput（无 label）+ 紧凑"上次"参考
+            - 未开始：折叠 "60kg × 10"（灰字） */}
+        <View
+          style={{
+            borderRadius: radius.lg,
+            backgroundColor: colors.surface,
+            borderWidth: StyleSheet.hairlineWidth,
+            borderColor: colors.border,
+            overflow: 'hidden',
+          }}
+        >
+          {ex.sets.map((s, idx) => {
+            const isActive = idx === currentSetIndex;
+            const isLast = idx === ex.sets.length - 1;
+            return (
+              <SetRow
+                key={s.clientId}
+                setRow={s}
+                isActive={isActive}
+                isLast={isLast}
+                metricType={ex.exercise.metricType}
+                fields={fields}
+                lastSets={
+                  isActive ? lastSetsByExerciseId[ex.exercise.id] : undefined
+                }
+                onPressNumber={() =>
+                  handleOpenTypeSheet(currentExerciseIndex, idx)
+                }
+                onTapRow={() => {
+                  if (!isActive) {
+                    setCurrentSetIndex(idx);
+                    haptic.selection();
+                  }
+                }}
+                onChangeField={onFieldChange}
+              />
+            );
+          })}
+        </View>
       </ScrollView>
 
       {/* ====== Bottom CTA ====== */}
@@ -994,91 +878,207 @@ export function ActiveTrainingScreen() {
         onConfirm={handleConfirmDelete}
       />
 
-      {/* ====== Set-type sheet ====== */}
+      {/* ====== G29: Set-type sheet (targets the row whose `②` was tapped) ====== */}
       <Sheet
-        visible={sheetOpen}
-        onClose={closeSheet}
-        title="选择组类型"
+        visible={typeSheetTarget !== null}
+        onClose={closeTypeSheet}
+        title={
+          typeSheetTarget
+            ? `选择组类型 · 第 ${typeSheetTarget.setIndex + 1} 组`
+            : '选择组类型'
+        }
         maxHeightRatio={0.55}
       >
-        <View style={{ gap: spacing.xs }}>
-          {SET_TYPES.map((t) => {
-            const active = set.setType === t.value;
-            return (
-              <Pressable
-                key={t.value}
-                accessibilityRole="radio"
-                accessibilityLabel={t.label}
-                accessibilityState={{ selected: active }}
-                onPress={() => handlePickSetType(t.value)}
-                style={({ pressed }) => ({
-                  paddingVertical: spacing.md,
-                  paddingHorizontal: spacing.md,
-                  borderRadius: radius.md,
-                  backgroundColor: active
-                    ? colors.primaryMuted
-                    : pressed
-                    ? colors.surfaceMuted
-                    : colors.surface,
-                  borderWidth: StyleSheet.hairlineWidth,
-                  borderColor: active ? colors.primary : colors.border,
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                })}
-              >
-                <Text style={[typography.body, { color: colors.text }]}>
-                  {t.label}
-                </Text>
-                {t.short ? (
-                  <Badge label={t.short} variant="primary" size="sm" />
-                ) : (
-                  <Text
-                    style={[
-                      typography.caption,
-                      { color: colors.textTertiary },
-                    ]}
+        {typeSheetTarget && activeTraining
+          ? (() => {
+              const targetEx =
+                activeTraining.exercises[typeSheetTarget.exerciseIndex];
+              const targetSet =
+                targetEx?.sets[typeSheetTarget.setIndex] ?? null;
+              if (!targetEx || !targetSet) return null;
+              return (
+                <View style={{ gap: spacing.xs }}>
+                  {SET_TYPES.map((t) => {
+                    const active = targetSet.setType === t.value;
+                    return (
+                      <Pressable
+                        key={t.value}
+                        accessibilityRole="radio"
+                        accessibilityLabel={t.label}
+                        accessibilityState={{ selected: active }}
+                        onPress={() => handlePickSetType(t.value)}
+                        style={({ pressed }) => ({
+                          paddingVertical: spacing.md,
+                          paddingHorizontal: spacing.md,
+                          borderRadius: radius.md,
+                          backgroundColor: active
+                            ? colors.primaryMuted
+                            : pressed
+                            ? colors.surfaceMuted
+                            : colors.surface,
+                          borderWidth: StyleSheet.hairlineWidth,
+                          borderColor: active ? colors.primary : colors.border,
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                        })}
+                      >
+                        <Text style={[typography.body, { color: colors.text }]}>
+                          {t.label}
+                        </Text>
+                        {t.short ? (
+                          <Badge label={t.short} variant="primary" size="sm" />
+                        ) : (
+                          <Text
+                            style={[
+                              typography.caption,
+                              { color: colors.textTertiary },
+                            ]}
+                          >
+                            默认
+                          </Text>
+                        )}
+                      </Pressable>
+                    );
+                  })}
+
+                  <View style={{ height: spacing.sm }} />
+
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="删除此组"
+                    onPress={handleRequestDeleteFromSheet}
+                    disabled={targetEx.sets.length <= 1}
+                    style={({ pressed }) => ({
+                      paddingVertical: spacing.md,
+                      borderRadius: radius.md,
+                      backgroundColor: pressed
+                        ? colors.danger
+                        : colors.surface,
+                      alignItems: 'center',
+                      borderWidth: StyleSheet.hairlineWidth,
+                      borderColor: colors.danger,
+                      opacity: targetEx.sets.length <= 1 ? 0.4 : 1,
+                    })}
                   >
-                    默认
-                  </Text>
-                )}
-              </Pressable>
-            );
-          })}
+                    <Text style={[typography.label, { color: colors.danger }]}>
+                      删除此组
+                    </Text>
+                  </Pressable>
 
-          <View style={{ height: spacing.sm }} />
+                  {targetEx.sets.length <= 1 ? (
+                    <Text
+                      style={[
+                        typography.caption,
+                        {
+                          color: colors.textTertiary,
+                          textAlign: 'center',
+                        },
+                      ]}
+                    >
+                      至少保留 1 组
+                    </Text>
+                  ) : null}
+                </View>
+              );
+            })()
+          : null}
+      </Sheet>
 
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="删除此组"
-            onPress={handleRequestDeleteFromSheet}
-            disabled={ex.sets.length <= 1}
-            style={({ pressed }) => ({
-              paddingVertical: spacing.md,
-              borderRadius: radius.md,
-              backgroundColor: pressed ? colors.danger : colors.surface,
-              alignItems: 'center',
-              borderWidth: StyleSheet.hairlineWidth,
-              borderColor: colors.danger,
-              opacity: ex.sets.length <= 1 ? 0.4 : 1,
+      {/* ====== G29b: Exercise overview sheet ======
+          Lists every exercise in the current training with progress.
+          Tap a row to jump; no "skip" button (per spec). */}
+      <Sheet
+        visible={overviewSheetOpen}
+        onClose={handleCloseOverview}
+        title="动作总览"
+        maxHeightRatio={0.7}
+      >
+        {activeTraining ? (
+          <View style={{ gap: spacing.xs }}>
+            {activeTraining.exercises.map((otherEx, idx) => {
+              const isActive = idx === currentExerciseIndex;
+              const completedCount = otherEx.sets.filter(
+                (s) => s.completed,
+              ).length;
+              const total = otherEx.sets.length;
+              return (
+                <Pressable
+                  key={otherEx.exercise.id}
+                  accessibilityRole="button"
+                  accessibilityLabel={`跳到 ${otherEx.exercise.name}，${completedCount}/${total} 组已完成${
+                    isActive ? '，当前动作' : ''
+                  }`}
+                  accessibilityState={{ selected: isActive }}
+                  onPress={() => handleJumpToExercise(idx)}
+                  style={({ pressed }) => ({
+                    paddingVertical: spacing.md,
+                    paddingHorizontal: spacing.md,
+                    borderRadius: radius.md,
+                    backgroundColor: isActive
+                      ? colors.primaryMuted
+                      : pressed
+                      ? colors.surfaceMuted
+                      : colors.surface,
+                    borderWidth: StyleSheet.hairlineWidth,
+                    borderColor: isActive ? colors.primary : colors.border,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: spacing.sm,
+                  })}
+                >
+                  <View style={{ flex: 1, gap: 2 }}>
+                    <Text
+                      style={[
+                        typography.body,
+                        {
+                          color: colors.text,
+                          fontWeight: isActive ? '700' : '500',
+                        },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {idx + 1}. {otherEx.exercise.name}
+                    </Text>
+                    <Text
+                      style={[
+                        typography.caption,
+                        { color: colors.textTertiary },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {otherEx.exercise.muscleGroup} ·{' '}
+                      {completedCount}/{total} 组
+                    </Text>
+                  </View>
+                  {/* Tiny inline progress bar — visual cue for partial completion. */}
+                  <View
+                    style={{
+                      width: 48,
+                      height: 4,
+                      borderRadius: 2,
+                      backgroundColor: colors.surfaceMuted,
+                      overflow: 'hidden',
+                    }}
+                  >
+                    <View
+                      style={{
+                        width: `${
+                          total === 0 ? 0 : (completedCount / total) * 100
+                        }%`,
+                        height: 4,
+                        backgroundColor: isActive
+                          ? colors.primary
+                          : colors.primaryPressed,
+                      }}
+                    />
+                  </View>
+                </Pressable>
+              );
             })}
-          >
-            <Text style={[typography.label, { color: colors.danger }]}>
-              删除此组
-            </Text>
-          </Pressable>
-
-          {ex.sets.length <= 1 ? (
-            <Text
-              style={[
-                typography.caption,
-                { color: colors.textTertiary, textAlign: 'center' },
-              ]}
-            >
-              至少保留 1 组
-            </Text>
-          ) : null}
-        </View>
+          </View>
+        ) : null}
       </Sheet>
 
       {/* ====== Rest-timer overlay (G7) ====== */}
@@ -1199,6 +1199,13 @@ interface MetricFieldInputProps {
   value: number;
   disabled: boolean;
   onChange: (next: number) => void;
+  /**
+   * G29: when true, render inline (no label above the field). Used by
+   * SetRow's active-set body so the inputs sit compact next to the
+   * `②` tap target — the field meaning is implied by `unitLabel` (kg /
+   * 秒 / km) or by ordinal context (reps has no unit, just a number).
+   */
+  inline?: boolean;
 }
 
 function MetricFieldInput({
@@ -1206,11 +1213,12 @@ function MetricFieldInput({
   value,
   disabled,
   onChange,
+  inline = false,
 }: MetricFieldInputProps) {
   if (field === 'weight') {
     return (
       <NumberInput
-        label="重量"
+        label={inline ? undefined : '重量'}
         unitLabel="kg"
         value={value}
         onChangeValue={onChange}
@@ -1224,7 +1232,7 @@ function MetricFieldInput({
   if (field === 'reps') {
     return (
       <NumberInput
-        label="次数"
+        label={inline ? undefined : '次数'}
         value={value}
         onChangeValue={onChange}
         min={0}
@@ -1236,7 +1244,7 @@ function MetricFieldInput({
   if (field === 'duration_seconds') {
     return (
       <NumberInput
-        label="秒数"
+        label={inline ? undefined : '秒数'}
         unitLabel="秒"
         value={value}
         onChangeValue={onChange}
@@ -1249,7 +1257,7 @@ function MetricFieldInput({
   // distance_km
   return (
     <NumberInput
-      label="公里"
+      label={inline ? undefined : '公里'}
       unitLabel="km"
       value={value}
       onChangeValue={onChange}
@@ -1261,200 +1269,307 @@ function MetricFieldInput({
   );
 }
 
-/* ---------- SetChip (with swipe-to-delete) ---------- */
+/* ---------- G29: ProgressBarEdgeToEdge ---------- */
 
-interface SetChipProps {
-  setRow: ActiveSet;
-  active: boolean;
-  canDelete: boolean;
-  onPress: () => void;
-  onRequestDelete: () => void;
+interface ProgressBarEdgeToEdgeProps {
+  percent: number;
+  trackColor: string;
+  fillColor: string;
+  accessibilityLabel?: string;
 }
 
-function SetChip({
-  setRow,
-  active,
-  canDelete,
-  onPress,
-  onRequestDelete,
-}: SetChipProps) {
-  const { colors, spacing, typography, radius } = useTheme();
-  const translateX = useSharedValue(0);
-
-  const pan = useMemo(
-    () =>
-      Gesture.Pan()
-        .activeOffsetX([-10, 10])
-        .failOffsetY([-12, 12])
-        .onUpdate((e) => {
-          'worklet';
-          const next = Math.min(
-            0,
-            Math.max(-SWIPE_REVEAL - 12, e.translationX),
-          );
-          translateX.value = next;
-        })
-        .onEnd(() => {
-          'worklet';
-          if (translateX.value < -SWIPE_THRESHOLD) {
-            translateX.value = withTiming(-SWIPE_REVEAL, {
-              duration: 180,
-              easing: Easing.out(Easing.cubic),
-            });
-          } else {
-            translateX.value = withTiming(0, {
-              duration: 180,
-              easing: Easing.out(Easing.cubic),
-            });
-          }
-        }),
-    [translateX],
-  );
-
-  const tap = useMemo(
-    () =>
-      Gesture.Tap().onEnd(() => {
-        'worklet';
-        translateX.value = withTiming(0, { duration: 160 });
-      }),
-    [translateX],
-  );
-
-  const composed = useMemo(() => Gesture.Race(pan, tap), [pan, tap]);
-
-  const cardStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: translateX.value }],
-  }));
-
-  const trashStyle = useAnimatedStyle(() => ({
-    opacity: translateX.value === 0 ? 0 : 1,
-  }));
-
-  const handleTrashPress = useCallback(() => {
-    translateX.value = withTiming(0, { duration: 160 }, () => {
-      runOnJS(onRequestDelete)();
-    });
-  }, [onRequestDelete, translateX]);
-
-  const meta = SET_TYPES.find((t) => t.value === setRow.setType) ?? SET_TYPES[0];
-
-  // Visual: completed vs active vs normal
-  const chipBg = setRow.completed
-    ? colors.success
-    : active
-    ? colors.primary
-    : colors.surfaceMuted;
-  const chipFg = setRow.completed || active ? colors.onPrimary : colors.text;
-  const chipBorder = setRow.completed
-    ? colors.success
-    : active
-    ? colors.primary
-    : colors.border;
-
-  const labelText = meta.short
-    ? `${meta.short}${setRow.setIndex}`
-    : `${setRow.setIndex}`;
-
+/**
+ * G29: full-width progress bar (edge-to-edge, 4px tall).
+ * The outer View sits flush against the screen edges — unlike the rest of
+ * the screen which is wrapped in `spacing.lg` gutters. The fill is a plain
+ * child with a percent width.
+ */
+function ProgressBarEdgeToEdge({
+  percent,
+  trackColor,
+  fillColor,
+  accessibilityLabel,
+}: ProgressBarEdgeToEdgeProps) {
+  const clamped = Math.max(0, Math.min(100, percent));
   return (
-    <View style={{ position: 'relative' }}>
-      {/* Trash layer behind the chip */}
-      <Animated.View
-        pointerEvents="box-none"
-        style={[
-          styles.trashLayer,
-          {
-            backgroundColor: colors.danger,
-            borderRadius: radius.full,
-            right: 0,
-          },
-          trashStyle,
-        ]}
-      >
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`删除第 ${setRow.setIndex} 组`}
-          onPress={canDelete ? handleTrashPress : undefined}
-          disabled={!canDelete}
-          hitSlop={8}
-          style={({ pressed }) => [
-            styles.trashButton,
-            {
-              borderRadius: radius.full,
-              opacity: pressed ? 0.7 : 1,
-            },
-          ]}
-        >
-          <Text
-            style={{
-              color: colors.onPrimary,
-              fontWeight: '700',
-              fontSize: 16,
-            }}
-          >
-            ×
-          </Text>
-        </Pressable>
-      </Animated.View>
-
-      <GestureDetector gesture={composed}>
-        <Animated.View style={cardStyle}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`第 ${setRow.setIndex} 组 ${meta.label}${
-              setRow.completed ? '，已完成' : ''
-            }`}
-            accessibilityHint="左滑出现删除按钮，点击切换到该组"
-            onPress={onPress}
-            android_ripple={{ color: colors.primaryMuted, borderless: false }}
-            style={({ pressed }) => ({
-              paddingHorizontal: spacing.md,
-              paddingVertical: spacing.sm,
-              borderRadius: radius.full,
-              backgroundColor: pressed && !setRow.completed && !active
-                ? colors.primaryMuted
-                : chipBg,
-              borderWidth: StyleSheet.hairlineWidth,
-              borderColor: chipBorder,
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: spacing.xxs,
-              minWidth: 48,
-            })}
-          >
-            <Text
-              style={[
-                typography.label,
-                { color: chipFg, fontVariant: ['tabular-nums'] },
-              ]}
-            >
-              {labelText}
-            </Text>
-            {setRow.completed ? (
-              <Text style={{ color: chipFg, fontWeight: '700', fontSize: 14 }}>
-                ✓
-              </Text>
-            ) : null}
-          </Pressable>
-        </Animated.View>
-      </GestureDetector>
+    <View
+      accessibilityRole="progressbar"
+      accessibilityLabel={accessibilityLabel}
+      accessibilityValue={{ min: 0, max: 100, now: clamped }}
+      style={{
+        height: 4,
+        backgroundColor: trackColor,
+        width: '100%',
+        overflow: 'hidden',
+      }}
+    >
+      <View
+        style={{
+          height: 4,
+          width: `${clamped}%`,
+          backgroundColor: fillColor,
+        }}
+      />
     </View>
   );
 }
 
-function SetTypeBadge({ type }: { type: SetTypeValue }) {
-  const { colors, typography, radius, spacing } = useTheme();
-  const meta = SET_TYPES.find((t) => t.value === type) ?? SET_TYPES[0];
-  const variant: 'default' | 'primary' | 'warning' | 'danger' =
-    type === 'normal'
-      ? 'default'
-      : type === 'warmup'
-      ? 'warning'
-      : type === 'dropout'
-      ? 'primary'
-      : 'danger';
-  const label = meta.short ? `${meta.short} ${meta.label}` : meta.label;
-  return <Badge label={label} variant={variant} size="md" />;
+/* ---------- G29: SetRow (vertical set list) ---------- */
+
+interface SetRowProps {
+  setRow: ActiveSet;
+  isActive: boolean;
+  isLast: boolean;
+  metricType: string;
+  fields: MetricField[];
+  /** Only passed when isActive — keeps the inactive rows cheap. */
+  lastSets: TrainingSet[] | undefined;
+  /** Tap on the set number `②` — opens the type sheet for this set. */
+  onPressNumber: () => void;
+  /** Tap on the row body (when not active) — focuses this set. */
+  onTapRow: () => void;
+  onChangeField: (field: MetricField, value: number) => void;
 }
+
+/**
+ * G29: vertical set list row.
+ *  - Left: tap target on the set number `②` (with optional W/D/F badge) →
+ *           opens the type sheet.
+ *  - Right (active): inline NumberInputs (no labels, unitLabel only) +
+ *                    compact LastSetsPreview.
+ *  - Right (completed): muted one-liner `60.0kg × 10 ✓` (line-through).
+ *  - Right (future): muted one-liner `60.0kg × 10`.
+ *
+ * The row body is a separate sibling Pressable from the set-number one so
+ * tapping the number doesn't also fire the row-tap-to-focus path.
+ */
+function SetRow({
+  setRow,
+  isActive,
+  isLast,
+  metricType,
+  fields,
+  lastSets,
+  onPressNumber,
+  onTapRow,
+  onChangeField,
+}: SetRowProps) {
+  const { colors, spacing, typography, radius } = useTheme();
+  const unit = useSettingsStore((s) => s.unit);
+  const meta =
+    SET_TYPES.find((t) => t.value === setRow.setType) ?? SET_TYPES[0];
+
+  const completed = setRow.completed;
+
+  // Background tint: active highlights, completed recedes, future is neutral.
+  const rowBg = isActive
+    ? colors.primaryMuted
+    : completed
+    ? colors.surfaceMuted
+    : colors.surface;
+  // Press feedback for the row body (only meaningful when not active).
+  const rowPressedBg = colors.surfaceMuted;
+
+  const numberFg = isActive
+    ? colors.primaryPressed
+    : completed
+    ? colors.textTertiary
+    : colors.text;
+  const numberPressedBg = colors.surfaceMuted;
+
+  const summary = formatActiveSetSummary(setRow, metricType, unit);
+
+  return (
+    <View
+      style={{
+        flexDirection: 'row',
+        gap: spacing.sm,
+        paddingVertical: spacing.sm + 4,
+        paddingHorizontal: spacing.md,
+        backgroundColor: rowBg,
+        borderBottomWidth: isLast ? 0 : StyleSheet.hairlineWidth,
+        borderBottomColor: colors.divider,
+        alignItems: 'flex-start',
+      }}
+    >
+      {/* Left: set-number tap target (independent Pressable so it doesn't
+          collide with the row-body Pressable below). */}
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={
+          `第 ${setRow.setIndex} 组 · ${meta.label}` +
+          (completed
+            ? '，已完成'
+            : isActive
+            ? '，当前激活'
+            : '，未激活') +
+          '，点击改类型'
+        }
+        accessibilityHint="弹出选择组类型面板"
+        onPress={onPressNumber}
+        hitSlop={6}
+        style={({ pressed }) => ({
+          width: 40,
+          minHeight: 40,
+          alignItems: 'center',
+          justifyContent: 'center',
+          paddingVertical: spacing.xxs,
+          borderRadius: radius.md,
+          backgroundColor: pressed ? numberPressedBg : colors.transparent,
+        })}
+      >
+        <Text
+          style={[
+            typography.numeric,
+            {
+              color: numberFg,
+              fontSize: 22,
+              fontWeight: '700',
+              fontVariant: ['tabular-nums'],
+              lineHeight: 24,
+            },
+          ]}
+        >
+          {setRow.setIndex}
+        </Text>
+        {meta.short ? (
+          <Text
+            style={[
+              typography.caption,
+              {
+                color: isActive
+                  ? colors.primaryPressed
+                  : colors.textTertiary,
+                fontSize: 10,
+                marginTop: -2,
+              },
+            ]}
+          >
+            {meta.short}
+          </Text>
+        ) : null}
+      </Pressable>
+
+      {/* Right: state-dependent body. Active row hosts the inputs; other
+          rows show a one-liner. Pressing the body of an inactive row
+          focuses it; pressing the active row body is a no-op. */}
+      {isActive ? (
+        <View style={{ flex: 1, gap: spacing.sm }}>
+          {fields.length === 1 ? (
+            <MetricFieldInput
+              field={fields[0]}
+              value={readField(setRow, fields[0])}
+              disabled={false}
+              onChange={(v) => onChangeField(fields[0], v)}
+              inline
+            />
+          ) : (
+            <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+              {fields.map((f) => (
+                <View key={f} style={{ flex: 1 }}>
+                  <MetricFieldInput
+                    field={f}
+                    value={readField(setRow, f)}
+                    disabled={false}
+                    onChange={(v) => onChangeField(f, v)}
+                    inline
+                  />
+                </View>
+              ))}
+            </View>
+          )}
+          <LastSetsPreview
+            exerciseId={setRow.exerciseId}
+            metricType={metricType}
+            lastSets={lastSets}
+          />
+        </View>
+      ) : (
+        <Pressable
+          onPress={onTapRow}
+          hitSlop={4}
+          style={({ pressed }) => ({
+            flex: 1,
+            paddingVertical: spacing.sm,
+            minHeight: 40,
+            justifyContent: 'center',
+            borderRadius: radius.md,
+            backgroundColor: pressed ? rowPressedBg : colors.transparent,
+          })}
+        >
+          {completed ? (
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: spacing.xs,
+              }}
+            >
+              <Text
+                style={[
+                  typography.body,
+                  {
+                    color: colors.textTertiary,
+                    textDecorationLine: 'line-through',
+                  },
+                ]}
+                numberOfLines={1}
+              >
+                {summary}
+              </Text>
+              <Text
+                style={{
+                  color: colors.success,
+                  fontSize: 16,
+                  fontWeight: '700',
+                }}
+              >
+                ✓
+              </Text>
+            </View>
+          ) : (
+            <Text
+              style={[typography.body, { color: colors.textTertiary }]}
+              numberOfLines={1}
+            >
+              {summary}
+            </Text>
+          )}
+        </Pressable>
+      )}
+    </View>
+  );
+}
+
+/**
+ * G29: one-line set summary used by non-active rows.
+ * Same formatting as `formatLastSetRow` but takes an `ActiveSet` instead
+ * of a `TrainingSet` (they have identical shape; we just keep types
+ * separate to flag the boundary).
+ */
+function formatActiveSetSummary(
+  set: ActiveSet,
+  metricType: string,
+  unit: Unit,
+): string {
+  const setType = set.setType ?? 'normal';
+  const short = SET_TYPE_SHORT[setType] ?? '';
+  const prefix = short ? `${short} ` : '';
+  const m = metricType;
+  if (m === 'time') {
+    return `${prefix}${set.durationSeconds ?? 0} 秒`;
+  }
+  if (m === 'km') {
+    return `${prefix}${(set.distanceKm ?? 0).toFixed(2)}km`;
+  }
+  if (m === 'kg') {
+    return `${prefix}${formatWeight(set.weight ?? 0, unit)}`;
+  }
+  return `${prefix}${formatWeight(set.weight ?? 0, unit)} × ${set.reps ?? 0}`;
+}
+
+/* ---------- G29: legacy SetChip removed — replaced by SetRow ---------- */
+
 
 /* ============================================================================
  * Styles
@@ -1475,25 +1590,7 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
   },
-  progressWrap: {
-    minWidth: 60,
-    alignItems: 'flex-end',
-  },
   bottomBar: {
     borderTopWidth: StyleSheet.hairlineWidth,
-  },
-  trashLayer: {
-    position: 'absolute',
-    top: 0,
-    bottom: 0,
-    width: SWIPE_REVEAL,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  trashButton: {
-    flex: 1,
-    width: '100%',
-    alignItems: 'center',
-    justifyContent: 'center',
   },
 });
