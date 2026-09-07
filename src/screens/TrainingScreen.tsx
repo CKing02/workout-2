@@ -52,6 +52,7 @@ import { FREE_TRAINING_NAME } from '@/features/training/freeTraining';
 import { toast } from '@/hooks/useToast';
 import { useExerciseStore } from '@/store/exerciseStore';
 import { usePlanStore } from '@/store/planStore';
+import { useSettingsStore } from '@/store/settingsStore';
 import { useTrainingStore } from '@/store/trainingStore';
 import { useTheme } from '@/theme';
 
@@ -103,6 +104,7 @@ export function TrainingScreen() {
   const loadHistory = useTrainingStore((s) => s.loadHistory);
   const startTraining = useTrainingStore((s) => s.startTraining);
   const getExerciseById = useExerciseStore((s) => s.getById);
+  const defaultRestSeconds = useSettingsStore((s) => s.defaultRestSeconds);
 
   // Local state
   const [editMode, setEditMode] = useState(false);
@@ -272,7 +274,11 @@ export function TrainingScreen() {
         await startTraining({
           planId: null, // 自由训练 → trainings.plan_id = NULL
           planNameSnapshot: FREE_TRAINING_NAME,
-          exercises: exercises.map((exercise) => ({ exercise })),
+          exercises: exercises.map((exercise) => ({
+            exercise,
+            // 自由训练没有 plan 覆盖,沿用设置里的全局默认。
+            restSeconds: defaultRestSeconds,
+          })),
         });
 
         navigation.navigate('ActiveTraining', { mode: 'free' });
@@ -284,7 +290,7 @@ export function TrainingScreen() {
         setStartingFree(false);
       }
     },
-    [getExerciseById, startTraining, navigation],
+    [getExerciseById, startTraining, navigation, defaultRestSeconds],
   );
 
   const handleOpenFreeTraining = useCallback(() => {

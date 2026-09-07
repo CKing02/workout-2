@@ -48,6 +48,13 @@ export interface ActiveSet extends CreateTrainingSetInput {
 export interface ActiveExercise {
   position: number;
   exercise: Exercise;
+  /**
+   * Per-exercise rest interval in seconds. Sourced from
+   * `plan_exercises.rest_seconds` (G24); falls back to
+   * `settingsStore.defaultRestSeconds` when not provided (e.g. free
+   * training).
+   */
+  restSeconds: number;
   sets: ActiveSet[];
 }
 
@@ -109,6 +116,12 @@ export interface TrainingStoreState {
     planNameSnapshot: string | null;
     exercises: Array<{
       exercise: Exercise;
+      /**
+       * Per-exercise rest interval. G24: prefer `plan_exercises.rest_seconds`
+       * when starting from a plan; for free training, the caller passes
+       * `settingsStore.defaultRestSeconds`.
+       */
+      restSeconds: number;
       /**
        * Optional plan-editor hints — preserved count and `setType`, but the
        * numeric fields stay null so the user re-enters data fresh during
@@ -317,6 +330,7 @@ export const useTrainingStore = create<TrainingStoreState>((set, get) => ({
           return {
             position: i,
             exercise: ex.exercise,
+            restSeconds: ex.restSeconds,
             sets: hints.map((h, idx) => ({
               clientId: genClientId(),
               trainingId: created.id,
@@ -338,6 +352,7 @@ export const useTrainingStore = create<TrainingStoreState>((set, get) => ({
         return {
           position: i,
           exercise: ex.exercise,
+          restSeconds: ex.restSeconds,
           sets: [
             {
               clientId: genClientId(),

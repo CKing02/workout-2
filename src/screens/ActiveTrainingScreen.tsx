@@ -256,6 +256,10 @@ export function ActiveTrainingScreen() {
           planNameSnapshot,
           exercises: detail.exercises.map((pe) => ({
             exercise: pe.exercise,
+            // G24: thread per-exercise rest interval from plan so the
+            // training timer honors `plan_exercises.rest_seconds` instead
+            // of always falling back to the global default.
+            restSeconds: pe.restSeconds,
             // G5 stores `PlanSetDraft` in memory only. We pass setType hints
             // through; numeric fields are intentionally dropped — the user
             // enters fresh data per the G6 spec ("数据不预填").
@@ -478,8 +482,12 @@ export function ActiveTrainingScreen() {
     const setLabel = `第 ${currentSetIndex + 1} 组`;
     toast.show(`${setLabel}已完成`, 'success');
 
-    // G7: 触发休息计时器（restTimerStore.start → RestTimerOverlay 自动渲染）。
-    triggerRestTimer(defaultRestSeconds);
+    // G7 + G24: 触发休息计时器（restTimerStore.start → RestTimerOverlay 自动渲染）。
+    // 优先用当前动作的 per-exercise 覆盖（plan_exercises.rest_seconds），
+    // 自由训练 / 无覆盖时回落到设置里的全局默认。
+    const activeEx = activeTraining?.exercises[currentExerciseIndex];
+    const restSeconds = activeEx?.restSeconds ?? defaultRestSeconds;
+    triggerRestTimer(restSeconds);
 
     // Auto-jump: only when the user actually completed the last real set
     // (not after they accidentally tapped, e.g. on a freshly-appended set).
