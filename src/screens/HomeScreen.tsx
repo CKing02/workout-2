@@ -1,8 +1,9 @@
 /**
  * HomeScreen — G9 首页 Tab（锻炼动态）
  *
- * 布局（自上而下）：
- *  1. 顶部"开始锻炼" CTA（按 G9 描述，跳到锻炼 Tab；不强制跳 ActiveTraining）
+ * 布局（自上而下，G25）：
+ *  1. 顶部：HeatmapCard（过去 12 周训练热力图，点击 → 完整 CalendarHeatmapScreen）
+ *     - G25 之前这里是「开始锻炼」CTA；现已替换——开始锻炼的入口在底部 Tab「锻炼」
  *  2. 中部：历史列表（按日期分组）
  *     - 分组标题："今天" / "昨天" / "本周" / "上周" / "更早"
  *     - 每条 Card：开始时间 + 时长 + 动作数 + 训练量
@@ -11,6 +12,7 @@
  *
  * 数据：
  *  - 进入页面调 trainingStore.loadHistory()
+ *  - 热力图数据来自 useDataAggregates（G18），hook 自己 fetch
  *  - 历史数据本身在 store 里是倒序；dateGroups 进一步按日 / 周分桶
  *  - 单位显示用 useSettingsStore.unit + formatWeight
  */
@@ -39,7 +41,6 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 
-import { Button } from '@/components/Button';
 import { Card } from '@/components/Card';
 import { EmptyState } from '@/components/EmptyState';
 import { Dialog } from '@/components/Dialog';
@@ -58,6 +59,7 @@ import {
 import { formatWeight } from '@/utils/units';
 
 import type { RootStackParamList } from '@/navigation/types';
+import { HeatmapCard } from './home/HeatmapCard';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
@@ -110,6 +112,10 @@ export function HomeScreen() {
   // ----------------------------------------------------------------
   const onPressStart = useCallback(() => {
     navigation.navigate('Tabs', { screen: 'Training' });
+  }, [navigation]);
+
+  const onOpenHeatmap = useCallback(() => {
+    navigation.navigate('CalendarHeatmap');
   }, [navigation]);
 
   const onPressTraining = useCallback(
@@ -184,17 +190,8 @@ export function HomeScreen() {
           paddingBottom: insets.bottom + spacing.xl,
         }}
         ListHeaderComponent={
-          <View style={{ gap: spacing.md, marginBottom: spacing.lg }}>
-            <Button
-              variant="primary"
-              size="lg"
-              onPress={onPressStart}
-              accessibilityLabel="开始锻炼"
-              accessibilityHint="跳转到锻炼 Tab"
-              style={{ alignSelf: 'stretch' }}
-            >
-              开始锻炼
-            </Button>
+          <View style={{ marginBottom: spacing.lg }}>
+            <HeatmapCard onOpenFull={onOpenHeatmap} />
           </View>
         }
         ListEmptyComponent={

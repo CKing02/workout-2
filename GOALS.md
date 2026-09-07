@@ -731,6 +731,51 @@ memory 反馈（2026-09-06）：「计划重排序应直接 update 整张表，�
 
 ---
 
+## G25. 首页热力图替换「开始锻炼」CTA
+
+**优先级**：P3（视觉/动线优化）  |  **依赖**：G18（HeatmapCalendar + useDataAggregates）  |  **阶段**：3
+
+### 背景
+
+HomeScreen 顶部的「开始锻炼」按钮只是 `navigation.navigate('Tabs', { screen: 'Training' })`——一个跳转 proxy。
+开始锻炼的真正入口在底部 Tab 「锻炼」里（计划列表 + 自由训练入口），用底部 Tab 一键可达。
+把首页 CTA 改成日历热力图，更符合 Home = 「回看/状态」的角色定位。
+
+### 设计决策
+
+- 复用 `HeatmapCalendar`（G18 已落地，组件未改动）
+- 顶部 Card = 热力图 + 摘要行（X 天训练 · Y 总训练量） + 「查看更多 ›」链接 → 完整 `CalendarHeatmapScreen`
+- 空数据：热力图照常渲染（全部 `surfaceMuted`）+ 一行提示文案「暂无训练记录，去锻炼 Tab 完成第一次」
+- 历史列表下方继续展示，结构不动
+- 不引入「按单元格点击 → 当日详情」——MVP 不加新交互，先验证整体视觉
+
+### 涉及
+
+- `src/screens/HomeScreen.tsx` — `ListHeaderComponent` 由 `<Button>开始锻炼</Button>` 替换为 `<HeatmapCard />`
+- 新增 `src/screens/home/HeatmapCard.tsx`（小私有组件，封装 useDataAggregates + HeatmapCalendar + Card + 摘要 + 跳转）
+- `useDataAggregates` 已在 G18 实现，重复调用可接受（hook 内部缓存）
+
+### 验收标准（AC）
+
+- AC-25.1 首页顶部 Card 显示 12 周 × 7 天热力图
+- AC-25.2 Card 含摘要行「N 天训练 · X kg/lb 总训练量」与「查看更多 ›」跳转入口
+- AC-25.3 无训练记录时热力图全 surfaceMuted 显示 + 提示文案
+- AC-25.4 跳转到完整 `CalendarHeatmapScreen` 仍可用（Profile → DataOverview → CalendarHeatmap 路径不破坏）
+- AC-25.5 下方历史列表渲染逻辑不变（按日 / 周分组的 FlatList + swipe-to-delete）
+- AC-25.6 tsc --noEmit 通过；既有单测无 regression
+
+### 自检清单
+
+- [ ] tsc --noEmit 通过
+- [ ] 单测 11 套件 / 95 用例全过（无 regression）
+- [ ] 真机：有数据时 → 首页热力图渲染正确（色阶匹配当日训练量）
+- [ ] 真机：空数据 → 热力图全灰 + 提示文案显示
+- [ ] 真机：点「查看更多 ›」→ 完整 CalendarHeatmapScreen（含 summary + top 5）
+- [ ] 真机：下方历史列表正常滚动 + 滑动删除仍工作
+- [ ] 真机：底部 Tab「锻炼」开始训练入口仍可达
+
+---
+
 ## Phase 2 路线（P2+，待评估优先级）
 
 > 下列项目 PRD 列入但未排期，是否纳入 Phase 2 视用户偏好决定。
