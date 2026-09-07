@@ -667,32 +667,47 @@ memory 反馈（2026-09-06）：「计划重排序应直接 update 整张表，�
 
 ### 涉及
 
-- `src/db/schema.ts` + `src/db/migrations.ts` — `plan_exercises` 新增 `rest_seconds INTEGER` 列（migration 升级）
+- `src/db/schema.ts` + `src/db/migrations.ts` — `plan_exercises` 新增 `rest_seconds INTEGER` 列（migration v3 升级）
 - `src/db/repositories/planRepo.ts` — 新增 `replaceExercise(planId, planExerciseId, newExerciseId)` / `setExerciseRestSeconds(planId, planExerciseId, seconds)`
 - `src/store/planStore.ts` — `reorderExercises(from, to)` 替换为 `replaceExerciseInPlan` + `setExerciseRestSeconds` + 整张表 commit 路径
-- `src/screens/PlanEditorScreen.tsx` — 每张动作卡新增 MoreSheet（重排序 / 替换 / 休息 / 删除），内嵌 ReorderModal
+- `src/screens/PlanEditorScreen.tsx` — 每张动作卡新增 MoreSheet（3 项：重排序 / 替换 / 删除），内嵌 ReorderModal + ReplaceSheet；休息时长入口**独立**放在卡片第一组上方（不在 MoreSheet）
 - `src/components/NumberInput.tsx` — 重构以支持新 rest 输入场景
 - `src/db/wipeAllData.ts` + `src/db/exportBackup.ts` — 兼容 `rest_seconds` 字段（备份导出包含；清表后无残留）
+- `src/store/trainingStore.ts` + `src/screens/ActiveTrainingScreen.tsx` + `src/screens/TrainingScreen.tsx` — `ActiveExercise.restSeconds` 端到端打通（G24a）
 
 ### 验收标准（AC）
 
-- AC-24.1 计划编辑每张动作卡点「更多」弹 MoreSheet，含「重新排序 / 替换动作 / 调整休息 / 删除」4 项
+- AC-24.1 计划编辑每张动作卡点「更多」弹 MoreSheet，含 **3 项**（重排序 / 替换 / 删除）
 - AC-24.2 「重新排序」打开 ReorderModal（屏幕居中），内含可拖拽列表，**松手一次性 commit**（不再单步 swap）
-- AC-24.3 「替换动作」打开 ReplaceSheet → 勾选新运动 → 槽位换运动，**保留** restSeconds + sets 草稿 + 训练中已记数据
-- AC-24.4 「调整休息」写入 `plan_exercises.rest_seconds`，仅影响该动作；全局默认休息不变
-- AC-24.5 训练计时器实际使用的秒数 = `plan_exercises.rest_seconds ?? settingsStore.defaultRestSeconds`
+- AC-24.3 「替换动作」打开 ReplaceSheet → 勾选新运动 → 槽位换运动，**保留** restSeconds + sets 草稿
+- AC-24.4 「调整休息」入口在每张动作卡第一组上方（不在 MoreSheet 里），写入 `plan_exercises.rest_seconds`，仅影响该动作；全局默认休息不变
+- AC-24.5 训练计时器实际使用的秒数 = `ActiveExercise.restSeconds ?? settingsStore.defaultRestSeconds`（per-exercise 覆盖真正生效，训练中页不写死）
 - AC-24.6 `tsc --noEmit` 通过；备份/清除/重装三件套兼容新列
 - AC-24.7 杀进程重启：动作顺序、替换关系、每动作休息全部保留
+- AC-24.8 **reorder 后 plan_exercise.id 不失效**：替换 / 调休息的 SQL 仍能命中（`planStore.update` 提交后必须从 DB 重读 ids 刷新 cache）
 
 ### 自检清单
 
-- [ ] tsc --noEmit 通过
-- [ ] 真机：MoreSheet 4 项入口都可达
+- [x] tsc --noEmit 通过
+- [x] 单测 11 套件 / 95 用例全过
+- [ ] 真机：MoreSheet 3 项入口都可达
+- [ ] 真机：休息按钮在卡片第一组上方（不在 MoreSheet）
 - [ ] 真机：ReorderModal 拖多次后松手 → DB 只写一次
+- [ ] 真机：reorder → 替换动作成功（不再报 "no row updated"）
 - [ ] 真机：替换动作后该槽位 restSeconds + 组数未丢
 - [ ] 真机：每动作休息覆盖生效（训练计时器用新值，不再用全局默认）
 - [ ] 真机：杀进程重启顺序/替换/休息全部保留
 - [ ] 备份 JSON 含 rest_seconds；wipeAllData 后无残留
+
+### G24a — 修复 commit（2026-09-07，commit `bf80e82` + `4dd5f80`）
+
+> G24 WIP 落地后真机测出 3 个真 bug，1 个 AC 写错。诊断 + 修复 commit：
+>
+> | 编号 | 真根因 | commit |
+> |---|---|---|
+> | BUG-A | `planStore.update` 在 DELETE+INSERT 后没刷新 `pe.id` 缓存，导致 replaceExerciseInPlan / setExerciseRestSeconds 用 stale id 找行 → SQL changes=0 → 抛 "no row updated" | `bf80e82` |
+> | BUG-B | `ActiveExercise` 类型没 `restSeconds` 字段 + `startTraining` 入参不接 + ActiveTrainingScreen 写死 `defaultRestSeconds` | `4dd5f80` |
+> | AC 修 | AC-24.1 写 4 项，实际是 3 项（休息入口独立在卡片上） | 本节 |
 
 ---
 
