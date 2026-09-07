@@ -824,6 +824,14 @@ ProfileScreen 的「动作库」ListItem 当前是占位 Dialog：
 - [ ] 真机：自定义动作仍可删除
 - [ ] 真机：原"锻炼" Tab → "添加动作" 路径仍走 picker 模式未破坏
 
+### G26a — 修复 MuscleTabs 行被切（commit `c2415d9`）
+
+> G26 落地后真机进入动作库（browse 模式）看到：肌群 chips 行 "全部" chip 贴左、右侧 "二头 / 三头 / …" chip 被屏幕右边切掉。下方器械 SegmentedControl 行渲染正常。
+>
+> 根因：`MuscleTabs` 的 `ScrollView contentContainerStyle.paddingHorizontal: spacing.lg` 在某些设备 / RN 0.86 horizontal ScrollView + `gap` 组合下没生效（或被吞）。下方 `EquipmentControl` 用的是「外层 View 套 paddingHorizontal」的模式，正常。
+>
+> 修法：把 `paddingHorizontal` 从 `contentContainerStyle` 移到外层 `View`，与 `EquipmentControl` 包装方式对齐。contentContainerStyle 只留 `gap`。
+
 ---
 
 ## Phase 2 路线（P2+，待评估优先级）

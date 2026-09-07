@@ -535,16 +535,16 @@ function MuscleTabs({ value, onChange }: MuscleTabsProps) {
     return [{ key: ALL, label: '全部' }, ...MUSCLE_GROUPS.map((m) => ({ key: m, label: m }))];
   }, []);
 
+  // G26a: paddingHorizontal 提到外层 View —— 之前写在 ScrollView
+  // contentContainerStyle 时，"全部" chip 在某些设备贴左、右侧 chip 被
+  // 屏幕切掉。和下面 EquipmentControl 的包装方式保持一致。
   return (
-    <ScrollView
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      contentContainerStyle={{
-        paddingHorizontal: spacing.lg,
-        paddingVertical: spacing.sm,
-        gap: spacing.sm,
-      }}
-    >
+    <View style={{ paddingHorizontal: spacing.lg, paddingVertical: spacing.sm }}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={{ gap: spacing.sm }}
+      >
       {tabs.map((t) => {
         const active = t.key === value;
         return (
@@ -577,7 +577,8 @@ function MuscleTabs({ value, onChange }: MuscleTabsProps) {
           </Pressable>
         );
       })}
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 }
 
