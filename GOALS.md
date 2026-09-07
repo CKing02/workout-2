@@ -868,7 +868,60 @@ TrainingScreen 训练列表卡上的「开始训练」圆形按钮（`<IconButto
 
 ---
 
-## Phase 2 路线（P2+，待评估优先级）
+## G28. 修复：训练时不预填计划处方（G6 被过度推到训练层）
+
+**优先级**：P0（设计 bug，用户已报） |  **依赖**：G24a（plan_sets 持久化处方） |  **阶段**：3
+
+### 背景
+
+用户在计划编辑器填了 `10kg × 10`，落 `plan_sets.weight / plan_sets.reps`（G24a 已做）。开始训练后 ActiveTrainingScreen 输入框仍是 `0 / 0`，每组都要重打。用户反馈："那编辑计划时设置组数据的意义是什么？"
+
+### 根因
+
+`trainingStore.startTraining` 把 `plan_sets` 里的 weight/reps **故意丢掉**，注释明确写：
+
+```ts
+// leave the numeric fields null so the user re-enters them fresh (G6)
+weight: null,
+reps: null,
+```
+
+把 G6「数据不预填」过度推到了**计划级**。G6 的原意是"不预填**上一次训练**的值"（避免渐进超负荷被"惯性拷贝"拖累），不是"任何值都不预填"。计划处方 ≠ 上次训练值。
+
+### 修法
+
+两处改动，零业务逻辑风险：
+
+1. **`ActiveTrainingScreen` bootstrap**（line 263-268）—— `initialSets` 透传 `weight / reps`（之前只传 `setType`）
+2. **`trainingStore.startTraining`**（line 325-348）—— `materialize` 时 `weight: h.weight ?? null` / `reps: h.reps ?? null`（之前是 `weight: null`）
+
+自由训练路径（`hints.length === 0`）**不动**——没计划就保持 0/0 让用户首次输入。
+
+### 涉及
+
+- `src/screens/ActiveTrainingScreen.tsx` — bootstrap 传 weight/reps
+- `src/store/trainingStore.ts` — startTraining materialize hint numeric 字段
+
+### 验收标准（AC）
+
+- AC-28.1 计划训练时，ActiveSet 初值 = `plan_sets.weight / plan_sets.reps`
+- AC-28.2 自由训练时初值仍为 null（无计划 = 无处方）
+- AC-28.3 训练时改 weight/reps → 完成 → 写入 training_sets 仍是改后值（行为不变）
+- AC-28.4 tsc --noEmit 通过；既有单测无 regression
+
+### 自检清单
+
+- [x] tsc --noEmit 通过
+- [x] 单测 11 套件 / 95 用例全过（无 regression）
+- [ ] 真机：编辑计划 → 设 10kg × 10 → 开始训练 → 输入框直接显示 10 / 10
+- [ ] 真机：自由训练（无计划）→ 输入框仍为 0 / 0
+- [ ] 真机：训练时改 10 → 8 → 完成 → 训练历史里仍是 8（不是 10）
+
+---
+
+## G29. ActiveTrainingScreen UX 重构（待用户从 ABC 中选）
+
+详见会话内 ASCII 布局对比（A 保留键盘流 / B 全键盘流 / C 全手势流）。
 
 ---
 
