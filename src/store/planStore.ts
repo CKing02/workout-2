@@ -231,34 +231,48 @@ export const usePlanStore = create<PlanStoreState>((set, get) => ({
   update: async (id, patch) => {
     const db = await getDatabase();
     const plan = await updatePlan(db, id, patch);
-    set((state) => {
-      // Update the in-memory detail cache if present so UI stays consistent.
-      const detail = state.detailById[id];
-      let nextDetail = detail;
-      if (detail && patch.exerciseIds) {
-        const desired = patch.exerciseIds;
-        // Drop removed exercises; append new ones as empty drafts (no sets).
-        const byId = new Map(detail.exercises.map((e) => [e.exerciseId, e]));
-        const rebuilt: PlanExerciseDraft[] = desired
-          .map((exId, idx) => {
-            const carry = byId.get(exId);
-            if (carry) {
-              return { ...carry, position: idx };
-            }
-            // New exercise added since the editor was opened. The editor will
-            // call `loadDetail` to refresh metadata when needed.
-            return null;
-          })
-          .filter((v): v is PlanExerciseDraft => v !== null);
-        nextDetail = { exercises: rebuilt, exerciseIds: desired };
+    set((state) => ({
+      plans: state.plans.map((p) => (p.id === id ? plan : p)),
+    }));
+    // G24 fix (BUG-A): `updatePlan` does DELETE + INSERT with fresh
+    // `plan_exercises.id` values, so the in-memory `PlanExerciseDraft.id`
+    // references go stale. If the editor held a detail cache, refresh it
+    // from the DB so subsequent per-row ops (`replaceExerciseInPlan`,
+    // `setExerciseRestSeconds`) target the right rows. Carries in-memory
+    // set drafts across by `exerciseId` — the repo's reconcile preserves
+    // `rest_seconds` per exercise, so we just pick it up from the fresh
+    // row.
+    if (patch.exerciseIds) {
+      const detail = get().detailById[id];
+      const carriedDraftsByExId = new Map<string, PlanExerciseDraft>();
+      const carriedSetsByExId = new Map<string, PlanSetDraft[]>();
+      for (const e of detail?.exercises ?? []) {
+        carriedDraftsByExId.set(e.exerciseId, e);
+        if (e.sets.length > 0) carriedSetsByExId.set(e.exerciseId, e.sets);
       }
-      return {
-        plans: state.plans.map((p) => (p.id === id ? plan : p)),
-        detailById: nextDetail
-          ? { ...state.detailById, [id]: nextDetail }
-          : state.detailById,
-      };
-    });
+      const fresh = await getPlan(db, id);
+      if (fresh) {
+        const rebuilt: PlanExerciseDraft[] = fresh.exercises.map((pe) => {
+          const carry = carriedDraftsByExId.get(pe.exerciseId);
+          return {
+            id: pe.id, // FRESH plan_exercise row id from DB
+            planId: pe.planId,
+            exerciseId: pe.exerciseId,
+            position: pe.position,
+            restSeconds: pe.restSeconds,
+            exercise: pe.exercise,
+            sets: carriedSetsByExId.get(pe.exerciseId) ?? carry?.sets ?? [],
+          };
+        });
+        const nextDetail: PlanDetailState = {
+          exercises: rebuilt,
+          exerciseIds: fresh.exercises.map((pe) => pe.exerciseId),
+        };
+        set((state) => ({
+          detailById: { ...state.detailById, [id]: nextDetail },
+        }));
+      }
+    }
     return plan;
   },
 
