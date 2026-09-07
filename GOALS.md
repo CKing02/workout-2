@@ -958,6 +958,159 @@ reps: null,
 
 ---
 
+## G30. 工程未收口(untracked 目录 + 测试清单重写)
+
+**优先级**：P3（工程收口）  |  **依赖**：无  |  **阶段**：3
+
+### 背景
+
+master 当前有 3 个 untracked 目录（`_diag/`、`_drawio_render/`、`docs/architecture/`），其中 `docs/REAL_DEVICE_TEST_CHECKLIST.md` 仍停在 G1–G12 范围。`git status` 长期脏，测试清单已无法指导 G29 之后的实测，先清。
+
+### 子项决策
+
+| 子项 | 决定 | 理由 |
+|------|------|------|
+| `_diag/`（`audit-dup-rows.js` + `audit-id-shape.js`） | **移到 `scripts/audit/`**，加 README 说明 G22 复现排查场景 | G22 自愈关闭后脚本仍可能再用，但根目录散乱不 commit |
+| `_drawio_render/`（`.drawio` + `.png` + `.py` + README） | **全部移到 `docs/architecture/`**，合并 README，删 `_drawio_render/` | 现在两处都有 README 冗余；`docs/architecture/` 是正式文档位 |
+| `docs/REAL_DEVICE_TEST_CHECKLIST.md` | **重写为 G1–G29 全量范围**（覆盖旧版） | 旧版 G12 范围已无法指导后续回归 |
+
+### 涉及
+
+- `scripts/audit/audit-dup-rows.js`（从 `_diag/` 移入）
+- `scripts/audit/audit-id-shape.js`（从 `_diag/` 移入）
+- `scripts/audit/README.md`（新增，说明何时跑 + 指向 memory `project-g22-closed-as-self-healed.md`）
+- `docs/architecture/system-architecture.drawio`（从 `_drawio_render/` 移入）
+- `docs/architecture/system-architecture.png`（从 `_drawio_render/` 移入）
+- `docs/architecture/_gen_system.py`（从 `_drawio_render/` 移入）
+- `docs/architecture/README.md`（合并 `_drawio_render/README.md` 与现有 `docs/architecture/README.md`，删 `_drawio_render/README.md`）
+- 删除：`_diag/`、`_drawio_render/`、`_open_diagram.url`
+- `docs/REAL_DEVICE_TEST_CHECKLIST.md`（重写 G1–G29 全量 AC）
+
+### 验收标准（AC）
+
+- AC-30.1 `git status` clean，无 untracked / uncommitted 文件
+- AC-30.2 `_diag/`、`_drawio_render/` 已被删除
+- AC-30.3 `scripts/audit/` 含两个脚本 + README
+- AC-30.4 `docs/architecture/` 含 `.drawio` + `.png` + `.py` + 合并后单文件 README
+- AC-30.5 `docs/REAL_DEVICE_TEST_CHECKLIST.md` 顶部写"G1–G29 全量"，含 G29 沉浸式打钩 + 跨动作跳转 + NumberInput 一键覆盖 AC 项
+- AC-30.6 三次 commit 分开（便于 review）：（a）移脚本（b）移架构图（c）重写测试清单
+
+### 自检清单
+
+- [ ] 三次 commit 完成
+- [ ] `git status` clean
+- [ ] `scripts/audit/README.md` 描述 G22 复现排查流程
+- [ ] `docs/architecture/README.md` 单文件可读，包含 11 层架构 + 4 色数据流
+- [ ] `docs/REAL_DEVICE_TEST_CHECKLIST.md` 含 G29 实战 AC 项
+- [ ] tsc --noEmit 通过（无代码改动，但要确认无副作用）
+- [ ] 单测 11 套件 / 95 用例全过
+
+---
+
+## G31. JSON 导入回滚（G19 的另一半）
+
+**优先级**：P1（补 G14 体验洞）  |  **依赖**：G19（导出）  |  **阶段**：3
+
+### 背景
+
+G19 实现 JSON 导出，用于备份和数据迁移。但 G14「清除全部数据」是**真·不可逆** — 没有导入路径，清错就全没。G31 补上导入路径，让 G14 真正带安全网。
+
+### 设计决策
+
+- **入口**：设置页 → 「数据管理」区块（暂放在「主题」区块下面），含「导出 JSON」（G19）与「导入 JSON」两个按钮
+- **选文件**：用 `expo-document-picker`（新依赖，需查 v57 兼容版本）
+- **导入策略**：
+  - **校验**：版本号字段 `{version: 1, exportedAt, ...}`
+  - **冲突**：**全表覆盖** — 导入 = 还原，语义清晰，跟 G14「清除全部」对称
+  - **顺序**：先 `exercises` → `plans` → `plan_exercises` → `plan_sets`（v4 后）→ `trainings` → `training_sets` → `settings`
+- **反馈**：toast「已导入 N 个计划 / M 次训练 / K 个动作」；失败行给详细错误
+- **不做**：增量导入 / merge / 按 ID skip（暂不增加复杂度）
+
+### 涉及
+
+- `package.json` — 新增 `expo-document-picker`（版本待查 v57 docs）
+- `src/screens/SettingsScreen.tsx` — 「数据管理」区块 + 导入按钮
+- `src/store/settingsStore.ts` — 新增 `importFromJson(fileUri)` action
+- `src/db/index.ts` — 新增 `replaceAll(json)` 事务函数（全表 delete + 写）
+- 新增 `src/db/repositories/importRepo.ts`（解析 + 校验 + 写库）
+- 新增 `src/utils/importSchema.ts`（JSON 结构 + 版本校验）
+
+### 验收标准（AC）
+
+- AC-31.1 设置页有「数据管理」区块，含「导出 JSON」（G19）与「导入 JSON」两个按钮
+- AC-31.2 导入按钮 → 拉起系统文件选择器（Android:Documents / iOS:Files）
+- AC-31.3 选中非 JSON / 错误版本 → toast「导入失败:xxx」，DB 不动
+- AC-31.4 选中合法 JSON → 弹二次确认「这将覆盖现有全部数据，继续？」
+- AC-31.5 确认后 → 7 张表全清 + 重建，toast「已导入 N 计划 / M 训练 / K 动作」
+- AC-31.6 导入完成后 → 首页 / 锻炼 Tab / 我的 都反映新数据（刷新有效）
+- AC-31.7 自由训练 / 计划训练功能验证不破（导入的 plan_exercises 可正常训练）
+
+### 自检清单
+
+- [ ] tsc --noEmit 通过
+- [ ] 单测 11 套件 / 95 用例全过 + 新增 `importRepo` 单测（≥3 用例：合法 / 版本错 / 字段缺失）
+- [ ] `expo-document-picker` 在 v57 SDK 兼容（需 WebFetch v57 docs 验证）
+- [ ] 真机：导出 → G14 清除 → 导入同一文件 → 数据还原
+- [ ] 真机：导入非法文件 → toast 报错，无 DB 写入
+- [ ] 真机：导入确认弹窗取消 → 不执行
+
+---
+
+## G32. 数据可视化下钻（G18 升级）
+
+**优先级**：P1（让 MVP 好用）  |  **依赖**：G18（`useDataAggregates`）  |  **阶段**：3
+
+### 背景
+
+G18 4 屏合一但只是概览（总训练量 / 时长 / 1RM 全局）。用户训练 8 周后想看「卧推这 8 周趋势」 — 现在没有。G32 加单动作详情：从概览卡片点动作行 → 该动作的历史曲线 / 容量柱状 / 1RM 趋势。
+
+### 设计决策
+
+- **入口**：**我的 → 数据概览** 加「按动作」Tab，点动作行进详情
+- **新页**：`ExerciseHistoryScreen`
+  - 顶部：动作名 + 主要肌群 + 器械 + 训练总次数 + 最高 1RM（Brzycki）
+  - 中部：**1RM 趋势线**（react-native-svg 手画折线）
+  - 下部：**容量（Σ weight × reps）柱状图**（按训练日，每日一根）
+  - 时间区间切换：近 4 周 / 近 3 月 / 近 1 年 / 全部
+  - **原始数据点**：长按图上某点 → 弹该次训练的小预览，点进 → `TrainingDetailScreen`
+- **派生指标**：
+  - 1RM 公式：**Brzycki**（`weight × (36 / (37 - reps))`），`reps ≥ 37` 时 cap 为 `weight × 1`
+  - 容量：`Σ weight × reps`（只算 `set_type='normal'`）
+- **不做**：动作对比、多动作叠加、心率区间（超出 MVP）
+
+### 涉及
+
+- 新增 `src/hooks/useExerciseHistory.ts`
+- 新增 `src/screens/ExerciseHistoryScreen.tsx`
+- 新增 `src/screens/data/ExerciseLineChart.tsx`（SVG 手画折线）
+- 新增 `src/screens/data/ExerciseVolumeBars.tsx`（SVG 手画柱状）
+- `src/screens/DataOverviewScreen.tsx` — 加「按动作」Tab + 动作列表（已有概览旁）
+- `src/navigation/types.ts` + RootNavigator 注册新路由
+- `src/utils/oneRm.ts` — Brzycki 公式 + 边界处理
+
+### 验收标准（AC）
+
+- AC-32.1 我的 → 数据概览 → 「按动作」Tab，显示有训练记录的动作列表（按 1RM 降序）
+- AC-32.2 点动作行 → 进 `ExerciseHistoryScreen`，顶部信息正确
+- AC-32.3 1RM 趋势线随时间区间切换（4 周 / 3 月 / 1 年 / 全部）
+- AC-32.4 容量柱状图每日一根柱，日期对齐
+- AC-32.5 长按图上点 → 弹该次训练的小预览，点进 → `TrainingDetailScreen`
+- AC-32.6 1RM 公式：100kg × 5rep → 1RM ≈ 112.5kg（Brzycki）
+- AC-32.7 边界：reps ≥ 37 → 用 `weight × 1` cap，避免负数
+- AC-32.8 空数据（动作无训练历史） → 友好提示「还没有训练记录」
+
+### 自检清单
+
+- [ ] tsc --noEmit 通过
+- [ ] 单测 11 套件 / 95 用例全过 + 新增 `useExerciseHistory` + `oneRm` 单测（≥5 用例）
+- [ ] 真机：8 周卧推数据 → 1RM 趋势线平滑绘制，数值随区间切换
+- [ ] 真机：容量柱状每日一根，日期对齐
+- [ ] 真机：长按数据点 → 弹训练预览 + 跳转
+- [ ] 真机：空数据动作 → 提示文案 + 不崩
+- [ ] 真机：reps ≥ 37 数据 → 1RM cap 不溢出
+
+---
+
 ## Phase 2 路线（P2+，待评估优先级）
 
 > 下列项目 PRD 列入但未排期，是否纳入 Phase 2 视用户偏好决定。
