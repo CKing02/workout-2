@@ -428,6 +428,20 @@
   - `docs/architecture/` 保持 source of truth(未变动)
   - `docs/REAL_DEVICE_TEST_CHECKLIST.md` 重写为 G1–G29 全量范围
 
+### 🟡 G31 plan_sets 处方回滚缺口（待 G19 修补）
+
+- **症状**: 导出计划（G24a 设过 10×10）→ G14 清除 → G31 导入同一文件 → plan_sets 处方数据丢失,计划变成"无预填的初始状态"
+- **根因**: G19 导出端没把 `plan_sets` 和 `plan_exercises.rest_seconds` 写到 `BackupPayload`,所以导入端严格遵循"还原导出端给的"原则无法还原处方
+- **影响范围**: 仅 G24a 之后设过处方的计划丢失处方;**训练历史 / 计划骨架 / 自定义动作 / 设置**全部正常还原
+- **真机验证脚本**:
+  1. 编辑计划 → 填 60kg × 10 → 保存（plan_sets 落库）
+  2. 设置 → 数据导出 → 保存 .json
+  3. 设置 → 清除全部数据 → 确认（plan_sets 清空）
+  4. 设置 → 数据导入 → 选刚才 .json → 二次确认 → 完成
+  5. 进计划编辑器 → 该动作组数 / 类型保留,但 weight / reps 变 0（处方丢）
+- **修法**（G33+ 待办）:回 G19 扩展导出字段 — `planExercises` 增 `restSeconds` 字段 + 新增 `planSets` 数组（`{planExerciseId, setIndex, setType, weight, reps}`）;导入端 `importData.ts` 跟着补 `plan_sets` 表 INSERT
+- **当前状态**: 接受 G31 现状,登记备查;不影响 G31 主路径验收
+
 ---
 
 **测试完成后**：把上方的 ☐ 改为 ✅/❌ 填实际结果；如有 bug，按第 11 节模板追加条目，整份文档回贴给我。
