@@ -106,7 +106,26 @@ export function IconButton({
     >
       <View style={styles.inner}>
         {typeof icon === 'string' ? (
-          <Text style={{ color: foreground, fontSize: box * 0.45, fontWeight: '700' }}>{icon}</Text>
+          // G27: ▶ / ◀ / ▲ / ▼ 的视觉形状 ≠ 字符 typographic box：
+          //   1) 不设 lineHeight 时 Text 盒子 = fontSize × 1.2，glyph 在盒子上半，
+          //      整体偏上
+          //   2) ▶ 字形视觉重心在 typographic box 左侧（base 在左、apex 在右），
+          //      居中后视觉三角形偏左
+          // 修法：lineHeight 显式 = fontSize 让盒子无 descender padding；
+          //       ▶/◀/▲/▼ 时再 marginLeft 右移补偿字形偏左。
+          <Text
+            style={{
+              color: foreground,
+              fontSize: box * 0.45,
+              fontWeight: '700',
+              lineHeight: box * 0.45,
+              ...(icon === '▶' || icon === '◀' || icon === '▲' || icon === '▼'
+                ? { marginLeft: box * 0.08 }
+                : null),
+            }}
+          >
+            {icon}
+          </Text>
         ) : (
           icon
         )}

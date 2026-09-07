@@ -834,6 +834,40 @@ ProfileScreen 的「动作库」ListItem 当前是占位 Dialog：
 
 ---
 
+## G27. IconButton 内字符图标（▶）四周居中
+
+**优先级**：P3（视觉打磨）  |  **依赖**：无  |  **阶段**：3
+
+### 背景
+
+TrainingScreen 训练列表卡上的「开始训练」圆形按钮（`<IconButton icon="▶" size="md" variant="primary" />`）里，三角形 glyph 视觉上偏离圆心 —— 偏左上 / 偏左。其它 IconButton 用例（×、+、🗑）看不出来，但 ▶ 这种 directional 形状对字形不对称特别敏感。
+
+### 设计决策
+
+不改用 SVG（侵入大、只解决 ▶ 一个用例）。改用字体层调整：
+- `lineHeight = fontSize`：去掉 RN 默认 ~1.2× lineHeight 留出的 descender padding，让 glyph 占满盒子 → 垂直方向居中
+- `marginLeft = box × 0.08`：仅对 `▶ / ◀ / ▲ / ▼` 四个 directional 三角形生效，补偿字形视觉重心偏左（base 在左、apex 在右）的特性。其它字符（×、+、🗑）不动
+
+### 涉及
+
+- `src/components/IconButton.tsx` — Text 样式扩展（lineHeight 始终 + directional marginLeft 条件）
+
+### 验收标准（AC）
+
+- AC-27.1 训练列表卡的「开始训练」圆形按钮，三角形在 40×40 圆内视觉居中（横向 + 纵向）
+- AC-27.2 其它 IconButton 用例（×、+、🗑）位置无视觉变化
+- AC-27.3 tsc --noEmit 通过；既有单测无 regression
+
+### 自检清单
+
+- [x] tsc --noEmit 通过
+- [ ] 真机：训练列表卡 ▶ 圆形按钮 —— 三角视觉居中
+- [ ] 真机：ActiveTrainingScreen × 关闭按钮位置无变化
+- [ ] 真机：TrainingDetailScreen 🗑 删除按钮位置无变化
+- [ ] 真机：TrainingScreen + 新建计划按钮位置无变化
+
+---
+
 ## Phase 2 路线（P2+，待评估优先级）
 
 ---
