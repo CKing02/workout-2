@@ -107,6 +107,11 @@ export type RootStackParamList = {
   MuscleGroupDistribution: undefined;
   /** G18: 1RM 记录（按动作聚合最高估算 1RM）。 */
   OneRMRecords: undefined;
+  /**
+   * G32: 单动作历史下钻（1RM 趋势线 + 容量柱状 + 时间区间切换）。
+   * 入口：我的 → 数据概览 → 「按动作」Tab → 点动作行。
+   */
+  ExerciseHistory: { exerciseId: string };
 };
 
 /**

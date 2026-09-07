@@ -28,6 +28,7 @@ import { CalendarHeatmapScreen } from '@/screens/data/CalendarHeatmapScreen';
 import { VolumeTrendScreen } from '@/screens/data/VolumeTrendScreen';
 import { MuscleGroupDistributionScreen } from '@/screens/data/MuscleGroupDistributionScreen';
 import { OneRMRecordsScreen } from '@/screens/data/OneRMRecordsScreen';
+import { ExerciseHistoryScreen } from '@/screens/ExerciseHistoryScreen';
 import { useTheme } from '@/theme';
 
 import { Showcase } from '@/screens/_dev/Showcase';
@@ -149,6 +150,14 @@ export function RootNavigator() {
           name="OneRMRecords"
           component={OneRMRecordsScreen}
           options={{ title: '1RM 记录' }}
+        />
+        {/* G32 — 单动作历史下钻（1RM 趋势线 + 容量柱状）。 */}
+        <Stack.Screen
+          name="ExerciseHistory"
+          component={ExerciseHistoryScreen}
+          options={({ route }) => ({
+            title: route.params?.exerciseId ? '动作历史' : '动作历史',
+          })}
         />
       </Stack.Navigator>
     </NavigationContainer>
