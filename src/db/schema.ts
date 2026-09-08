@@ -27,6 +27,12 @@ export interface ExerciseRow {
   image_uri: string | null;
   is_custom: number; // 0 | 1
   created_at: number;
+  // G35 — 32 个 seed 用,详情页显示
+  description_zh: string | null; // hasaneyldrm instructions.zh(段述)
+  steps_zh: string | null; // JSON 数组字符串(hasaneyldrm instruction_steps.zh)
+  gif_url: string | null; // 已 bundle 的相对路径,如 'assets/exercises/0025-EIeI8Vf.gif'
+  target_zh: string | null; // 主肌群中文,和 muscle_group 一致(冗余但展示页免查 mapping)
+  attribution: string | null; // GIF 来源版权声明
 }
 
 export interface PlanRow {
@@ -118,6 +124,12 @@ export interface Exercise {
   imageUri: string | null;
   isCustom: boolean;
   createdAt: number;
+  // G35 — 详情页用;seed 注入,老 user-created 行为 null
+  descriptionZh: string | null;
+  stepsZh: string[] | null; // JSON 数组解出
+  gifUrl: string | null;
+  targetZh: string | null;
+  attribution: string | null;
 }
 
 export function rowToExercise(row: ExerciseRow): Exercise {
@@ -130,6 +142,18 @@ export function rowToExercise(row: ExerciseRow): Exercise {
   } catch {
     secondary = [];
   }
+  // G35 — steps_zh 是 JSON 数组字符串
+  let steps: string[] | null = null;
+  if (row.steps_zh) {
+    try {
+      const parsed = JSON.parse(row.steps_zh);
+      if (Array.isArray(parsed)) {
+        steps = parsed.filter((v): v is string => typeof v === 'string');
+      }
+    } catch {
+      steps = null;
+    }
+  }
   return {
     id: row.id,
     name: row.name,
@@ -140,6 +164,11 @@ export function rowToExercise(row: ExerciseRow): Exercise {
     imageUri: row.image_uri,
     isCustom: row.is_custom === 1,
     createdAt: row.created_at,
+    descriptionZh: row.description_zh,
+    stepsZh: steps,
+    gifUrl: row.gif_url,
+    targetZh: row.target_zh,
+    attribution: row.attribution,
   };
 }
 
@@ -270,7 +299,13 @@ export const CREATE_TABLE_SQL: string[] = [
      metric_type TEXT NOT NULL,
      image_uri TEXT,
      is_custom INTEGER NOT NULL DEFAULT 0,
-     created_at INTEGER NOT NULL
+     created_at INTEGER NOT NULL,
+     -- G35: i18n + GIF 关联字段
+     description_zh TEXT,
+     steps_zh TEXT,
+     gif_url TEXT,
+     target_zh TEXT,
+     attribution TEXT
    );`,
 
   `CREATE TABLE IF NOT EXISTS plans (

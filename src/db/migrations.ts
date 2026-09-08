@@ -60,6 +60,15 @@ export const MIGRATIONS: readonly Migration[] = [
     sql: `ALTER TABLE plan_sets ADD COLUMN weight REAL NOT NULL DEFAULT 0;
           ALTER TABLE plan_sets ADD COLUMN reps INTEGER NOT NULL DEFAULT 0;`,
   },
+  {
+    version: 6,
+    description: 'G35: exercises 表加 i18n + GIF 关联 5 字段(description_zh/steps_zh/gif_url/target_zh/attribution)。旧行 nullable 字段置 NULL,seed 重新注入时填满。',
+    sql: `ALTER TABLE exercises ADD COLUMN description_zh TEXT;
+          ALTER TABLE exercises ADD COLUMN steps_zh TEXT;
+          ALTER TABLE exercises ADD COLUMN gif_url TEXT;
+          ALTER TABLE exercises ADD COLUMN target_zh TEXT;
+          ALTER TABLE exercises ADD COLUMN attribution TEXT;`,
+  },
 ];
 
 /**

@@ -86,6 +86,12 @@ export async function createExercise(
     imageUri: input.imageUri ?? null,
     isCustom: input.isCustom === false ? false : true,
     createdAt: now,
+    // G35 §3 — user-created 走不到 mapping,这 5 字段都是 null
+    descriptionZh: null,
+    stepsZh: null,
+    gifUrl: null,
+    targetZh: null,
+    attribution: null,
   };
 }
 

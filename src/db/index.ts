@@ -18,7 +18,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import { bindDatabase } from '@/lib/diagnostics/installErrorHandlers';
 
 import { runMigrations } from './migrations';
-import { seedExercisesIfEmpty } from './seeds/seedRunner';
+import { backfillExerciseI18n, seedExercisesIfEmpty } from './seeds/seedRunner';
 
 const DATABASE_NAME = 'workout2.db';
 
@@ -94,6 +94,17 @@ export async function initDatabase(): Promise<SQLiteDatabase> {
       '数据库迁移失败：' +
         (err instanceof Error ? err.message : String(err)),
     );
+  }
+  // G35 §3 老装兼容:migration 加了 5 列,但老 seed 行 5 字段是 NULL。
+  // backfill 把 32 条 seed 行的 5 字段补齐(已填过的不动,idempotent)。
+  // 新装空表也安全(0 行匹配)。
+  try {
+    await backfillExerciseI18n(db);
+  } catch (err) {
+    // Backfill 失败不阻断启动 —— 5 字段 null 让 detailScreen 走 fallback
+    // (🏋️ 占位 + "自定义动作暂无演示"),用户可手动重装 App 清表触发再 seed。
+    // eslint-disable-next-line no-console
+    console.warn('[db] backfill exercise i18n failed:', err);
   }
   try {
     await seedExercisesIfEmpty(db);

@@ -10,6 +10,11 @@
  */
 
 import type { ExerciseRow } from '../schema';
+import {
+  EXERCISE_G35_BY_NAME,
+  translateTarget,
+} from './exerciseG35Mapping';
+import { EXERCISE_ZH_BY_HASANEYLDRM_ID } from './exerciseZhData';
 
 export interface ExerciseSeed {
   name: string;
@@ -266,16 +271,40 @@ export const EXERCISE_SEEDS: ExerciseSeed[] = [
 /**
  * Convert seed entries to rows ready for INSERT.
  * `id` / `is_custom` / `created_at` 在调用方填充（保证幂等 + 时间一致）。
+ *
+ * G35 §3: 32 个 seed 都有 mapping + 中文数据,自动注入:
+ *  - description_zh:hasaneyldrm instructions.zh
+ *  - steps_zh:JSON(hasaneyldrm instruction_steps.zh)
+ *  - gif_url:本地 bundle 路径('assets/exercises/{assetFileName}')
+ *  - target_zh:translateTarget(targetEn) 结果
+ *  - attribution:Gym Visual 版权声明
+ *
+ * 老 seeds(seed 里没 mapping 匹配)的 5 字段会置 null,但现在 32/32 全映射,
+ * assertMappingComplete 在编译期就拦下不一致。
  */
 export function toExerciseRows(now: number): Omit<ExerciseRow, 'id'>[] {
-  return EXERCISE_SEEDS.map((seed) => ({
-    name: seed.name,
-    muscle_group: seed.muscle_group,
-    secondary_muscles: JSON.stringify(seed.secondary_muscles),
-    equipment: seed.equipment,
-    metric_type: seed.metric_type,
-    image_uri: null,
-    is_custom: 0,
-    created_at: now,
-  }));
+  return EXERCISE_SEEDS.map((seed) => {
+    const mapping = EXERCISE_G35_BY_NAME.get(seed.name);
+    // 调用方(seedRunner)总是 seedExercisesIfEmpty 后才跑这步,
+    // 而 assertMappingComplete 在 seedRunner.test 已经把不一致拦截了。
+    if (!mapping) {
+      throw new Error(`[G35] seed "${seed.name}" missing mapping in toExerciseRows`);
+    }
+    const zh = EXERCISE_ZH_BY_HASANEYLDRM_ID[mapping.hasaneyldrmId];
+    return {
+      name: seed.name,
+      muscle_group: seed.muscle_group,
+      secondary_muscles: JSON.stringify(seed.secondary_muscles),
+      equipment: seed.equipment,
+      metric_type: seed.metric_type,
+      image_uri: null,
+      is_custom: 0,
+      created_at: now,
+      description_zh: zh?.description ?? null,
+      steps_zh: zh ? JSON.stringify(zh.steps) : null,
+      gif_url: `assets/exercises/${mapping.assetFileName}`,
+      target_zh: translateTarget(mapping.targetEn),
+      attribution: '© Gym visual — https://gymvisual.com/',
+    };
+  });
 }

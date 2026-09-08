@@ -103,6 +103,12 @@ export async function listExercisesWithHistory(
       image_uri: r.image_uri,
       is_custom: r.is_custom,
       created_at: r.created_at,
+      // G35 §3 — 这条 SQL 走的是历史 list,详情页才需要 i18n/GIF 字段;list 视图一律 null
+      description_zh: null,
+      steps_zh: null,
+      gif_url: null,
+      target_zh: null,
+      attribution: null,
     }),
     totalTrainings: r.total_trainings,
     maxOneRm: oneRmByExercise.get(r.id) ?? 0,
