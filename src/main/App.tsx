@@ -36,6 +36,7 @@ import { Toast } from '@/components/Toast';
 import { toast } from '@/hooks/useToast';
 import { useSettingsStore } from '@/store/settingsStore';
 import { useExerciseStore } from '@/store/exerciseStore';
+import { useBodyMeasurementStore } from '@/store/bodyMeasurementStore';
 
 function ThemedStatusBar() {
   const { scheme } = useTheme();
@@ -78,6 +79,9 @@ function DatabaseBootstrap({ children }: { children: React.ReactNode }) {
         // G35 §3 老装兼容:backfillExerciseI18n 刚 UPDATE 了老行 5 字段,
         // 但 exerciseStore cache 还是老 9 列 —— 重拉一次让 store 拿到新数据。
         await useExerciseStore.getState().reload();
+        // US-12 — 身体测量(体重 + 体脂)。可与上面并行,放这里只是因为
+        // load 是异步且 DB 已经 ready,并行收益 < 代码可读性。
+        await useBodyMeasurementStore.getState().load();
         if (!cancelled) setReady(true);
       } catch (err) {
         if (cancelled) return;

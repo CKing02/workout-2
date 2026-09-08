@@ -22,13 +22,14 @@ import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 
 import { getDatabase } from '@/db';
+import { listBodyMeasurements } from '@/db/repositories/bodyMeasurementRepo';
 import { listExercises } from '@/db/repositories/exerciseRepo';
 import { listErrors } from '@/db/repositories/errorLogRepo';
 import { listPlansWithCount, type PlanWithCount } from '@/db/repositories/planRepo';
 import { listTrainings, type Training } from '@/db/repositories/trainingRepo';
 import { listSetsByTraining } from '@/db/repositories/trainingSetRepo';
 import { listSettings } from '@/db/repositories/settingsRepo';
-import type { Exercise, ErrorLog, TrainingSet } from '@/db/schema';
+import type { BodyMeasurement, Exercise, ErrorLog, TrainingSet } from '@/db/schema';
 
 export interface BackupPayload {
   /** Schema version — 后续字段增删可走迁移。 */
@@ -44,6 +45,7 @@ export interface BackupPayload {
     trainingSets: number;
     settings: number;
     errorLogs: number;
+    bodyMeasurements: number;
   };
   exercises: Exercise[];
   plans: PlanWithCount[];
@@ -61,6 +63,8 @@ export interface BackupPayload {
   }>;
   settings: Record<string, string>;
   errorLogs: ErrorLog[];
+  /** US-12 — 身体测量（体重 + 体脂）。 */
+  bodyMeasurements: BodyMeasurement[];
 }
 
 /**
@@ -68,13 +72,15 @@ export interface BackupPayload {
  */
 export async function buildBackupPayload(): Promise<BackupPayload> {
   const db = await getDatabase();
-  const [exercises, plans, trainings, settings, errorLogs] = await Promise.all([
-    listExercises(db),
-    listPlansWithCount(db),
-    listTrainings(db),
-    listSettings(db),
-    listErrors(db, 10000), // 上限 1w 条；本地错误日志不会到这个量级
-  ]);
+  const [exercises, plans, trainings, settings, errorLogs, bodyMeasurements] =
+    await Promise.all([
+      listExercises(db),
+      listPlansWithCount(db),
+      listTrainings(db),
+      listSettings(db),
+      listErrors(db, 10000), // 上限 1w 条；本地错误日志不会到这个量级
+      listBodyMeasurements(db),
+    ]);
 
   // plan_exercises: 直接全表读 + planId/exerciseId/position 三列。
   const planExerciseRows = await db.getAllAsync<{
@@ -112,6 +118,7 @@ export async function buildBackupPayload(): Promise<BackupPayload> {
       trainingSets: trainingSets.reduce((sum, t) => sum + t.sets.length, 0),
       settings: Object.keys(settings).length,
       errorLogs: errorLogs.length,
+      bodyMeasurements: bodyMeasurements.length,
     },
     exercises,
     plans,
@@ -120,6 +127,7 @@ export async function buildBackupPayload(): Promise<BackupPayload> {
     trainingSets,
     settings,
     errorLogs,
+    bodyMeasurements,
   };
 }
 

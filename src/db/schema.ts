@@ -1,7 +1,8 @@
 /**
  * SQLite schema (附录 A).
  *
- * 6 张表：exercises / plans / plan_exercises / trainings / training_sets / settings。
+ * 8 张表：exercises / plans / plan_exercises / plan_sets / trainings / training_sets /
+ * settings / error_logs / body_measurements（US-12 加的最后一张）。
  * 所有 ID 使用 TEXT PRIMARY KEY，由 `crypto.randomUUID()` 生成。
  *
  * 设计决策（与 PRD / GOALS 一致；偏离处见 migrations 注释）：
@@ -111,6 +112,27 @@ export interface ErrorLogRow {
   component_stack: string | null;
   fingerprint: string;
   is_fatal: number; // 0 | 1
+}
+
+/**
+ * US-12 — 身体测量（体重 + 体脂）。
+ *
+ * 设计要点：
+ * - `measured_date` 是本地 'YYYY-MM-DD' 字符串（不是 timestamp），便于按日分组。
+ * - `weight_kg` / `body_fat_pct` 都允许 NULL：用户可以只记一项。
+ * - **同日允许多条**：不强制 upsert。早晚体重不同，丢数据更糟。
+ *   排序时用 `created_at DESC` 区分早晚。
+ * - `weight_kg` 是存储单位（与 settings.unit 解耦）；显示时按 settings 换算。
+ * - `note` 留给"早/晚"/"运动后"/"空腹"等场景标注，UI 暂简单文本输入。
+ */
+export interface BodyMeasurementRow {
+  id: string;
+  measured_date: string; // 'YYYY-MM-DD'
+  weight_kg: number | null;
+  body_fat_pct: number | null;
+  note: string | null;
+  created_at: number;
+  updated_at: number;
 }
 
 /** Domain-friendly 视图（自动解 JSON）。 */
@@ -391,6 +413,19 @@ export const CREATE_TABLE_SQL: string[] = [
 
   `CREATE INDEX IF NOT EXISTS idx_error_logs_occurred_at ON error_logs(occurred_at DESC);`,
   `CREATE INDEX IF NOT EXISTS idx_error_logs_fingerprint ON error_logs(fingerprint);`,
+
+  `CREATE TABLE IF NOT EXISTS body_measurements (
+     id TEXT PRIMARY KEY,
+     measured_date TEXT NOT NULL,
+     weight_kg REAL,
+     body_fat_pct REAL,
+     note TEXT,
+     created_at INTEGER NOT NULL,
+     updated_at INTEGER NOT NULL
+   );`,
+
+  `CREATE INDEX IF NOT EXISTS idx_body_measurements_date
+     ON body_measurements(measured_date DESC, created_at DESC);`,
 ];
 
 /**
@@ -447,5 +482,31 @@ export function rowToErrorLog(row: ErrorLogRow): ErrorLog {
     componentStack: row.component_stack,
     fingerprint: row.fingerprint,
     isFatal: row.is_fatal === 1,
+  };
+}
+
+/* -------------------------------------------------------------------------- */
+/* body_measurements — US-12 身体测量（体重 + 体脂）                          */
+/* -------------------------------------------------------------------------- */
+
+export interface BodyMeasurement {
+  id: string;
+  measuredDate: string;
+  weightKg: number | null;
+  bodyFatPct: number | null;
+  note: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export function rowToBodyMeasurement(row: BodyMeasurementRow): BodyMeasurement {
+  return {
+    id: row.id,
+    measuredDate: row.measured_date,
+    weightKg: row.weight_kg,
+    bodyFatPct: row.body_fat_pct,
+    note: row.note,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
   };
 }

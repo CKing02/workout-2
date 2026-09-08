@@ -147,7 +147,7 @@ export async function wipeAllData(): Promise<void> {
   await db.withTransactionAsync(async () => {
     // Order doesn't strictly matter (FK CASCADE is on via configurePragmas),
     // but explicit is clearer and resilient to future schema changes.
-    // error_logs has no FK so list it separately.
+    // error_logs / body_measurements have no FK so list them separately.
     await db.execAsync(`
       DELETE FROM training_sets;
       DELETE FROM trainings;
@@ -156,6 +156,7 @@ export async function wipeAllData(): Promise<void> {
       DELETE FROM exercises;
       DELETE FROM settings;
       DELETE FROM error_logs;
+      DELETE FROM body_measurements;
     `);
   });
   // Re-seed the built-in library. seedExercisesIfEmpty is idempotent and

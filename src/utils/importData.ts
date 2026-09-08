@@ -29,6 +29,7 @@
 
 import { getDatabase } from '@/db';
 import type {
+  BodyMeasurement,
   Exercise,
   ErrorLog,
   Training,
@@ -45,6 +46,7 @@ export interface ImportCounts {
   planExercises: number;
   settings: number;
   errorLogs: number;
+  bodyMeasurements: number;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -66,13 +68,18 @@ export interface ValidatablePayload {
   trainingSets: unknown;
   settings: unknown;
   errorLogs: unknown;
+  /**
+   * US-12 — 身体测量。**可选**字段：旧备份(US-12 之前的 schemaVersion=1)
+   * 没这个键,导入时用空数组兜底,导入仍然成功。
+   */
+  bodyMeasurements?: unknown;
 }
 
 export type ValidationResult =
   | { ok: true; payload: ValidatablePayload }
   | { ok: false; error: string };
 
-/** 顶层 7 个数据键 — 全部必须存在（值可以是空数组）。 */
+/** 顶层 7 个数据键 — 全部必须存在（值可以是空数组）。body_measurements 单独可选。 */
 const REQUIRED_KEYS = [
   'exercises',
   'plans',
@@ -124,6 +131,15 @@ export function validateBackupPayload(input: unknown): ValidationResult {
         error: `不是有效的备份文件（${key} 应为数组，实际为 ${describe(val)}）`,
       };
     }
+  }
+
+  // US-12: bodyMeasurements 是可选字段(向后兼容)。如果存在,必须是数组;
+  // 缺失则补空数组,旧备份(US-12 之前导出的)能继续导入。
+  if (obj.bodyMeasurements !== undefined && !Array.isArray(obj.bodyMeasurements)) {
+    return {
+      ok: false,
+      error: `不是有效的备份文件（bodyMeasurements 应为数组，实际为 ${describe(obj.bodyMeasurements)}）`,
+    };
   }
 
   // settings 必须是 object（不是 array、不是 string、不是 null — JS 里
@@ -183,11 +199,12 @@ export async function importFromBackup(
     ),
     settings: Object.keys(payload.settings as Record<string, unknown>).length,
     errorLogs: (payload.errorLogs as unknown[]).length,
+    bodyMeasurements: ((payload.bodyMeasurements as unknown[] | undefined) ?? []).length,
   };
 
   await db.withTransactionAsync(async () => {
-    // 1. 清表（children first，避免 FK 检查失败）。plan_sets 不在 payload
-    //    里但也要清，避免残留。
+    // 1. 清表（children first，避免 FK 检查失败）。plan_sets / body_measurements
+    //    不在旧 payload 里但也要清，避免残留。
     await db.execAsync(`
       DELETE FROM error_logs;
       DELETE FROM settings;
@@ -197,6 +214,7 @@ export async function importFromBackup(
       DELETE FROM plan_exercises;
       DELETE FROM plans;
       DELETE FROM exercises;
+      DELETE FROM body_measurements;
     `);
 
     // 2. exercises
@@ -377,6 +395,32 @@ export async function importFromBackup(
             log.componentStack,
             log.fingerprint,
             log.isFatal ? 1 : 0,
+          ]);
+        }
+      } finally {
+        await stmt.finalizeAsync();
+      }
+    }
+
+    // 9. body_measurements (US-12) — payload 可能没有这个键(旧备份),跳过
+    const bodyMeasurements = (payload.bodyMeasurements as BodyMeasurement[] | undefined) ?? [];
+    if (bodyMeasurements.length > 0) {
+      const stmt = await db.prepareAsync(
+        `INSERT INTO body_measurements
+           (id, measured_date, weight_kg, body_fat_pct, note,
+            created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?);`,
+      );
+      try {
+        for (const m of bodyMeasurements) {
+          await stmt.executeAsync([
+            m.id,
+            m.measuredDate,
+            m.weightKg,
+            m.bodyFatPct,
+            m.note,
+            m.createdAt,
+            m.updatedAt,
           ]);
         }
       } finally {

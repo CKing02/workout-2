@@ -69,6 +69,21 @@ export const MIGRATIONS: readonly Migration[] = [
           ALTER TABLE exercises ADD COLUMN target_zh TEXT;
           ALTER TABLE exercises ADD COLUMN attribution TEXT;`,
   },
+  {
+    version: 7,
+    description: 'US-12: 新增 body_measurements 表(体重+体脂),同日允许多条(weight_kg/body_fat_pct 都可 NULL)。',
+    sql: `CREATE TABLE IF NOT EXISTS body_measurements (
+             id TEXT PRIMARY KEY,
+             measured_date TEXT NOT NULL,
+             weight_kg REAL,
+             body_fat_pct REAL,
+             note TEXT,
+             created_at INTEGER NOT NULL,
+             updated_at INTEGER NOT NULL
+           );
+           CREATE INDEX IF NOT EXISTS idx_body_measurements_date
+             ON body_measurements(measured_date DESC, created_at DESC);`,
+  },
 ];
 
 /**

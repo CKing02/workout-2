@@ -13,3 +13,5 @@ export * from './errorLogRepo';
 export * from './exerciseHistoryRepo';
 // G32 — 「按动作」Tab 的列表数据源（max Brzycki 1RM + 总训练次数）。
 export * from './exerciseListRepo';
+// US-12 — 身体测量（体重 + 体脂）仓库。
+export * from './bodyMeasurementRepo';
