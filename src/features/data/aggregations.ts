@@ -108,6 +108,12 @@ export async function listJoinedCompletedSets(
       image_uri: r.e_image_uri,
       is_custom: r.e_is_custom,
       created_at: r.e_created_at,
+      // G35 §3 — 历史聚合视图不展示 i18n/GIF,一律 null
+      description_zh: null,
+      steps_zh: null,
+      gif_url: null,
+      target_zh: null,
+      attribution: null,
     }),
     trainingStartedAt: r.t_started_at,
   }));

@@ -52,6 +52,11 @@ function makeExercise(over: Partial<Exercise> = {}): Exercise {
     imageUri: null,
     isCustom: false,
     createdAt: 0,
+    descriptionZh: null,
+    stepsZh: null,
+    gifUrl: null,
+    targetZh: null,
+    attribution: null,
     ...over,
   };
 }
