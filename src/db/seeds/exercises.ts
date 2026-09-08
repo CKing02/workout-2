@@ -266,6 +266,156 @@ export const EXERCISE_SEEDS: ExerciseSeed[] = [
     equipment: '固定器械',
     metric_type: 'km',
   },
+
+  // ===== G37 补缺 20 个常用变体(在 G35 32 个基础上扩) =====
+  // 胸(+1)
+  {
+    name: '上斜杠铃卧推',
+    muscle_group: '胸',
+    secondary_muscles: ['三头', '肩'],
+    equipment: '杠铃',
+    metric_type: 'reps',
+  },
+  // 三头(+1) — 双杠臂屈伸
+  {
+    name: '双杠臂屈伸',
+    muscle_group: '三头',
+    secondary_muscles: ['胸', '肩'],
+    equipment: '自重',
+    metric_type: 'reps',
+  },
+  // 背(+3)
+  {
+    name: 'T 杠划船',
+    muscle_group: '背',
+    secondary_muscles: ['二头', '前臂'],
+    equipment: '固定器械',
+    metric_type: 'reps',
+  },
+  {
+    name: '颈后下拉',
+    muscle_group: '背',
+    secondary_muscles: ['二头'],
+    equipment: '缆绳',
+    metric_type: 'reps',
+  },
+  {
+    name: '俯身挺身',
+    muscle_group: '背',
+    secondary_muscles: ['臀', '腘绳'],
+    equipment: '自重',
+    metric_type: 'reps',
+  },
+  // 肩(+4)
+  {
+    name: '哑铃前平举',
+    muscle_group: '肩',
+    secondary_muscles: [],
+    equipment: '哑铃',
+    metric_type: 'reps',
+  },
+  {
+    name: '哑铃耸肩',
+    muscle_group: '肩',
+    secondary_muscles: [],
+    equipment: '哑铃',
+    metric_type: 'reps',
+  },
+  {
+    name: '杠铃耸肩',
+    muscle_group: '肩',
+    secondary_muscles: [],
+    equipment: '杠铃',
+    metric_type: 'reps',
+  },
+  {
+    name: '反向飞鸟',
+    muscle_group: '肩',
+    secondary_muscles: ['背'],
+    equipment: '弹力带',
+    metric_type: 'reps',
+  },
+  // 二头(+3)
+  {
+    name: '绳索锤式弯举',
+    muscle_group: '二头',
+    secondary_muscles: ['前臂'],
+    equipment: '缆绳',
+    metric_type: 'reps',
+  },
+  {
+    name: '集中弯举',
+    muscle_group: '二头',
+    secondary_muscles: ['前臂'],
+    equipment: '弹力带',
+    metric_type: 'reps',
+  },
+  {
+    name: '牧师凳弯举',
+    muscle_group: '二头',
+    secondary_muscles: ['前臂'],
+    equipment: '杠铃',
+    metric_type: 'reps',
+  },
+  // 腿(+4)
+  {
+    name: '罗马尼亚硬拉',
+    muscle_group: '腘绳',
+    secondary_muscles: ['背', '臀'],
+    equipment: '杠铃',
+    metric_type: 'reps',
+  },
+  {
+    name: '单腿硬拉',
+    muscle_group: '腘绳',
+    secondary_muscles: ['臀'],
+    equipment: '杠铃',
+    metric_type: 'reps',
+  },
+  {
+    name: '高脚杯深蹲',
+    muscle_group: '股四头',
+    secondary_muscles: ['臀'],
+    equipment: '哑铃',
+    metric_type: 'reps',
+  },
+  {
+    name: '颈前深蹲',
+    muscle_group: '股四头',
+    secondary_muscles: ['臀'],
+    equipment: '杠铃',
+    metric_type: 'reps',
+  },
+  // 核心(+3)
+  {
+    name: '健腹轮',
+    muscle_group: '腹',
+    secondary_muscles: ['背'],
+    equipment: '杠铃',
+    metric_type: 'reps',
+  },
+  {
+    name: '俄罗斯转体',
+    muscle_group: '腹',
+    secondary_muscles: [],
+    equipment: '药球',
+    metric_type: 'reps',
+  },
+  {
+    name: '仰卧举腿',
+    muscle_group: '腹',
+    secondary_muscles: [],
+    equipment: '辅助器械',
+    metric_type: 'reps',
+  },
+  // 全身/有氧(+1)
+  {
+    name: '动感单车',
+    muscle_group: '全身',
+    secondary_muscles: [],
+    equipment: '动感单车',
+    metric_type: 'km',
+  },
 ];
 
 /**

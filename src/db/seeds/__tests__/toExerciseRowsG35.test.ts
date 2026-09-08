@@ -13,8 +13,8 @@ import { EXERCISE_ZH_BY_HASANEYLDRM_ID } from '../exerciseZhData';
 describe('G35 §3 toExerciseRows 5 字段填充', () => {
   const rows = toExerciseRows(1700000000000);
 
-  it('32 条 seed 全部有 14 列(含 5 个 G35 新字段)', () => {
-    expect(rows.length).toBe(32);
+  it('52 条 seed 全部有 14 列(含 5 个 G35 新字段)', () => {
+    expect(rows.length).toBe(52);
     const expectedKeys = [
       'name', 'muscle_group', 'secondary_muscles', 'equipment', 'metric_type',
       'image_uri', 'is_custom', 'created_at',
@@ -26,13 +26,13 @@ describe('G35 §3 toExerciseRows 5 字段填充', () => {
     }
   });
 
-  it('32 条 seed 全有 gif_url(指向 assets/exercises/{file})', () => {
+  it('52 条 seed 全有 gif_url(指向 assets/exercises/{file})', () => {
     for (const r of rows) {
       expect(r.gif_url).toMatch(/^assets\/exercises\/[0-9]{4}-[A-Za-z0-9]+\.gif$/);
     }
   });
 
-  it('32 条 seed 全有 description_zh + 非空 steps_zh(JSON 数组字符串)', () => {
+  it('52 条 seed 全有 description_zh + 非空 steps_zh(JSON 数组字符串)', () => {
     for (const r of rows) {
       expect(typeof r.description_zh).toBe('string');
       expect(r.description_zh!.length).toBeGreaterThan(20);
@@ -43,7 +43,7 @@ describe('G35 §3 toExerciseRows 5 字段填充', () => {
     }
   });
 
-  it('32 条 seed 全有 target_zh(从 mapping targetEn 翻译)', () => {
+  it('52 条 seed 全有 target_zh(从 mapping targetEn 翻译)', () => {
     for (const r of rows) {
       expect(typeof r.target_zh).toBe('string');
       expect(r.target_zh!.length).toBeGreaterThan(0);
@@ -54,7 +54,7 @@ describe('G35 §3 toExerciseRows 5 字段填充', () => {
     }
   });
 
-  it('32 条 seed 全有 attribution(Gym Visual 版权声明)', () => {
+  it('52 条 seed 全有 attribution(Gym Visual 版权声明)', () => {
     for (const r of rows) {
       expect(r.attribution).toBe('© Gym visual — https://gymvisual.com/');
     }
@@ -77,7 +77,7 @@ describe('G35 §3 toExerciseRows 5 字段填充', () => {
     }
   });
 
-  it('mapping 里所有 32 条都出现在 rows 里(没漏)', () => {
+  it('mapping 里所有 52 条都出现在 rows 里(没漏)', () => {
     const rowNames = new Set(rows.map((r) => r.name));
     for (const m of EXERCISE_G35_MAPPING) {
       expect(rowNames.has(m.seedName)).toBe(true);
@@ -98,6 +98,6 @@ describe('G35 §3 toExerciseRows 5 字段填充', () => {
   });
 
   it('EXERCISE_SEEDS 数量(防回归:加新 seed 必须补 mapping + zh)', () => {
-    expect(EXERCISE_SEEDS.length).toBe(32);
+    expect(EXERCISE_SEEDS.length).toBe(52);
   });
 });

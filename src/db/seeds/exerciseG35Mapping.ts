@@ -88,6 +88,41 @@ export const EXERCISE_G35_MAPPING: G35ExerciseMapping[] = [
   // ===== 全身(2) =====
   { seedName: '壶铃摇摆',      hasaneyldrmId: '0549', hasaneyldrmName: 'kettlebell swing',                   equipmentEn: 'kettlebell',       targetEn: 'glutes',     gifUrl: 'videos/0549-UHJlbu3.gif', assetFileName: '0549-UHJlbu3.gif' },
   { seedName: '跑步机慢跑',    hasaneyldrmId: '3666', hasaneyldrmName: 'walking on incline treadmill',       equipmentEn: 'leverage machine', targetEn: 'cardiovascular system', gifUrl: 'videos/3666-rjiM4L3.gif', assetFileName: '3666-rjiM4L3.gif' },
+
+  // ===== G37 补缺 20 个常用变体(在 G35 32 个基础上扩) =====
+  // 胸(+1) — 上斜杠铃卧推(G35 已有 0314 上斜哑铃)
+  { seedName: '上斜杠铃卧推',  hasaneyldrmId: '0047', hasaneyldrmName: 'barbell incline bench press',       equipmentEn: 'barbell',          targetEn: 'pectorals',  gifUrl: 'videos/0047-3TZduzM.gif', assetFileName: '0047-3TZduzM.gif' },
+  { seedName: '双杠臂屈伸',    hasaneyldrmId: '3287', hasaneyldrmName: 'elbow dips',                        equipmentEn: 'body weight',      targetEn: 'triceps',    gifUrl: 'videos/3287-LkoAWAE.gif', assetFileName: '3287-LkoAWAE.gif' },
+
+  // 背(+3) — T 杠划船 / 颈后下拉 / 俯身挺身
+  { seedName: 'T 杠划船',      hasaneyldrmId: '0606', hasaneyldrmName: 'lever t bar row',                   equipmentEn: 'leverage machine', targetEn: 'upper back', gifUrl: 'videos/0606-aaXr7ld.gif', assetFileName: '0606-aaXr7ld.gif' },
+  { seedName: '颈后下拉',      hasaneyldrmId: '1325', hasaneyldrmName: 'cable wide grip rear pulldown behind neck', equipmentEn: 'cable',      targetEn: 'lats',       gifUrl: 'videos/1325-CmEr4pM.gif', assetFileName: '1325-CmEr4pM.gif' },
+  { seedName: '俯身挺身',      hasaneyldrmId: '0488', hasaneyldrmName: 'hyperextension (on bench)',         equipmentEn: 'body weight',      targetEn: 'spine',      gifUrl: 'videos/0488-zkgRrbK.gif', assetFileName: '0488-zkgRrbK.gif' },
+
+  // 肩(+4) — 哑铃前平举 / 哑铃耸肩 / 杠铃耸肩 / 反向飞鸟
+  { seedName: '哑铃前平举',    hasaneyldrmId: '0310', hasaneyldrmName: 'dumbbell front raise',              equipmentEn: 'dumbbell',         targetEn: 'delts',      gifUrl: 'videos/0310-3eGE2JC.gif', assetFileName: '0310-3eGE2JC.gif' },
+  { seedName: '哑铃耸肩',      hasaneyldrmId: '0406', hasaneyldrmName: 'dumbbell shrug',                    equipmentEn: 'dumbbell',         targetEn: 'traps',      gifUrl: 'videos/0406-NJzBsGJ.gif', assetFileName: '0406-NJzBsGJ.gif' },
+  { seedName: '杠铃耸肩',      hasaneyldrmId: '0095', hasaneyldrmName: 'barbell shrug',                     equipmentEn: 'barbell',          targetEn: 'traps',      gifUrl: 'videos/0095-dG7tG5y.gif', assetFileName: '0095-dG7tG5y.gif' },
+  { seedName: '反向飞鸟',      hasaneyldrmId: '0993', hasaneyldrmName: 'band reverse fly',                  equipmentEn: 'band',             targetEn: 'delts',      gifUrl: 'videos/0993-sTfvVsG.gif', assetFileName: '0993-sTfvVsG.gif' },
+
+  // 臂(+3) — 绳索锤式弯举 / 集中弯举 / 牧师凳弯举
+  { seedName: '绳索锤式弯举',  hasaneyldrmId: '0165', hasaneyldrmName: 'cable hammer curl (with rope)',     equipmentEn: 'cable',            targetEn: 'biceps',     gifUrl: 'videos/0165-HPlPoQA.gif', assetFileName: '0165-HPlPoQA.gif' },
+  { seedName: '集中弯举',      hasaneyldrmId: '0976', hasaneyldrmName: 'band concentration curl',           equipmentEn: 'band',             targetEn: 'biceps',     gifUrl: 'videos/0976-kmVVAfu.gif', assetFileName: '0976-kmVVAfu.gif' },
+  { seedName: '牧师凳弯举',    hasaneyldrmId: '0070', hasaneyldrmName: 'barbell preacher curl',             equipmentEn: 'barbell',          targetEn: 'biceps',     gifUrl: 'videos/0070-qOgPVf6.gif', assetFileName: '0070-qOgPVf6.gif' },
+
+  // 腿(+4) — 罗马尼亚硬拉 / 单腿硬拉 / 高脚杯深蹲 / 颈前深蹲
+  { seedName: '罗马尼亚硬拉',  hasaneyldrmId: '0085', hasaneyldrmName: 'barbell romanian deadlift',         equipmentEn: 'barbell',          targetEn: 'glutes',     gifUrl: 'videos/0085-wQ2c4XD.gif', assetFileName: '0085-wQ2c4XD.gif' },
+  { seedName: '单腿硬拉',      hasaneyldrmId: '1756', hasaneyldrmName: 'barbell single leg deadlift',       equipmentEn: 'barbell',          targetEn: 'glutes',     gifUrl: 'videos/1756-gEyURal.gif', assetFileName: '1756-gEyURal.gif' },
+  { seedName: '高脚杯深蹲',    hasaneyldrmId: '1760', hasaneyldrmName: 'dumbbell goblet squat',             equipmentEn: 'dumbbell',         targetEn: 'quads',      gifUrl: 'videos/1760-yn8yg1r.gif', assetFileName: '1760-yn8yg1r.gif' },
+  { seedName: '颈前深蹲',      hasaneyldrmId: '0024', hasaneyldrmName: 'barbell bench front squat',         equipmentEn: 'barbell',          targetEn: 'quads',      gifUrl: 'videos/0024-Y7YcmIJ.gif', assetFileName: '0024-Y7YcmIJ.gif' },
+
+  // 核心(+3) — 健腹轮 / 俄罗斯转体 / 仰卧举腿
+  { seedName: '健腹轮',        hasaneyldrmId: '0103', hasaneyldrmName: 'barbell standing ab rollerout',     equipmentEn: 'barbell',          targetEn: 'abs',        gifUrl: 'videos/0103-xnInPfE.gif', assetFileName: '0103-xnInPfE.gif' },
+  { seedName: '俄罗斯转体',    hasaneyldrmId: '0014', hasaneyldrmName: 'assisted motion russian twist',     equipmentEn: 'medicine ball',    targetEn: 'abs',        gifUrl: 'videos/0014-r7cT9YD.gif', assetFileName: '0014-r7cT9YD.gif' },
+  { seedName: '仰卧举腿',      hasaneyldrmId: '0012', hasaneyldrmName: 'assisted lying leg raise with lateral throw down', equipmentEn: 'assisted',    targetEn: 'abs',        gifUrl: 'videos/0012-UGhRD1A.gif', assetFileName: '0012-UGhRD1A.gif' },
+
+  // 有氧(+1) — 动感单车
+  { seedName: '动感单车',      hasaneyldrmId: '2138', hasaneyldrmName: 'stationary bike run v. 3',          equipmentEn: 'stationary bike',  targetEn: 'cardiovascular system', gifUrl: 'videos/2138-H1PESYI.gif', assetFileName: '2138-H1PESYI.gif' },
 ];
 
 /** 按 seedName 索引的快查表。 */
@@ -143,6 +178,7 @@ export const EQUIPMENT_EN_TO_ZH: Readonly<Record<string, string>> = {
   'tire':             '轮胎',
   'weighted':         '负重',
   'assisted':         '辅助',
+  'stationary bike':  '动感单车',
 };
 
 /** 缺省兜底:有 en 但没翻译的器械,原样显示。 */

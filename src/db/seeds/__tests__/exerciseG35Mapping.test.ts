@@ -1,8 +1,8 @@
 /**
- * G35 §1/§2 — 翻译 30+ 动作 mapping 表 + bundle 32 张 GIF 自测
+ * G35 §1/§2 — 翻译 30+ 动作 mapping 表 + bundle 52 张 GIF 自测
  *
  * §1 验证:
- * 1. 32 个 seed 全有 mapping
+ * 1. 52 个 seed 全有 mapping
  * 2. 每个 mapping id 在 hasaneyldrm 数据集里都存在
  * 3. 每个 mapping 都同时有 gif_url + 中文 instruction_steps
  * 4. equipment/target 中译表覆盖所有出现的 en 值
@@ -54,20 +54,20 @@ declare const __dirname: string;
 const ASSETS_DIR = path.resolve(__dirname, '../../../../assets/exercises');
 
 describe('G35 §1 exercise mapping', () => {
-  it('32 条 seed 都有对应 mapping', () => {
-    expect(EXERCISE_SEEDS.length).toBe(32);
-    expect(EXERCISE_G35_MAPPING.length).toBe(32);
+  it('52 条 seed 都有对应 mapping', () => {
+    expect(EXERCISE_SEEDS.length).toBe(52);
+    expect(EXERCISE_G35_MAPPING.length).toBe(52);
     assertMappingComplete(EXERCISE_SEEDS);
   });
 
-  it('32 条 mapping id 在 hasaneyldrm 数据集里都能查到', () => {
+  it('52 条 mapping id 在 hasaneyldrm 数据集里都能查到', () => {
     const ids = new Set(source.map((r) => r.id));
     for (const m of EXERCISE_G35_MAPPING) {
       expect(ids.has(m.hasaneyldrmId)).toBe(true);
     }
   });
 
-  it('32 条 mapping 都有 gif_url + 中文 instruction_steps.zh', () => {
+  it('52 条 mapping 都有 gif_url + 中文 instruction_steps.zh', () => {
     for (const m of EXERCISE_G35_MAPPING) {
       const rec = source.find((r) => r.id === m.hasaneyldrmId)!;
       expect(rec.gif_url).toBeTruthy();
@@ -97,7 +97,7 @@ describe('G35 §1 exercise mapping', () => {
 });
 
 describe('G35 §1 equipment en → zh', () => {
-  it('32 条 seed 用到的所有 equipment en 值都有中文翻译', () => {
+  it('52 条 seed 用到的所有 equipment en 值都有中文翻译', () => {
     const used = new Set(EXERCISE_G35_MAPPING.map((m) => m.equipmentEn));
     for (const en of used) {
       expect(translateEquipment(en)).not.toBe(en);
@@ -119,7 +119,7 @@ describe('G35 §1 equipment en → zh', () => {
 });
 
 describe('G35 §1 target en → category zh', () => {
-  it('32 条 seed 用到的所有 target en 值都有中文翻译', () => {
+  it('52 条 seed 用到的所有 target en 值都有中文翻译', () => {
     const used = new Set(EXERCISE_G35_MAPPING.map((m) => m.targetEn));
     for (const en of used) {
       expect(translateTarget(en)).not.toBe(en);
@@ -167,7 +167,7 @@ describe('G35 §2 GIF bundle', () => {
     }
   });
 
-  it('32 张 GIF 都真实落在 assets/exercises/ 下且 > 1 KB', () => {
+  it('52 张 GIF 都真实落在 assets/exercises/ 下且 > 1 KB', () => {
     for (const m of EXERCISE_G35_MAPPING) {
       const p = path.join(ASSETS_DIR, m.assetFileName);
       expect(fs.existsSync(p)).toBe(true);
@@ -175,7 +175,7 @@ describe('G35 §2 GIF bundle', () => {
     }
   });
 
-  it('32 张 GIF 都是合法 GIF(GIF87a / GIF89a magic)', () => {
+  it('52 张 GIF 都是合法 GIF(GIF87a / GIF89a magic)', () => {
     for (const m of EXERCISE_G35_MAPPING) {
       const p = path.join(ASSETS_DIR, m.assetFileName);
       const fd = fs.openSync(p, 'r');

@@ -2,7 +2,7 @@
  * G35 §4 — exerciseGifAssets 单元测
  *
  * 验证:
- * 1. 32 条 mapping 里的 assetFileName 都在 G35_GIF_ASSETS 里
+ * 1. 52 条 mapping 里的 assetFileName 都在 G35_GIF_ASSETS 里
  * 2. resolveGifSource 解析 'assets/exercises/{file}' 路径
  * 3. resolveGifSource 解析 hasaneyldrm 风格 'videos/{file}' 路径(basename 一致就行)
  * 4. null / undefined / 空字符串 → undefined
@@ -16,8 +16,8 @@ import {
 } from '@/screens/exerciseGifAssets';
 
 describe('G35 §4 exerciseGifAssets', () => {
-  it('32 条 mapping 的 assetFileName 都在 G35_GIF_ASSETS 里', () => {
-    expect(EXERCISE_G35_MAPPING.length).toBe(32);
+  it('52 条 mapping 的 assetFileName 都在 G35_GIF_ASSETS 里', () => {
+    expect(EXERCISE_G35_MAPPING.length).toBe(52);
     for (const m of EXERCISE_G35_MAPPING) {
       expect(G35_GIF_ASSETS[m.assetFileName]).toBeDefined();
     }
@@ -29,9 +29,9 @@ describe('G35 §4 exerciseGifAssets', () => {
     );
   });
 
-  it('G35_GIF_ASSETS 里至少有 32 项', () => {
-    // §2 测试已经验证 32 张 GIF 都落地,这里只粗校验表大小
-    expect(Object.keys(G35_GIF_ASSETS).length).toBeGreaterThanOrEqual(32);
+  it('G35_GIF_ASSETS 里至少有 52 项', () => {
+    // §2 测试已经验证 52 张 GIF 都落地,这里只粗校验表大小
+    expect(Object.keys(G35_GIF_ASSETS).length).toBeGreaterThanOrEqual(52);
   });
 
   describe('resolveGifSource', () => {

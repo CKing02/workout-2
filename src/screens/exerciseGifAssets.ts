@@ -52,6 +52,27 @@ export const G35_GIF_ASSETS: Readonly<Record<string, ImageSourcePropType>> = {
   '2287-V07qpXy.gif': require('../../assets/exercises/2287-V07qpXy.gif'),
   '2330-LEprlgG.gif': require('../../assets/exercises/2330-LEprlgG.gif'),
   '3666-rjiM4L3.gif': require('../../assets/exercises/3666-rjiM4L3.gif'),
+  // ===== G37 补缺 20 个 =====
+  '0047-3TZduzM.gif': require('../../assets/exercises/0047-3TZduzM.gif'),
+  '3287-LkoAWAE.gif': require('../../assets/exercises/3287-LkoAWAE.gif'),
+  '0606-aaXr7ld.gif': require('../../assets/exercises/0606-aaXr7ld.gif'),
+  '1325-CmEr4pM.gif': require('../../assets/exercises/1325-CmEr4pM.gif'),
+  '0488-zkgRrbK.gif': require('../../assets/exercises/0488-zkgRrbK.gif'),
+  '0310-3eGE2JC.gif': require('../../assets/exercises/0310-3eGE2JC.gif'),
+  '0406-NJzBsGJ.gif': require('../../assets/exercises/0406-NJzBsGJ.gif'),
+  '0095-dG7tG5y.gif': require('../../assets/exercises/0095-dG7tG5y.gif'),
+  '0993-sTfvVsG.gif': require('../../assets/exercises/0993-sTfvVsG.gif'),
+  '0165-HPlPoQA.gif': require('../../assets/exercises/0165-HPlPoQA.gif'),
+  '0976-kmVVAfu.gif': require('../../assets/exercises/0976-kmVVAfu.gif'),
+  '0070-qOgPVf6.gif': require('../../assets/exercises/0070-qOgPVf6.gif'),
+  '0085-wQ2c4XD.gif': require('../../assets/exercises/0085-wQ2c4XD.gif'),
+  '1756-gEyURal.gif': require('../../assets/exercises/1756-gEyURal.gif'),
+  '1760-yn8yg1r.gif': require('../../assets/exercises/1760-yn8yg1r.gif'),
+  '0024-Y7YcmIJ.gif': require('../../assets/exercises/0024-Y7YcmIJ.gif'),
+  '0103-xnInPfE.gif': require('../../assets/exercises/0103-xnInPfE.gif'),
+  '0014-r7cT9YD.gif': require('../../assets/exercises/0014-r7cT9YD.gif'),
+  '0012-UGhRD1A.gif': require('../../assets/exercises/0012-UGhRD1A.gif'),
+  '2138-H1PESYI.gif': require('../../assets/exercises/2138-H1PESYI.gif'),
 };
 
 /**
