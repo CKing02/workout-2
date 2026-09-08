@@ -25,16 +25,18 @@ import {
   StyleSheet,
   Text,
   View,
+  useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation, type NavigationProp } from '@react-navigation/native';
+import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 import { Card } from '@/components/Card';
 import { Dialog } from '@/components/Dialog';
 import { EmptyState } from '@/components/EmptyState';
+import { LineChart, type LineChartPoint } from '@/components/LineChart';
 import { SegmentedControl } from '@/components/SegmentedControl';
-import { toast } from '@/hooks/useToast';
+import { toast, useToastStore } from '@/hooks/useToast';
 import type { RootStackParamList } from '@/navigation/types';
 import { useBodyMeasurementStore } from '@/store/bodyMeasurementStore';
 import { useSettingsStore, type Unit } from '@/store/settingsStore';
@@ -428,23 +430,108 @@ function MeasurementRow({
 }
 
 /* -------------------------------------------------------------------------- */
-/* Trend tab — US-12b 占位                                                   */
+/* Trend tab — US-12c: 实际 LineChart 接入                                    */
 /* -------------------------------------------------------------------------- */
 
 function TrendTab() {
   const { colors, spacing, typography } = useTheme();
+  const measurements = useBodyMeasurementStore((s) => s.measurements);
+  const unit = useSettingsStore((s) => s.unit);
+  const { width: screenWidth } = useWindowDimensions();
+  // 内边距与 G18/G32 一致;Card 默认 padding 'md' = 16,左右各 16 + 外层 lg = 16
+  // = 屏幕 - 64。卡片再 pad 16 → 实际图宽 = 屏宽 - 64 - 32 = 屏宽 - 96
+  const chartWidth = Math.max(280, screenWidth - spacing.lg * 2 - spacing.md * 2 - spacing.lg * 2);
+  const [metric, setMetric] = useState<Metric>('weight');
+
+  // 数据按 createdAt ASC(从左到右时间递增);LineChart x=timestamp,y=数值
+  const weightPoints = useMemo<LineChartPoint[]>(() => {
+    return measurements
+      .filter((m) => m.weightKg != null)
+      .slice() // copy,因为 sort 原地
+      .sort((a, b) => a.createdAt - b.createdAt)
+      .map((m) => {
+        const display =
+          unit === 'kg' ? (m.weightKg as number) : kgToLb(m.weightKg as number);
+        return {
+          x: m.createdAt,
+          y: display,
+          label: formatWeight(display, unit),
+          payload: m,
+        };
+      });
+  }, [measurements, unit]);
+
+  const fatPoints = useMemo<LineChartPoint[]>(() => {
+    return measurements
+      .filter((m) => m.bodyFatPct != null)
+      .slice()
+      .sort((a, b) => a.createdAt - b.createdAt)
+      .map((m) => ({
+        x: m.createdAt,
+        y: m.bodyFatPct as number,
+        label: `${(m.bodyFatPct as number).toFixed(1)}%`,
+        payload: m,
+      }));
+  }, [measurements]);
+
+  const activePoints = metric === 'weight' ? weightPoints : fatPoints;
+  const activeYFormat =
+    metric === 'weight' ? (y: number) => formatWeight(y, unit) : (y: number) => `${y.toFixed(1)}%`;
+  const activeEmpty = metric === 'weight' ? '还没有体重记录' : '还没有体脂记录';
+
   return (
-    <ScrollView
-      contentContainerStyle={{
-        padding: spacing.lg,
-      }}
-    >
-      <Card padding="lg">
-        <Text style={[typography.h3, { color: colors.text, marginBottom: spacing.sm }]}>
-          趋势图
-        </Text>
-        <Text style={[typography.body, { color: colors.textSecondary }]}>
-          体重 / 体脂曲线将在下一阶段上线（US-12c：基于泛化的 LineChart 组件）。
+    <ScrollView contentContainerStyle={{ padding: spacing.lg }}>
+      <View style={{ marginBottom: spacing.md }}>
+        <SegmentedControl<Metric>
+          value={metric}
+          onChange={setMetric}
+          fullWidth
+          options={[
+            { label: '体重', value: 'weight' },
+            { label: '体脂', value: 'bodyFat' },
+          ]}
+        />
+      </View>
+      <Card padding="md">
+        {activePoints.length === 0 ? (
+          <View style={{ paddingVertical: spacing.xxl }}>
+            <Text style={[typography.body, { color: colors.textSecondary, textAlign: 'center' }]}>
+              {activeEmpty}
+            </Text>
+          </View>
+        ) : (
+          <LineChart
+            points={activePoints}
+            width={chartWidth}
+            height={220}
+            yLabelFormat={activeYFormat}
+            accessibilityLabel={`${metric === 'weight' ? '体重' : '体脂'}趋势线`}
+            onLongPressPoint={(pt) => {
+              const m = pt.payload as BodyMeasurement | undefined;
+              if (!m) return;
+              haptic.selection();
+              // 直接走 store 接受 durationMs;toast 包装只有 2 参数。
+              useToastStore.getState().show(
+                `${new Date(m.createdAt).toLocaleString()} · ${
+                  metric === 'weight'
+                    ? formatWeight(
+                        unit === 'kg' ? (m.weightKg as number) : kgToLb(m.weightKg as number),
+                        unit,
+                      )
+                    : `${(m.bodyFatPct as number).toFixed(1)}%`
+                }`,
+                { variant: 'info', durationMs: 3500 },
+              );
+            }}
+          />
+        )}
+        <Text
+          style={[
+            typography.caption,
+            { color: colors.textTertiary, marginTop: spacing.sm },
+          ]}
+        >
+          共 {activePoints.length} 条记录 · 长按数据点查看详情
         </Text>
       </Card>
     </ScrollView>
