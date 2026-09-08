@@ -59,6 +59,7 @@ import { Badge } from '@/components/Badge';
 import { Button } from '@/components/Button';
 import { Card } from '@/components/Card';
 import { Dialog } from '@/components/Dialog';
+import { ExerciseThumbnail } from '@/components/ExerciseThumbnail';
 import { IconButton } from '@/components/IconButton';
 import { NumberInput } from '@/components/NumberInput';
 import { Sheet } from '@/components/Sheet';
@@ -727,7 +728,37 @@ export function ActiveTrainingScreen() {
               gap: spacing.sm,
             }}
           >
-            <View style={{ flex: 1, gap: spacing.xs }}>
+            {/* G36: 头像 + 名称都可点击 → 跳详情屏。 */}
+            <Pressable
+              onPress={() =>
+                (navigation as unknown as {
+                  navigate: (s: 'ExerciseDetail', p: { exerciseId: string }) => void;
+                }).navigate('ExerciseDetail', { exerciseId: ex.exercise.id })
+              }
+              hitSlop={4}
+              accessibilityRole="link"
+              accessibilityLabel={`${ex.exercise.name} 详情`}
+              accessibilityHint="打开动作详情页"
+            >
+              <ExerciseThumbnail
+                name={ex.exercise.name}
+                gifUrl={ex.exercise.gifUrl}
+                size={48}
+                rounded="square"
+              />
+            </Pressable>
+            <Pressable
+              onPress={() =>
+                (navigation as unknown as {
+                  navigate: (s: 'ExerciseDetail', p: { exerciseId: string }) => void;
+                }).navigate('ExerciseDetail', { exerciseId: ex.exercise.id })
+              }
+              hitSlop={4}
+              accessibilityRole="link"
+              accessibilityLabel={`${ex.exercise.name} 详情`}
+              accessibilityHint="打开动作详情页"
+              style={{ flex: 1, gap: spacing.xs }}
+            >
               <Text
                 style={[typography.h1, { color: colors.text }]}
                 numberOfLines={2}
@@ -741,7 +772,7 @@ export function ActiveTrainingScreen() {
               >
                 {`动作 ${currentExerciseIndex + 1}/${totalExercises} · ${ex.exercise.muscleGroup} · ${ex.exercise.equipment}`}
               </Text>
-            </View>
+            </Pressable>
             {/* G29: "+ 添加组" 紧贴标题右侧，不再藏在 chip 卡里。 */}
             <Pressable
               accessibilityRole="button"

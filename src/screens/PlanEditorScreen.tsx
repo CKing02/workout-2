@@ -68,6 +68,7 @@ import { Badge } from '@/components/Badge';
 import { Button } from '@/components/Button';
 import { Card } from '@/components/Card';
 import { Dialog } from '@/components/Dialog';
+import { ExerciseThumbnail } from '@/components/ExerciseThumbnail';
 import { Input } from '@/components/Input';
 import { NumberInput } from '@/components/NumberInput';
 import { Sheet } from '@/components/Sheet';
@@ -544,6 +545,11 @@ export function PlanEditorScreen() {
                 onRemoveSet={(idx) => onRemoveSet(pe.id, idx)}
                 onOpenMore={() => openMoreSheet(pe.id)}
                 onOpenRest={() => setRestSheetPeId(pe.id)}
+                onPressName={() =>
+                  (navigation as unknown as {
+                    navigate: (s: 'ExerciseDetail', p: { exerciseId: string }) => void;
+                  }).navigate('ExerciseDetail', { exerciseId: pe.exercise.id })
+                }
               />
             ))
           )}
@@ -709,6 +715,8 @@ interface ExerciseEditorCardProps {
   onRemoveSet: (setIndex: number) => void;
   onOpenMore: () => void;
   onOpenRest: () => void;
+  /** G36: 点击动作名 → 跳详情屏。 */
+  onPressName: () => void;
 }
 
 function ExerciseEditorCard({
@@ -719,6 +727,7 @@ function ExerciseEditorCard({
   onRemoveSet,
   onOpenMore,
   onOpenRest,
+  onPressName,
 }: ExerciseEditorCardProps) {
   const { colors, spacing, typography, radius } = useTheme();
 
@@ -733,13 +742,28 @@ function ExerciseEditorCard({
           gap: spacing.sm,
         }}
       >
+        {/* G36: 左侧 GIF 头像 + 名称(可点击跳详情)。占用头部左侧 ~48px。 */}
+        <ExerciseThumbnail
+          name={draft.exercise.name}
+          gifUrl={draft.exercise.gifUrl}
+          size={48}
+          rounded="square"
+        />
         <View style={{ flex: 1 }}>
-          <Text
-            style={[typography.subtitle, { color: colors.text }]}
-            numberOfLines={1}
+          <Pressable
+            onPress={onPressName}
+            hitSlop={6}
+            accessibilityRole="link"
+            accessibilityLabel={`${draft.exercise.name} 详情`}
+            accessibilityHint="打开动作详情页"
           >
-            {draft.exercise.name}
-          </Text>
+            <Text
+              style={[typography.subtitle, { color: colors.text }]}
+              numberOfLines={1}
+            >
+              {draft.exercise.name}
+            </Text>
+          </Pressable>
           <View
             style={{
               flexDirection: 'row',
@@ -1534,20 +1558,8 @@ function ReplaceRow({
         borderColor: colors.border,
       })}
     >
-      <View
-        style={{
-          width: 32,
-          height: 32,
-          borderRadius: radius.full,
-          backgroundColor: colors.primaryMuted,
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        <Text style={[typography.label, { color: colors.primaryPressed }]}>
-          {ex.name.slice(0, 1)}
-        </Text>
-      </View>
+      {/* G36: GIF 静态首帧代替之前的字符占位 */}
+      <ExerciseThumbnail name={ex.name} gifUrl={ex.gifUrl} size={32} rounded="circle" />
       <View style={{ flex: 1 }}>
         <Text style={[typography.body, { color: colors.text }]}>{ex.name}</Text>
         <Text
