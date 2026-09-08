@@ -66,6 +66,7 @@ import { Sheet } from '@/components/Sheet';
 import { SET_TYPES, type SetTypeValue } from '@/constants/setTypes';
 import { findMetricType, type MetricField } from '@/constants/metricTypes';
 import { RestTimerOverlay } from '@/features/training/RestTimerOverlay';
+import { RestTimerNotificationBridge } from '@/features/training/RestTimerNotificationBridge';
 import { triggerRestTimer } from '@/features/training/restTimerTrigger';
 import { formatElapsed, useElapsedSeconds } from '@/hooks/useElapsedSeconds';
 import { toast } from '@/hooks/useToast';
@@ -1129,6 +1130,9 @@ export function ActiveTrainingScreen() {
 
       {/* ====== Rest-timer overlay (G7) ====== */}
       <RestTimerOverlay />
+
+      {/* ====== Rest-timer 通知栏同步 Bridge (G38) — 无 UI,纯副作用 ====== */}
+      <RestTimerNotificationBridge />
     </KeyboardAvoidingView>
   );
 }
