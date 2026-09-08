@@ -35,6 +35,7 @@ import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { Toast } from '@/components/Toast';
 import { toast } from '@/hooks/useToast';
 import { useSettingsStore } from '@/store/settingsStore';
+import { useExerciseStore } from '@/store/exerciseStore';
 
 function ThemedStatusBar() {
   const { scheme } = useTheme();
@@ -74,6 +75,9 @@ function DatabaseBootstrap({ children }: { children: React.ReactNode }) {
         // scheme. Five parallel `getSetting` reads on the same DB connection
         // — adds <10ms vs. init.
         await useSettingsStore.getState().load();
+        // G35 §3 老装兼容:backfillExerciseI18n 刚 UPDATE 了老行 5 字段,
+        // 但 exerciseStore cache 还是老 9 列 —— 重拉一次让 store 拿到新数据。
+        await useExerciseStore.getState().reload();
         if (!cancelled) setReady(true);
       } catch (err) {
         if (cancelled) return;

@@ -33,6 +33,7 @@ import { useTheme } from '@/theme';
 
 import { Showcase } from '@/screens/_dev/Showcase';
 
+import { ExerciseDetailScreen } from '@/screens/ExerciseDetailScreen';
 import { ExerciseLibraryScreen } from '@/screens/ExerciseLibraryScreen';
 import { PlanEditorScreen } from '@/screens/PlanEditorScreen';
 import { TabNavigator } from './TabNavigator';
@@ -158,6 +159,12 @@ export function RootNavigator() {
           options={({ route }) => ({
             title: route.params?.exerciseId ? '动作历史' : '动作历史',
           })}
+        />
+        {/* G35 §4 — 动作详情正式屏(从 store 查 exercise;GIF/中文步骤/署名)。 */}
+        <Stack.Screen
+          name="ExerciseDetail"
+          component={ExerciseDetailScreen}
+          options={{ title: '动作详情' }}
         />
       </Stack.Navigator>
     </NavigationContainer>

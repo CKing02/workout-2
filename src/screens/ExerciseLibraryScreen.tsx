@@ -37,6 +37,7 @@ import { Button } from '@/components/Button';
 import { Card } from '@/components/Card';
 import { Dialog } from '@/components/Dialog';
 import { EmptyState } from '@/components/EmptyState';
+import { ExerciseThumbnail } from '@/components/ExerciseThumbnail';
 import { Input } from '@/components/Input';
 import { SegmentedControl, type SegmentedOption } from '@/components/SegmentedControl';
 import { Sheet } from '@/components/Sheet';
@@ -264,9 +265,15 @@ export function ExerciseLibraryScreen() {
     (item: Exercise) => {
       if (selectMode) {
         setSelected((prev) => toggleInSet(prev, item.id));
+        return;
+      }
+      // G35 §4 — browse mode = 纯浏览,tap 一行跳详情页
+      if (browseMode) {
+        navigation.navigate('ExerciseDetail', { exerciseId: item.id });
+        return;
       }
     },
-    [selectMode],
+    [selectMode, browseMode, navigation],
   );
 
   const onItemLongPress = useCallback((item: Exercise) => {
@@ -649,7 +656,7 @@ function Row({ item, selectMode, checked, onPress, onLongPress, onToggle, onDele
               ) : null}
             </Pressable>
           ) : (
-            <Avatar name={item.name} />
+            <Avatar name={item.name} gifUrl={item.gifUrl} />
           )}
 
           {/* Name + badges */}
@@ -697,26 +704,9 @@ function Row({ item, selectMode, checked, onPress, onLongPress, onToggle, onDele
   );
 }
 
-function Avatar({ name }: { name: string }) {
-  const { colors, radius } = useTheme();
-  // First grapheme; for CJK strings the first "character" is the whole ideograph.
-  const initial = name.trim().charAt(0) || '·';
-  return (
-    <View
-      style={{
-        width: 40,
-        height: 40,
-        borderRadius: radius.full,
-        backgroundColor: colors.primaryMuted,
-        alignItems: 'center',
-        justifyContent: 'center',
-      }}
-    >
-      <Text style={{ color: colors.primaryPressed, fontWeight: '700', fontSize: 16 }}>
-        {initial}
-      </Text>
-    </View>
-  );
+function Avatar({ name, gifUrl }: { name: string; gifUrl?: string | null }) {
+  // G36: 用 GIF 静态首帧代替之前的字符占位;fallback 走 ExerciseThumbnail 内部。
+  return <ExerciseThumbnail name={name} gifUrl={gifUrl} size={40} rounded="circle" />;
 }
 
 function Separator() {

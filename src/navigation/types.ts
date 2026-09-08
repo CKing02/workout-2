@@ -112,6 +112,13 @@ export type RootStackParamList = {
    * 入口：我的 → 数据概览 → 「按动作」Tab → 点动作行。
    */
   ExerciseHistory: { exerciseId: string };
+  /**
+   * G35 §4: 动作详情正式屏（接 32 个 seed 的 GIF + 中文步骤 + 署名）。
+   * 入口:
+   *   - 我的 → 「动作详情」(ProfileScreen 替掉原 G34 Pilot 入口)
+   *   - 动作库(browse mode)→ 点任意一行 → navigate('ExerciseDetail', { exerciseId })
+   */
+  ExerciseDetail: { exerciseId: string };
 };
 
 /**

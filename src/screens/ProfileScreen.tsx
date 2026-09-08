@@ -117,6 +117,21 @@ export function ProfileScreen({ navigation }: ProfileScreenProps) {
     } | undefined)?.navigate('ExerciseLibrary', { title: '动作库', mode: 'browse' });
   };
 
+  // G35 §4: 跳到动作详情正式屏。
+  // 用 store 里第一个 seed(杠铃卧推)做 demo id —— ProfileScreen 入口是 dev 入口,
+  // 真实浏览走"动作库 → 点任意一行"。
+  const handleGoExerciseDetail = () => {
+    const exercises = useExerciseStore.getState().exercises;
+    const first = exercises[0];
+    if (!first) {
+      toast.show('动作列表还没加载完，先去动作库逛一圈', 'warning');
+      return;
+    }
+    (navigation as unknown as {
+      navigate: (s: 'ExerciseDetail', p: { exerciseId: string }) => void;
+    } | undefined)?.navigate('ExerciseDetail', { exerciseId: first.id });
+  };
+
   // G19: 真实导出 —— 全表读 → 写文件 → 弹分享面板。
   // 数据导出不像清除那么不可逆，无二次确认；失败时 toast 错误并保留页面。
   const handleExport = useCallback(async () => {
@@ -242,6 +257,18 @@ export function ProfileScreen({ navigation }: ProfileScreenProps) {
             }}
             accessibilityLabel="数据导出"
             accessibilityHint="把所有训练数据导出为 JSON 文件，弹出系统分享面板"
+          />
+          {/* G35 §4 — 动作详情(跳第一个 seed 演示)。
+              真实浏览走"动作库 → 点任意一行"。 */}
+          <ListItem
+            title="动作详情"
+            subtitle="GIF 演示 + 中文分步 + Gym Visual 署名"
+            leftSlot={<Glyph text="🏋️" colors={colors} spacing={spacing} />}
+            rightSlot={<Chevron colors={colors} typography={typography} />}
+            onPress={handleGoExerciseDetail}
+            divider
+            accessibilityLabel="动作详情"
+            accessibilityHint="打开第一个 seed 动作的详情页"
           />
         </Card>
 
