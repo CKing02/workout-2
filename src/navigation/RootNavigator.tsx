@@ -19,6 +19,8 @@ import { NavigationContainer, DarkTheme, DefaultTheme, type Theme } from '@react
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 import { ActiveTrainingScreen } from '@/screens/ActiveTrainingScreen';
+import { BodyMeasurementEditScreen } from '@/screens/BodyMeasurementEditScreen';
+import { BodyMeasurementScreen } from '@/screens/BodyMeasurementScreen';
 import { DiagnosticsScreen } from '@/screens/DiagnosticsScreen';
 import { SettingsScreen } from '@/screens/SettingsScreen';
 import { TrainingCompleteScreen } from '@/screens/TrainingCompleteScreen';
@@ -165,6 +167,20 @@ export function RootNavigator() {
           name="ExerciseDetail"
           component={ExerciseDetailScreen}
           options={{ title: '动作详情' }}
+        />
+        {/* US-12 — 身体测量(列表 + 趋势 + FAB)。 */}
+        <Stack.Screen
+          name="BodyMeasurement"
+          component={BodyMeasurementScreen}
+          options={{ title: '身体测量' }}
+        />
+        {/* US-12 — 单条录入 / 编辑。 */}
+        <Stack.Screen
+          name="BodyMeasurementEdit"
+          component={BodyMeasurementEditScreen}
+          options={({ route }) => ({
+            title: route.params?.measurementId ? '编辑记录' : '记录',
+          })}
         />
       </Stack.Navigator>
     </NavigationContainer>

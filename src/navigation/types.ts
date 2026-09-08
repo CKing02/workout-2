@@ -119,6 +119,15 @@ export type RootStackParamList = {
    *   - 动作库(browse mode)→ 点任意一行 → navigate('ExerciseDetail', { exerciseId })
    */
   ExerciseDetail: { exerciseId: string };
+  /**
+   * US-12: 身体测量主屏(列表 + 趋势 tab 切换 + FAB 新增)。
+   * 入口: 我的 → 「身体测量」。
+   */
+  BodyMeasurement: undefined;
+  /**
+   * US-12: 录入 / 编辑单条测量。`measurementId` 缺省 = 新建,提供 = 编辑。
+   */
+  BodyMeasurementEdit: { measurementId?: string };
 };
 
 /**

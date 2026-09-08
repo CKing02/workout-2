@@ -117,6 +117,13 @@ export function ProfileScreen({ navigation }: ProfileScreenProps) {
     } | undefined)?.navigate('ExerciseLibrary', { title: '动作库', mode: 'browse' });
   };
 
+  // US-12 — 身体测量（体重 + 体脂）。
+  const handleGoBodyMeasurement = () => {
+    (navigation as unknown as { navigate: (s: 'BodyMeasurement') => void } | undefined)?.navigate(
+      'BodyMeasurement',
+    );
+  };
+
   // G35 §4: 跳到动作详情正式屏。
   // 用 store 里第一个 seed(杠铃卧推)做 demo id —— ProfileScreen 入口是 dev 入口,
   // 真实浏览走"动作库 → 点任意一行"。
@@ -269,6 +276,16 @@ export function ProfileScreen({ navigation }: ProfileScreenProps) {
             divider
             accessibilityLabel="动作详情"
             accessibilityHint="打开第一个 seed 动作的详情页"
+          />
+          {/* US-12 — 身体测量（体重 + 体脂）。 */}
+          <ListItem
+            title="身体测量"
+            subtitle="体重 / 体脂记录与趋势"
+            leftSlot={<Glyph text="⚖" colors={colors} spacing={spacing} />}
+            rightSlot={<Chevron colors={colors} typography={typography} />}
+            onPress={handleGoBodyMeasurement}
+            accessibilityLabel="身体测量"
+            accessibilityHint="打开身体测量记录与趋势页"
           />
         </Card>
 
