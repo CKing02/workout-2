@@ -330,6 +330,51 @@
 
 ---
 
+## 9.5 G38 RestTimer 通知栏同步专项 🟡 P1
+
+> 用系统通知栏同步显示休息计时器剩余秒数,让用户切后台 / 锁屏也能看到。
+> 需真机（Android, USB 调试开启, dev client 已安装）。iOS 本期 noop。
+
+**环境前置**（仅首次）：
+1. JDK 17: `export JAVA_HOME="D:/Program Files/Eclipse Adoptium/jdk-17.0.20.101-hotspot"` (PowerShell: `$env:JAVA_HOME = "D:\Program Files\Eclipse Adoptium\jdk-17.0.20.101-hotspot"`)
+2. ADB 在 PATH: `/e/dev/android-sdk/platform-tools` (项目用户已配)
+3. 项目根跑一次 `npx expo prebuild --clean --platform android --no-install`（已 prebuild 过可跳过；中文路径需先 cp 到 ASCII 路径跑,见 [[reference-jdk17-path]]）
+4. `npm run android` 首次 build 5-10 分钟（Gradle 拉依赖）
+
+| # | 步骤 | 期望 | 结果 |
+|---|------|------|------|
+| 38.1 | 完成一组动作,触发 RestTimer (如 squat 90s) | 通知栏**立即**出现「休息中 · 剩 X 秒」(首次 tick 是进入瞬间) | ☐ 通过 / ☐ 失败 |
+| 38.2 | 等待 5 秒 | 通知栏文字变为「休息中 · 剩 X-5 秒」(每秒减 1) | ☐ 通过 / ☐ 失败 |
+| 38.3 | 下拉通知抽屉 | 标题「休息中」, body「剩 X 秒」,可看到持续时间 1s 一变 | ☐ 通过 / ☐ 失败 |
+| 38.4 | 点通知 body 区域(非操作按钮) | 不 crash; 通知抽屉保留（`autoDismiss:false` 生效） | ☐ 通过 / ☐ 失败 |
+| 38.5 | 长按通知 → 系统设置 | 看到 channel「训练休息」+ HIGH importance + vibrate | ☐ 通过 / ☐ 失败 |
+| 38.6 | 启动计时 → 按 Home 键切到桌面 | 通知栏**保留**（HIGH importance sticky 行为） | ☐ 通过 / ☐ 失败 |
+| 38.7 | 切回 App | **通知立即**跳到正确秒数（±1s 内,由切回瞬间 tick 触发） | ☐ 通过 / ☐ 失败 |
+| 38.8 | 锁屏 30 秒后亮屏解锁 | 通知秒数立即跳到正确值（同 38.7 逻辑） | ☐ 通过 / ☐ 失败 |
+| 38.9 | 计时 60s 到 0 | 通知**立即消失**（`markCompleted` → `useEffect` 重渲 → `dismiss`） | ☐ 通过 / ☐ 失败 |
+| 38.10 | 计时中点「跳过」 | 通知立即消失（`skip` → store 清空 → `useEffect dismiss`） | ☐ 通过 / ☐ 失败 |
+| 38.11 | 计时中点「+15s」 | 通知秒数 +15（`extend` 不变 `runId` → tick 自动反映新值） | ☐ 通过 / ☐ 失败 |
+| 38.12 | 完成一组后立刻开始下一组(连续完成) | 通知秒数重置（`start` 改 `runId` → useEffect 重挂 interval） | ☐ 通过 / ☐ 失败 |
+| 38.13 | 启动 App 后**首次**弹通知 | 系统弹「允许锻炼2点零发送通知吗？」对话框,点「允许」 | ☐ 通过 / ☐ 失败 |
+| 38.14 | 拒绝权限后再启动 | 通知不再显示,但训练主流程正常（try/catch 静默吞错） | ☐ 通过 / ☐ 失败 |
+| 38.15 | 杀 App 重启 → 进训练屏 | channel 已存在,权限状态保留,无重复弹窗 | ☐ 通过 / ☐ 失败 |
+| 38.16 | `npm run typecheck` | 0 error | ☐ 通过 / ☐ 失败 |
+| 38.17 | `npm test` | 全过（含新加 12 个 `restTimerNotification.test.ts` it,21 套件 / 214 用例） | ☐ 通过 / ☐ 失败 |
+
+**已知限制**（GOALS G38 段显式承认, 不阻塞通过）：
+- 锁屏状态停留 >60s: 通知秒数停在锁屏瞬间值（系统冻结 JS 线程, managed workflow 无法绕过）
+- iOS 路径本期 noop（`Platform.OS !== 'android'` 直接 return）
+
+**真机无通知调试路径**：
+| 现象 | 排查 |
+|---|---|
+| 完全不弹通知 | `adb logcat \| grep -i notif` 看 expo-notifications 错误;临时把 `__DEV__ console.warn` 改 throw 暴露静默吞掉的异常（`restTimerNotification.ts:74`） |
+| 通知出现但不更新 | 某些 Android 13+ 厂商 ROM 上 `scheduleNotificationAsync({trigger:null})` 不覆盖旧通知;workaround: 先 `dismissNotificationAsync` 再 `scheduleNotificationAsync`（要新 commit） |
+| 通知能更新但有横幅 | `setNotificationHandler` 没在 `useEffect` 调;或调用前就 receive 了通知 → 检查 `RestTimerNotificationBridge.tsx` mount 阶段顺序 |
+| 锁屏不显示通知 | channel importance 不是 HIGH;或在某些厂商 ROM 上「锁屏通知」被用户在系统设置关闭 |
+
+---
+
 ## 10. G13–G28 增量 AC 速查表 🟡 P1
 
 > 每个目标至少跑一条核心 AC 即可,详细见对应章节。
@@ -354,6 +399,7 @@
 | **G27** IconButton 字符图标居中 | ▶ 圆形按钮三角视觉居中(横+纵) | 训练列表卡 ▶ 按钮 | ☐ 通过 / ☐ 失败 |
 | **G28** 训练时预填计划处方 | 进训练中页输入框 = plan_sets 值 | 见 §2.8.3 | ☐ 通过 / ☐ 失败 |
 | **G29** UX 重构 | 沉浸式打钩 + 跨动作跳转 + 一键覆盖 | 见 §9 | ☐ 通过 / ☐ 失败 |
+| **G38** RestTimer 通知栏同步 | 切后台 / 锁屏通知栏秒数保留 + 切回校准 | 见 §9.5 | ☐ 通过 / ☐ 失败 |
 
 ---
 
