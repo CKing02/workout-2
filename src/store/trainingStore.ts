@@ -426,6 +426,9 @@ export const useTrainingStore = create<TrainingStoreState>((set, get) => ({
 
     const last = ex.sets[ex.sets.length - 1];
     const newSetIndex = (last?.setIndex ?? 0) + 1;
+    // G38.1:继承上一组的实际数据值(weight/reps/duration/distance),不再默认 0。
+    // 用户典型流程:加一组 → 输入相同的训练量(同样重量 x 同样次数)→ 仅改一两个字段。
+    // null 继承 null(不强制 0,尊重"还没填"的状态);setType 早就是 last?.setType ?? 'normal'。
     const newSet: ActiveSet = {
       clientId: genClientId(),
       trainingId: active.id,
@@ -433,10 +436,10 @@ export const useTrainingStore = create<TrainingStoreState>((set, get) => ({
       exerciseNameSnapshot: ex.exercise.name,
       position: ex.position,
       setIndex: newSetIndex,
-      weight: null,
-      reps: null,
-      durationSeconds: null,
-      distanceKm: null,
+      weight: last?.weight ?? null,
+      reps: last?.reps ?? null,
+      durationSeconds: last?.durationSeconds ?? null,
+      distanceKm: last?.distanceKm ?? null,
       setType: last?.setType ?? 'normal',
       completed: false,
     };

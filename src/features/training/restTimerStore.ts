@@ -11,10 +11,11 @@
  *   用以区分"新一轮"vs"续命"——extend 不变更 runId，视觉连续；start 重置。
  * - **`completedAt`**：自然到达 0 的 wall-clock 时间戳，用于"延迟 1s 自动
  *   收起"。Overlay 检测到 `remaining ≤ 0` 时 setState 该字段，然后 setTimeout。
- * - **`extend(deltaSeconds)`**：把 `startedAt` 往前推 deltaMs，同时把
- *   `durationMs` 也加 deltaMs——`remaining = durationMs - (now - startedAt)`
- *   自然 +deltaSeconds，且 elapsed/duration 比例不变 → TimerRing 圆环动画
- *   不会"跳"。`completedAt` 顺手清空，便于"完成后再 +15"重置流程。
+ * - **`extend(deltaSeconds)`**：只把 `durationMs` 加 deltaMs（startedAt 不动）。
+ *   这样 `remaining = durationMs - (now - startedAt)` 自然 +deltaSeconds。
+ *   早期版本错误地同时把 startedAt 往前推 deltaMs,导致两项相抵,+15 数学上
+ *   是 no-op;G38.1 真机验证时被发现,改为不动 startedAt。`completedAt` 顺手
+ *   清空，便于"完成后再 +15"重置流程。
  *
  * 备注：`markCompleted` 只在 overlay 的 useEffect 里调用一次（受
  * `completedAt === null` 守护），保证 setState 是幂等的。
@@ -88,8 +89,12 @@ export const useRestTimerStore = create<RestTimerState>((set, get) => ({
       return;
     }
     const deltaMs = clampSeconds(deltaSeconds) * 1000;
+    // G38.1 修复:之前同时改 startedAt -= deltaMs 和 durationMs += deltaMs,
+    // 两项在 remaining = durationMs - (now - startedAt) 公式里相抵,
+    // +15 实际是 no-op,真机报"+15s 不能用"就是这个 bug。
+    // 正确做法:只加 durationMs,startedAt 不动 → elapsed 不变,
+    // remaining 自然 +deltaMs,ring 视觉也回退一段显示"新加的 15s"。
     set({
-      startedAt: startedAt - deltaMs,
       durationMs: durationMs + deltaMs,
     });
   },

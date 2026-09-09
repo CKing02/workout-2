@@ -187,7 +187,9 @@ export function RestTimerOverlay() {
         )
       : 0;
 
-  const centerLabel = completedAt !== null ? '准备下一组' : '秒';
+  // G38.1:倒计时归 0 时不再切到"准备下一组"文案 ——
+  // 1s 后 overlay 整体消失,中间没有用户需要做的决策,显示"秒"更克制
+  const centerLabel = '秒';
 
   if (!visible) return null;
 
@@ -353,7 +355,7 @@ function CollapsedBar({
             onPress={onTap}
             accessibilityRole="button"
             accessibilityLabel={
-              isCompleted ? '休息结束,准备下一组' : `休息中,剩 ${remainingSec} 秒,点击展开`
+              isCompleted ? '休息结束,点击展开' : `休息中,剩 ${remainingSec} 秒,点击展开`
             }
             accessibilityHint="展开完整休息计时器"
             style={({ pressed }) => ({
@@ -376,7 +378,7 @@ function CollapsedBar({
                 ]}
                 numberOfLines={1}
               >
-                {isCompleted ? '准备下一组' : '休息中'}
+                休息中
               </Text>
               <Text
                 style={[
@@ -390,7 +392,7 @@ function CollapsedBar({
                 ]}
                 numberOfLines={1}
               >
-                {isCompleted ? '点击展开' : `剩 ${remainingSec} 秒`}
+                {`剩 ${remainingSec} 秒`}
               </Text>
             </View>
             {/* 细进度条 */}
