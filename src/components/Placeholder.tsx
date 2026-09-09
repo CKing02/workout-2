@@ -1,12 +1,15 @@
 /**
- * Placeholder screen — a tiny shell used by Tab navigation in G1.
+ * Placeholder screen — a tiny shell originally used by Tab navigation in G1.
  *
- * Goal:
+ * Historical role (G1, since superseded):
  * - Confirm ThemeProvider works: this screen renders correctly under both
  *   light and dark schemes.
  * - Confirm the tab labels are visible & accurate ("首页 / 锻炼 / 我的").
  *
- * Real screens will replace this file in later goals (G5+, G9, G10).
+ * Current status (2026-09-09): all three tabs now wire real screens
+ * (G5 / G9 / G10 long landed), so this component is no longer imported
+ * anywhere in `src/`. Kept on disk for reference; safe to delete if dead
+ * code audit runs.
  */
 
 import React from 'react';

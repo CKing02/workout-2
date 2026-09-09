@@ -1,8 +1,8 @@
 /**
- * Tab navigator — root surface for the app in G1.
+ * Tab navigator — root surface for the app.
  *
- * Three tabs: 首页 / 锻炼 / 我的.
- * Each tab renders a `Placeholder` (real screens come in later goals).
+ * Three tabs: 首页 / 锻炼 / 我的, each wired to its real screen
+ * (HomeScreen / TrainingScreen / ProfileScreen — G5 / G9 / G10 long landed).
  *
  * No external icon dependency: we use unicode glyphs so the app stays
  * dependency-light while still showing a clear, recognizable bottom bar.
