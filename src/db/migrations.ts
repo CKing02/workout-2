@@ -18,6 +18,12 @@ interface Migration {
   version: number;
   /** 一段 SQL。失败会抛出 → 整体回滚（user_version 不会被改写）。 */
   sql: string;
+  /**
+   * 自定义 runner。用于 v3/v5/v6 这种 ALTER TABLE ADD COLUMN 重复列的迁移
+   * —— safeAddColumn 内部吞掉 duplicate column name。给 sql 就走 execAsync,
+   * 给 run 就走自定义(避免把 runner 函数序列化成 SQL 字符串)。
+   */
+  run?: (db: SQLiteDatabase) => Promise<void>;
   /** 描述。仅用于开发时日志。 */
   description: string;
 }
@@ -41,6 +47,14 @@ export const MIGRATIONS: readonly Migration[] = [
     version: 3,
     description: 'Add plan_exercises.rest_seconds (per-exercise rest interval, default 60s).',
     sql: 'ALTER TABLE plan_exercises ADD COLUMN rest_seconds INTEGER NOT NULL DEFAULT 60;',
+    run: async (db) => {
+      await safeAddColumn(
+        db,
+        'plan_exercises',
+        'rest_seconds',
+        'INTEGER NOT NULL DEFAULT 60',
+      );
+    },
   },
   {
     version: 4,
@@ -59,6 +73,10 @@ export const MIGRATIONS: readonly Migration[] = [
     description: 'Add plan_sets.weight + plan_sets.reps (G24a: persist prescription values, not just count/type).',
     sql: `ALTER TABLE plan_sets ADD COLUMN weight REAL NOT NULL DEFAULT 0;
           ALTER TABLE plan_sets ADD COLUMN reps INTEGER NOT NULL DEFAULT 0;`,
+    run: async (db) => {
+      await safeAddColumn(db, 'plan_sets', 'weight', 'REAL NOT NULL DEFAULT 0');
+      await safeAddColumn(db, 'plan_sets', 'reps', 'INTEGER NOT NULL DEFAULT 0');
+    },
   },
   {
     version: 6,
@@ -68,6 +86,13 @@ export const MIGRATIONS: readonly Migration[] = [
           ALTER TABLE exercises ADD COLUMN gif_url TEXT;
           ALTER TABLE exercises ADD COLUMN target_zh TEXT;
           ALTER TABLE exercises ADD COLUMN attribution TEXT;`,
+    run: async (db) => {
+      await safeAddColumn(db, 'exercises', 'description_zh', 'TEXT');
+      await safeAddColumn(db, 'exercises', 'steps_zh', 'TEXT');
+      await safeAddColumn(db, 'exercises', 'gif_url', 'TEXT');
+      await safeAddColumn(db, 'exercises', 'target_zh', 'TEXT');
+      await safeAddColumn(db, 'exercises', 'attribution', 'TEXT');
+    },
   },
   {
     version: 7,
@@ -93,6 +118,36 @@ export const CURRENT_VERSION = MIGRATIONS.reduce(
   (max, m) => Math.max(max, m.version),
   0,
 );
+
+/**
+ * 幂等的 ALTER TABLE ADD COLUMN。
+ *
+ * 为什么需要这个:
+ * schema.ts 里 CREATE TABLE 已经包含这些列(v3/v5/v6 加的列都在 CREATE TABLE 里)。
+ * 老装升级路径上,migration 之前的版本没这些列 → ALTER 成功;
+ * 新装路径上,CREATE TABLE 已经建好这些列 → ALTER 报 "duplicate column name"。
+ *
+ * 我们不能只让 migration 在新装上跑(用户切到旧版本再回来,老 bug 会回来),
+ * 也不能只让 CREATE TABLE 建列(migration 之前的升级路径上需要 ALTER)。
+ * 所以 ADD COLUMN 必须幂等:列已存在就当成功。
+ */
+async function safeAddColumn(
+  db: SQLiteDatabase,
+  table: string,
+  column: string,
+  definition: string,
+): Promise<void> {
+  try {
+    await db.execAsync(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition};`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes('duplicate column name')) {
+      // Schema 已经包含这列(CREATE TABLE 路径),静默跳过。
+      return;
+    }
+    throw err;
+  }
+}
 
 async function getUserVersion(db: SQLiteDatabase): Promise<number> {
   const row = await db.getFirstAsync<{ user_version: number }>(
@@ -128,7 +183,11 @@ export async function runMigrations(db: SQLiteDatabase): Promise<void> {
       continue;
     }
     await db.withTransactionAsync(async () => {
-      await db.execAsync(migration.sql);
+      if (migration.run) {
+        await migration.run(db);
+      } else {
+        await db.execAsync(migration.sql);
+      }
     });
     await setUserVersion(db, migration.version);
     current = migration.version;

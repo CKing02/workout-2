@@ -1,25 +1,36 @@
 /**
- * G7 — 休息计时器覆盖层
+ * G7 + G38.1 — 休息计时器覆盖层(双态:展开/折叠)
  *
- * 渲染一个底部 `Sheet`，中央是 `TimerRing`（G3 组件）+ 大字剩余秒数 + 跳过/+15s
- * 两个动作按钮。
+ * 历史:
+ *   G7 初版:全屏 Sheet,背景点击 → skip。用户报 bug:训练中点屏幕其他位置
+ *   倒计时被立即关闭,且看不到当前 set 状态。
  *
- * 行为：
- * 1. 当 store 的 `startedAt !== null` 时打开 Sheet。
- * 2. TimerRing 自驱 SVG 倒计时圆环动画（基于 Date.now() 时间戳，背景补偿）。
- * 3. `useRestTimerSecondsRemaining` 同步刷新中央数字。
- * 4. 倒计时到 0 → 触发 `expo-haptics notificationAsync(Success)` 震动
- *    + `setTimeout(1000)` 后自动调用 `skip()` 收起（PRD：1 秒后自动结束）。
- * 5. 启动时 `selectionAsync()` 轻触反馈；跳过 / +15 时也轻触反馈。
- * 6. 后台/锁屏期间 TimerRing + RAF 自动补偿，不需要 UI 层额外逻辑。
+ * G38.1 改造:
+ *   1. **双态**:expanded(全屏 Sheet) + collapsed(底部 56dp 窄条,pointerEvents=box-none,
+ *      用户可看/可操作训练列表)
+ *   2. **背景点击不再 skip** — 改为 setExpanded(false) 折叠
+ *   3. **窄条 tap** → 重新展开
+ *   4. **自然到 0** → 自动折叠成窄条(显示"准备下一组"),1s 后 skip 整体消失
+ *   5. **后台/前台切换** — store 时间戳驱动,AppState=active 回前台时秒数自动
+ *      校准(由 RestTimerNotificationBridge 处理)
  *
- * 卸载清理：组件 unmount 时清掉 auto-close setTimeout，避免"用户取消训练后
- * 1 秒内被自动收起"这种诡异行为；同时如果 store 还残留进行中的计时，一并 skip
- * 掉，保证下一次进入 ActiveTrainingScreen 时是干净的。
+ * 卸载清理(同 G7):
+ *   - 清掉 pending auto-close setTimeout
+ *   - 仅在仍进行中时才 skip;已进入"自然完成"态的让 1s 自动收起跑完
+ *
+ * runId 变化时:重置 expanded=true,清 pending auto-close
  */
 
-import React, { useCallback, useEffect, useRef } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  Animated,
+  Easing,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/Button';
 import { Sheet } from '@/components/Sheet';
@@ -32,9 +43,13 @@ import { useRestTimerSecondsRemaining } from './useRestTimer';
 
 const AUTO_CLOSE_DELAY_MS = 1000;
 const EXTEND_DELTA_SECONDS = 15;
+const COLLAPSED_BAR_HEIGHT = 56;
+/** 进度条窄条上的细横条宽度(dp)。 */
+const COLLAPSED_PROGRESS_TRACK_WIDTH = 96;
 
 export function RestTimerOverlay() {
-  const { colors, spacing, typography } = useTheme();
+  const { colors, spacing, typography, radius } = useTheme();
+  const insets = useSafeAreaInsets();
 
   const runId = useRestTimerStore((s) => s.runId);
   const startedAt = useRestTimerStore((s) => s.startedAt);
@@ -47,49 +62,55 @@ export function RestTimerOverlay() {
   const remainingSec = useRestTimerSecondsRemaining();
 
   const isActive = startedAt !== null && durationMs !== null;
-  // Sheet 在进行中 OR 已自然完成（1 秒等待收起）期间都保持可见
+  // 进行中 OR 自然完成 1s 等待收起期间都保持可见
   const visible = isActive || completedAt !== null;
 
+  // 双态:expanded(全屏 Sheet) / collapsed(底部窄条)
+  const [expanded, setExpanded] = useState(true);
+
   const autoCloseRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 折叠时窄条进入动画
+  const collapseAnim = useRef(new Animated.Value(0)).current;
 
-  // 启动新一轮：selection 轻触反馈
+  // 新一轮:自动展开 + 清 pending auto-close + 跑入动画
   useEffect(() => {
-    if (isActive && completedAt === null) {
-      haptic.selection();
+    setExpanded(true);
+    if (autoCloseRef.current) {
+      clearTimeout(autoCloseRef.current);
+      autoCloseRef.current = null;
     }
-  }, [runId, isActive, completedAt]);
+    // 切到 expanded 时让窄条退场(如果还在)
+    Animated.timing(collapseAnim, {
+      toValue: 0,
+      duration: 140,
+      useNativeDriver: true,
+    }).start();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runId]);
 
-  // 倒计时到 0：标记完成 + 震动 + 1s 后自动收起
+  // 倒计时到 0:标记完成 + 震动 + 折叠成窄条 + 1s 后整体 skip
   useEffect(() => {
     if (!isActive || completedAt !== null) return;
     if (remainingSec > 0) return;
 
     markCompleted();
     haptic.success();
+    setExpanded(false);
+    Animated.timing(collapseAnim, {
+      toValue: 1,
+      duration: 220,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
 
     if (autoCloseRef.current) clearTimeout(autoCloseRef.current);
     autoCloseRef.current = setTimeout(() => {
       skip();
       autoCloseRef.current = null;
     }, AUTO_CLOSE_DELAY_MS);
-  }, [isActive, completedAt, remainingSec, markCompleted, skip]);
+  }, [isActive, completedAt, remainingSec, markCompleted, skip, collapseAnim]);
 
-  // Bug-2 fix defense — when a *new* timer round starts (runId bumped),
-  // clear any pending auto-close left over from a previous round. Without
-  // this, the old `setTimeout(..., AUTO_CLOSE_DELAY_MS)` could fire 1s
-  // after the new round started and `skip()` the fresh timer, killing the
-  // rest overlay mid-countdown.
-  useEffect(() => {
-    if (autoCloseRef.current) {
-      clearTimeout(autoCloseRef.current);
-      autoCloseRef.current = null;
-    }
-  }, [runId]);
-
-  // 卸载清理：清掉 pending auto-close；如 store 残留进行中的计时，**只在仍
-  // 在进行中时**才 skip —— 已进入"自然完成"态的，1s 后会自动收起，不要
-  // 在 unmount 提前 skip 破坏 Sheet 的关闭节奏（防止下一次进
-  // ActiveTrainingScreen 时看到上次的脏数据）。
+  // 卸载清理:清 pending auto-close;仅在仍进行中时 skip(让已完成态的 1s 跑完)
   useEffect(() => {
     return () => {
       if (autoCloseRef.current) {
@@ -97,9 +118,6 @@ export function RestTimerOverlay() {
         autoCloseRef.current = null;
       }
       const state = useRestTimerStore.getState();
-      // Only skip if we're still mid-countdown. If the user already reached
-      // 0 and is seeing the "准备下一组" prompt, the 1s auto-close is in
-      // flight (or has just fired) — let it run, don't double-skip.
       if (state.startedAt !== null && state.completedAt === null) {
         skip();
       }
@@ -116,7 +134,6 @@ export function RestTimerOverlay() {
   }, [skip]);
 
   const handleExtend = useCallback(() => {
-    // +15 之后倒计时重新跑，必须清掉 pending 的 auto-close，否则 1s 后会被强行收起
     if (autoCloseRef.current) {
       clearTimeout(autoCloseRef.current);
       autoCloseRef.current = null;
@@ -125,9 +142,29 @@ export function RestTimerOverlay() {
     haptic.selection();
   }, [extend]);
 
-  // 给 TimerRing 的初始 elapsed：从 store.startedAt 推算（首次挂载时拿一次）
-  // TimerRing 内部会在 duration/elapsed 变化时重启 startWallRef，extend 后
-  // 也会自然衔接（elapsed prop 重新计算）。
+  // 展开态被点背景 → 折叠
+  const handleCollapse = useCallback(() => {
+    setExpanded(false);
+    Animated.timing(collapseAnim, {
+      toValue: 1,
+      duration: 220,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [collapseAnim]);
+
+  // 折叠态被点窄条 → 重新展开
+  const handleExpand = useCallback(() => {
+    setExpanded(true);
+    Animated.timing(collapseAnim, {
+      toValue: 0,
+      duration: 180,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [collapseAnim]);
+
+  // TimerRing 用的初始 elapsed(基于 startedAt)
   const totalSec =
     durationMs !== null ? Math.max(1, Math.round(durationMs / 1000)) : 1;
   const initialElapsed =
@@ -141,72 +178,320 @@ export function RestTimerOverlay() {
         )
       : 0;
 
+  // 窄条用进度比 0..1(剩余比例)
+  const progressFrac =
+    startedAt !== null && durationMs !== null && durationMs > 0
+      ? Math.max(
+          0,
+          Math.min(1, (durationMs - (Date.now() - startedAt)) / durationMs),
+        )
+      : 0;
+
   const centerLabel = completedAt !== null ? '准备下一组' : '秒';
 
+  if (!visible) return null;
+
   return (
-    <Sheet
-      visible={visible}
-      onClose={handleSkip}
-      title="休息一下"
-      maxHeightRatio={0.65}
+    <>
+      {expanded ? (
+        <Sheet
+          visible={true}
+          onClose={handleCollapse}
+          title="休息一下"
+          maxHeightRatio={0.65}
+        >
+          <View style={styles.content}>
+            <TimerRing
+              key={runId}
+              duration={totalSec}
+              elapsed={initialElapsed}
+              size={220}
+              strokeWidth={12}
+              labelSlot={
+                <View style={styles.center} pointerEvents="none">
+                  <Text
+                    style={[
+                      typography.display,
+                      {
+                        color: completedAt !== null ? colors.primary : colors.text,
+                        fontVariant: ['tabular-nums'],
+                      },
+                    ]}
+                    accessibilityLabel={`剩余 ${remainingSec} 秒`}
+                  >
+                    {remainingSec}
+                  </Text>
+                  <Text
+                    style={[
+                      typography.caption,
+                      { color: colors.textSecondary, marginTop: spacing.xxs },
+                    ]}
+                  >
+                    {centerLabel}
+                  </Text>
+                </View>
+              }
+            />
+
+            <View style={[styles.row, { gap: spacing.md }]}>
+              <Button
+                variant="secondary"
+                size="lg"
+                onPress={handleSkip}
+                accessibilityLabel="跳过休息"
+                accessibilityHint="立即关闭休息计时器，进入下一组"
+                style={styles.flexBtn}
+              >
+                跳过
+              </Button>
+              <Button
+                variant="primary"
+                size="lg"
+                onPress={handleExtend}
+                accessibilityLabel={`延长 ${EXTEND_DELTA_SECONDS} 秒`}
+                accessibilityHint={`为当前休息增加 ${EXTEND_DELTA_SECONDS} 秒`}
+                style={styles.flexBtn}
+              >
+                {`+${EXTEND_DELTA_SECONDS}s`}
+              </Button>
+            </View>
+          </View>
+        </Sheet>
+      ) : (
+        <CollapsedBar
+          remainingSec={remainingSec}
+          totalSec={totalSec}
+          progressFrac={progressFrac}
+          isCompleted={completedAt !== null}
+          bottomInset={insets.bottom}
+          onTap={handleExpand}
+          onSkip={handleSkip}
+          onExtend={handleExtend}
+          animValue={collapseAnim}
+        />
+      )}
+    </>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* CollapsedBar — 底部 56dp 窄条                                              */
+/* -------------------------------------------------------------------------- */
+
+interface CollapsedBarProps {
+  remainingSec: number;
+  totalSec: number;
+  /** 剩余比例 0..1(0=结束,1=刚开始) */
+  progressFrac: number;
+  isCompleted: boolean;
+  bottomInset: number;
+  onTap: () => void;
+  onSkip: () => void;
+  onExtend: () => void;
+  animValue: Animated.Value;
+}
+
+function CollapsedBar({
+  remainingSec,
+  totalSec,
+  progressFrac,
+  isCompleted,
+  bottomInset,
+  onTap,
+  onSkip,
+  onExtend,
+  animValue,
+}: CollapsedBarProps) {
+  const { colors, spacing, typography, radius } = useTheme();
+
+  // 入场 translateY:32→0 + opacity:0→1
+  const animatedStyle = {
+    opacity: animValue,
+    transform: [
+      {
+        translateY: animValue.interpolate({
+          inputRange: [0, 1],
+          outputRange: [32, 0],
+        }),
+      },
+    ],
+  };
+
+  return (
+    <View
+      pointerEvents="box-none"
+      style={StyleSheet.absoluteFill}
+      // 最高 zIndex,盖在 Bottom CTA 之上。Rest 期间用户不应再点 CTA。
+      // 等到 overlay 完全消失(skip)后,ActiveTrainingScreen 自然显示新 CTA。
     >
-      <View style={styles.content}>
-        <TimerRing
-          key={runId}
-          duration={totalSec}
-          elapsed={initialElapsed}
-          size={220}
-          strokeWidth={12}
-          labelSlot={
-            <View style={styles.center} pointerEvents="none">
+      <Animated.View
+        pointerEvents="box-none"
+        style={[
+          styles.collapsedWrapper,
+          {
+            bottom: bottomInset + spacing.md,
+            left: spacing.md,
+            right: spacing.md,
+          },
+          animatedStyle,
+        ]}
+      >
+        <View
+          style={[
+            styles.collapsedBar,
+            {
+              backgroundColor: colors.surfaceElevated,
+              borderRadius: radius.lg,
+              paddingHorizontal: spacing.md,
+              paddingVertical: spacing.sm,
+              borderColor: colors.divider,
+            },
+          ]}
+        >
+          {/* 主点击区(窄条左侧 80%) */}
+          <Pressable
+            onPress={onTap}
+            accessibilityRole="button"
+            accessibilityLabel={
+              isCompleted ? '休息结束,准备下一组' : `休息中,剩 ${remainingSec} 秒,点击展开`
+            }
+            accessibilityHint="展开完整休息计时器"
+            style={({ pressed }) => ({
+              flex: 1,
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: spacing.md,
+              opacity: pressed ? 0.7 : 1,
+            })}
+          >
+            {/* 文字块 */}
+            <View style={{ flex: 1, gap: 2 }}>
               <Text
                 style={[
-                  typography.display,
+                  typography.label,
                   {
-                    color: completedAt !== null ? colors.primary : colors.text,
+                    color: isCompleted ? colors.primary : colors.textSecondary,
+                    fontSize: 12,
+                  },
+                ]}
+                numberOfLines={1}
+              >
+                {isCompleted ? '准备下一组' : '休息中'}
+              </Text>
+              <Text
+                style={[
+                  typography.numeric,
+                  {
+                    color: isCompleted ? colors.primary : colors.text,
+                    fontSize: 18,
+                    fontWeight: '700',
                     fontVariant: ['tabular-nums'],
                   },
                 ]}
-                accessibilityLabel={`剩余 ${remainingSec} 秒`}
+                numberOfLines={1}
               >
-                {remainingSec}
-              </Text>
-              <Text
-                style={[
-                  typography.caption,
-                  { color: colors.textSecondary, marginTop: spacing.xxs },
-                ]}
-              >
-                {centerLabel}
+                {isCompleted ? '点击展开' : `剩 ${remainingSec} 秒`}
               </Text>
             </View>
-          }
-        />
+            {/* 细进度条 */}
+            <View
+              style={{
+                width: COLLAPSED_PROGRESS_TRACK_WIDTH,
+                height: 6,
+                borderRadius: 3,
+                backgroundColor: colors.surfaceMuted,
+                overflow: 'hidden',
+              }}
+            >
+              <View
+                style={{
+                  width: `${Math.max(0, Math.min(1, progressFrac)) * 100}%`,
+                  height: '100%',
+                  backgroundColor: isCompleted
+                    ? colors.primary
+                    : colors.primary,
+                }}
+              />
+            </View>
+            {/* 展开 chevron */}
+            <Text
+              style={{
+                color: colors.textSecondary,
+                fontSize: 18,
+                fontWeight: '600',
+                marginLeft: spacing.xs,
+              }}
+              accessibilityElementsHidden
+            >
+              ⌃
+            </Text>
+          </Pressable>
 
-        <View style={[styles.row, { gap: spacing.md }]}>
-          <Button
-            variant="secondary"
-            size="lg"
-            onPress={handleSkip}
-            accessibilityLabel="跳过休息"
-            accessibilityHint="立即关闭休息计时器，进入下一组"
-            style={styles.flexBtn}
-          >
-            跳过
-          </Button>
-          <Button
-            variant="primary"
-            size="lg"
-            onPress={handleExtend}
-            accessibilityLabel={`延长 ${EXTEND_DELTA_SECONDS} 秒`}
-            accessibilityHint={`为当前休息增加 ${EXTEND_DELTA_SECONDS} 秒`}
-            style={styles.flexBtn}
-          >
-            {`+${EXTEND_DELTA_SECONDS}s`}
-          </Button>
+          {/* 右侧操作区(独立按压,不触发展开) */}
+          {!isCompleted && (
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: spacing.sm,
+                marginLeft: spacing.sm,
+                paddingLeft: spacing.sm,
+                borderLeftWidth: StyleSheet.hairlineWidth,
+                borderLeftColor: colors.divider,
+              }}
+            >
+              <Pressable
+                onPress={onExtend}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel={`延长 ${EXTEND_DELTA_SECONDS} 秒`}
+              >
+                <Text
+                  style={[
+                    typography.label,
+                    { color: colors.primary, fontSize: 14, fontWeight: '700' },
+                  ]}
+                >
+                  +15
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={onSkip}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel="跳过休息"
+              >
+                <Text
+                  style={[
+                    typography.label,
+                    { color: colors.danger, fontSize: 14, fontWeight: '600' },
+                  ]}
+                >
+                  跳过
+                </Text>
+              </Pressable>
+            </View>
+          )}
         </View>
-      </View>
-    </Sheet>
+        {totalSec > 0 && !isCompleted ? (
+          <Text
+            style={[
+              typography.caption,
+              {
+                color: colors.textTertiary,
+                fontSize: 11,
+                marginTop: spacing.xxs,
+                textAlign: 'right',
+                paddingHorizontal: spacing.sm,
+              },
+            ]}
+            accessibilityElementsHidden
+          >
+            {`${Math.max(0, remainingSec)}/${totalSec} 秒`}
+          </Text>
+        ) : null}
+      </Animated.View>
+    </View>
   );
 }
 
@@ -224,5 +509,19 @@ const styles = StyleSheet.create({
   },
   flexBtn: {
     flex: 1,
+  },
+  collapsedWrapper: {
+    position: 'absolute',
+  },
+  collapsedBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: COLLAPSED_BAR_HEIGHT,
+    borderWidth: StyleSheet.hairlineWidth,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 6,
   },
 });

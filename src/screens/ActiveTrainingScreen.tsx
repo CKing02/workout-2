@@ -68,6 +68,7 @@ import { findMetricType, type MetricField } from '@/constants/metricTypes';
 import { RestTimerOverlay } from '@/features/training/RestTimerOverlay';
 import { RestTimerNotificationBridge } from '@/features/training/RestTimerNotificationBridge';
 import { triggerRestTimer } from '@/features/training/restTimerTrigger';
+import { useRestTimerStore } from '@/features/training/restTimerStore';
 import { formatElapsed, useElapsedSeconds } from '@/hooks/useElapsedSeconds';
 import { toast } from '@/hooks/useToast';
 import { usePlanStore, type PlanSetDraft } from '@/store/planStore';
@@ -130,6 +131,10 @@ export function ActiveTrainingScreen() {
     (s) => s.loadLastSetsForExercises,
   );
   const lastSetsByExerciseId = useTrainingStore((s) => s.lastSetsByExerciseId);
+  // G38.1: rest timer 进行中时隐藏 Bottom CTA(展开 Sheet 自带遮罩,折叠
+  // 窄条只盖住中段,左右 margin 仍漏 — 整体隐藏最稳)。startedAt 翻 null
+  // 时 CTA 自动复现,绑定的就是新激活 set 的"完成本组"。
+  const restTimerActive = useRestTimerStore((s) => s.startedAt !== null);
   useEffect(() => {
     if (!activeTraining) return;
     const ids = activeTraining.exercises.map((e) => e.exercise.id);
@@ -203,6 +208,141 @@ export function ActiveTrainingScreen() {
     if (Platform.OS !== 'android') return undefined;
     const sub = BackHandler.addEventListener('hardwareBackPress', () => true);
     return () => sub.remove();
+  }, []);
+
+  // -----------------------------------------------------------------
+  // G38.1: Rest timer 自然到 0 → 1.1s 后 scroll 到当前 set + 短暂高亮
+  //
+  // 流程:
+  //   1. restTimerStore.completedAt 从 null → number
+  //   2. 1.1s 后(让 overlay 完全消失):scroll 到 currentSetIndex 对应行
+  //   3. setPulsedSetId(当前 set.clientId)→ SetRow 看到 justActivated=true
+  //      → 加 2dp primary 顶边光带 + 背景提亮
+  //   4. 0.6s 后清 pulsedSetId,光带消失
+  //
+  // 注:仅在"自然完成"路径触发 — 用户手动 skip 不会让 completedAt 翻转,
+  // 保留用户"我跳过我自己处理"的控制感。
+  // -----------------------------------------------------------------
+  const scrollViewRef = useRef<ScrollView | null>(null);
+  // 用 Map 而不是数组,因为 set 列表会随用户"+ 添加组"动态增删,index 不稳。
+  const setRowRefs = useRef<Map<string, View | null>>(new Map());
+  const [pulsedSetId, setPulsedSetId] = useState<string | null>(null);
+  const prevCompletedAtRef = useRef<number | null>(null);
+  // 1.1s 滚动延迟 setTimeout 的 id,unmount 时清掉防止在卸载组件上 setState
+  const scrollDelayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 0.6s 高亮撤销 setTimeout 的 id
+  const pulseClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 组件 mounted 标志,setTimeout 回调里检查
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    const unsub = useRestTimerStore.subscribe((state) => {
+      const prev = prevCompletedAtRef.current;
+      const cur = state.completedAt;
+      prevCompletedAtRef.current = cur;
+      // 仅 null → number 翻转触发一次
+      if (prev === null && cur !== null) {
+        // 清掉可能残留的旧 timer(理论上 runId 翻转会清 completedAt → 不会
+        // 走到这里,但保险起见)
+        if (scrollDelayTimerRef.current) {
+          clearTimeout(scrollDelayTimerRef.current);
+          scrollDelayTimerRef.current = null;
+        }
+        if (pulseClearTimerRef.current) {
+          clearTimeout(pulseClearTimerRef.current);
+          pulseClearTimerRef.current = null;
+        }
+        // 1.1s 后:overlay 完全消失,再做滚动 + 高亮
+        scrollDelayTimerRef.current = setTimeout(() => {
+          scrollDelayTimerRef.current = null;
+          if (!isMountedRef.current) return;
+          // 当前 set.clientId(completeAndAdvance 早已把 currentSetIndex 移过去)
+          const ex = useTrainingStore.getState().activeTraining?.exercises[
+            useTrainingStore.getState().currentExerciseIndex
+          ];
+          const setIdx = useTrainingStore.getState().currentSetIndex;
+          const targetSet = ex?.sets[setIdx];
+          if (!targetSet) return;
+          const targetView = setRowRefs.current.get(targetSet.clientId);
+          if (targetView && scrollViewRef.current) {
+            // measureLayout 给的是相对父 ScrollView 的坐标
+            targetView.measureLayout(
+              scrollViewRef.current as unknown as number,
+              (_x, y, _w, h) => {
+                if (!isMountedRef.current) return;
+                // 把目标行的中心滚到 ScrollView 视口中央偏上(留 80dp 顶部空间)
+                const offset = Math.max(0, y - 80);
+                scrollViewRef.current?.scrollTo({
+                  y: offset,
+                  animated: true,
+                });
+                // 滚动结束再高亮更自然 — 跟 scrollTo 的动画 250ms 同步
+                setPulsedSetId(targetSet.clientId);
+                if (pulseClearTimerRef.current) {
+                  clearTimeout(pulseClearTimerRef.current);
+                }
+                pulseClearTimerRef.current = setTimeout(() => {
+                  pulseClearTimerRef.current = null;
+                  if (!isMountedRef.current) return;
+                  setPulsedSetId((curId) =>
+                    curId === targetSet.clientId ? null : curId,
+                  );
+                }, 600);
+              },
+              () => {
+                // measureLayout 失败(罕见)兜底:仅高亮不滚动
+                if (!isMountedRef.current) return;
+                setPulsedSetId(targetSet.clientId);
+                if (pulseClearTimerRef.current) {
+                  clearTimeout(pulseClearTimerRef.current);
+                }
+                pulseClearTimerRef.current = setTimeout(() => {
+                  pulseClearTimerRef.current = null;
+                  if (!isMountedRef.current) return;
+                  setPulsedSetId((curId) =>
+                    curId === targetSet.clientId ? null : curId,
+                  );
+                }, 600);
+              },
+            );
+          } else {
+            // 找不到 view(可能当前 set 已被换走)— 仍走高亮
+            if (!isMountedRef.current) return;
+            setPulsedSetId(targetSet.clientId);
+            if (pulseClearTimerRef.current) {
+              clearTimeout(pulseClearTimerRef.current);
+            }
+            pulseClearTimerRef.current = setTimeout(() => {
+              pulseClearTimerRef.current = null;
+              if (!isMountedRef.current) return;
+              setPulsedSetId((curId) =>
+                curId === targetSet.clientId ? null : curId,
+              );
+            }, 600);
+          }
+        }, 1100);
+      }
+    });
+    return () => {
+      isMountedRef.current = false;
+      unsub();
+      if (scrollDelayTimerRef.current) {
+        clearTimeout(scrollDelayTimerRef.current);
+        scrollDelayTimerRef.current = null;
+      }
+      if (pulseClearTimerRef.current) {
+        clearTimeout(pulseClearTimerRef.current);
+        pulseClearTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  // 屏幕 unmount 时清掉 setRowRefs(防止持有已卸载的 View 引用)
+  useEffect(() => {
+    return () => {
+      setRowRefs.current.clear();
+    };
   }, []);
 
   // -----------------------------------------------------------------
@@ -711,6 +851,7 @@ export function ActiveTrainingScreen() {
 
       {/* ====== Body (scrollable) ====== */}
       <ScrollView
+        ref={scrollViewRef}
         contentContainerStyle={{
           paddingHorizontal: spacing.lg,
           paddingTop: spacing.lg,
@@ -844,6 +985,14 @@ export function ActiveTrainingScreen() {
                   }
                 }}
                 onChangeField={onFieldChange}
+                justActivated={pulsedSetId === s.clientId}
+                rowRef={(view) => {
+                  if (view) {
+                    setRowRefs.current.set(s.clientId, view);
+                  } else {
+                    setRowRefs.current.delete(s.clientId);
+                  }
+                }}
               />
             );
           })}
@@ -851,32 +1000,39 @@ export function ActiveTrainingScreen() {
       </ScrollView>
 
       {/* ====== Bottom CTA ====== */}
-      <View
-        style={[
-          styles.bottomBar,
-          {
-            backgroundColor: colors.background,
-            borderTopColor: colors.divider,
-            paddingBottom: insets.bottom + spacing.md,
-            paddingHorizontal: spacing.lg,
-            paddingTop: spacing.md,
-          },
-        ]}
-      >
-        <Button
-          variant={set.completed ? 'secondary' : 'primary'}
-          size="lg"
-          disabled={set.completed}
-          onPress={handleCompleteSet}
-          accessibilityLabel={set.completed ? '本组已完成' : '完成本组'}
-          accessibilityHint={
-            set.completed ? undefined : '保存数据并开始休息计时'
-          }
-          style={{ alignSelf: 'stretch' }}
+      {/* G38.1: rest timer 进行中(展开态 / 折叠态)隐藏 Bottom CTA ——
+          展开态 Sheet 已全屏遮罩(原本就不可见),折叠态底部窄条会盖住
+          CTA 中段,但窄条左右两侧的 margin 仍可能透出 CTA 被误点。直接
+          整体隐藏更稳。rest 结束后 skip() 触发,startedAt 翻 null,CTA
+          自动复现,绑定的就是新激活 set 的"完成本组"。 */}
+      {!restTimerActive ? (
+        <View
+          style={[
+            styles.bottomBar,
+            {
+              backgroundColor: colors.background,
+              borderTopColor: colors.divider,
+              paddingBottom: insets.bottom + spacing.md,
+              paddingHorizontal: spacing.lg,
+              paddingTop: spacing.md,
+            },
+          ]}
         >
-          {set.completed ? '已完成 ✓' : '完成本组 ✓'}
-        </Button>
-      </View>
+          <Button
+            variant={set.completed ? 'secondary' : 'primary'}
+            size="lg"
+            disabled={set.completed}
+            onPress={handleCompleteSet}
+            accessibilityLabel={set.completed ? '本组已完成' : '完成本组'}
+            accessibilityHint={
+              set.completed ? undefined : '保存数据并开始休息计时'
+            }
+            style={{ alignSelf: 'stretch' }}
+          >
+            {set.completed ? '已完成 ✓' : '完成本组 ✓'}
+          </Button>
+        </View>
+      ) : null}
 
       {/* ====== Cancel dialog ====== */}
       {/* G12: 取消对话框文案强化 —— 明确告诉用户"已完成的 N 组数据将丢失"
@@ -1379,6 +1535,17 @@ interface SetRowProps {
   /** Tap on the row body (when not active) — focuses this set. */
   onTapRow: () => void;
   onChangeField: (field: MetricField, value: number) => void;
+  /**
+   * G38.1: rest timer 倒计时自然到 0 之后 1.1s,屏幕侧会让该 prop 翻 true
+   * 维持 0.6s,SetRow 据此给当前激活行加一个 border 闪光 + 背景短暂提亮
+   * 提示用户"焦点已切到这一组"。手动 skip 路径不走该 prop。
+   */
+  justActivated?: boolean;
+  /**
+   * G38.1: 父级需要拿到每一行最外层 View 引用,以便 measureLayout 滚动
+   * 到当前 set。callback ref 模式,卸载时回 null。
+   */
+  rowRef?: (view: View | null) => void;
 }
 
 /**
@@ -1403,6 +1570,8 @@ function SetRow({
   onPressNumber,
   onTapRow,
   onChangeField,
+  justActivated,
+  rowRef,
 }: SetRowProps) {
   const { colors, spacing, typography, radius } = useTheme();
   const unit = useSettingsStore((s) => s.unit);
@@ -1412,7 +1581,11 @@ function SetRow({
   const completed = setRow.completed;
 
   // Background tint: active highlights, completed recedes, future is neutral.
-  const rowBg = isActive
+  // G38.1: justActivated 时背景再亮一档(border + 背景短暂提亮),提示用户
+  // "焦点切到了这一组"。0.6s 后自动复原(由父级 prop 翻 false 控制)。
+  const rowBg = justActivated
+    ? colors.primaryMuted
+    : isActive
     ? colors.primaryMuted
     : completed
     ? colors.surfaceMuted
@@ -1431,6 +1604,7 @@ function SetRow({
 
   return (
     <View
+      ref={rowRef}
       style={{
         flexDirection: 'row',
         gap: spacing.sm,
@@ -1439,6 +1613,10 @@ function SetRow({
         backgroundColor: rowBg,
         borderBottomWidth: isLast ? 0 : StyleSheet.hairlineWidth,
         borderBottomColor: colors.divider,
+        // G38.1: justActivated 时顶部加一条 2dp primary 色"光带",视觉上
+        // 提示这一行刚被激活;0.6s 后随 prop 翻 false 一起消失
+        borderTopWidth: justActivated ? 2 : 0,
+        borderTopColor: justActivated ? colors.primary : 'transparent',
         alignItems: 'flex-start',
       }}
     >
