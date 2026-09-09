@@ -646,9 +646,17 @@ G21 用 `#${i}` idx 后缀掩盖了 React 重复 key，但 G22 排查发现：
 - AC-20.1 全文搜「stub / 占位 / G6 stub」无残留
 - AC-20.2 Showcase 有入口可进（若保留）；或者完全删除并从 components / screens 列表移除
 
+### 决策记录（2026-09-09 收口）
+
+**Showcase 保留** —— `_dev/Showcase.tsx` (662 行) 已有完整路由注册（`src/navigation/RootNavigator.tsx:127-129`，name='Showcase', title='组件 Showcase（开发自检）'），覆盖 G3 全部基础组件（Button / Input / NumberInput / TimerRing / SegmentedControl / Card / Badge / IconButton / Dialog / Sheet / CheckableRow / EmptyState / ListItem）。未来 G*/US-* 接新组件时可直接复用做自检台，价值持续。**G20 收口不再动 Showcase 路由或文件。**
+
+> 顺手清掉的过期 stub 注释（不在 G20 原 spec 三处清单里，但同主题）：
+> - `src/components/Placeholder.tsx` 顶部 JSDoc（"Real screens will replace this file in later goals (G5+, G9, G10)"）—— G5/G9/G10 早已落地，组件当前无人引用（孤儿），标注现状后保留
+> - `src/navigation/TabNavigator.tsx:5`（"Each tab renders a `Placeholder` (real screens come in later goals)"）—— 三个 tab 早已接真实屏（HomeScreen / TrainingScreen / ProfileScreen）
+
 ### 自检清单
-- [ ] 决策记录：保留 Showcase 作为开发期自检工具 vs 删掉（视用户偏好）
-- [ ] 若保留，路由注册后真机可访问
+- [x] 决策记录：保留 Showcase 作为开发期自检工具（2026-09-09 用户拍板）
+- [x] 若保留，路由注册后真机可访问（`RootNavigator.tsx:127-129`，name='Showcase'）
 
 ---
 
@@ -1111,6 +1119,257 @@ G18 4 屏合一但只是概览（总训练量 / 时长 / 1RM 全局）。用户�
 
 ---
 
+## G33. 2D 前后肌肉图（Pilot，已废弃）
+
+**优先级**：P3（探索性 pilot）  |  **状态**：❌ **未排进正式目标 — pilot 阶段被废**
+
+### 背景
+
+原计划用 hasaneyldrm/exercises-dataset 的 `muscle_group` / `secondary_muscles` 字段做 2D 前后肌肉图高亮，**但实测字段语义不可用**（例：`dumbbell bent over row` 写 `muscle_group: biceps` 而非 `back`，硬映射会误导用户）。见 `docs/architecture/G35-handoff.md:73-75`。
+
+### 决策
+
+**不再做**。G35 改用 `target` 字段映射主肌群，详情屏不展示前后肌肉图。
+
+### 涉及
+
+无（pilot 阶段丢弃，未落代码）
+
+---
+
+## G34. 动作详情页 Pilot（已完成定版 UI 锁死）
+
+**优先级**：P3（探索性 pilot）  |  **状态**：🟡 **Pilot 完成 / UI 锁死 / 数据接入留 G35**
+
+### 背景
+
+G33 路线（2D 肌肉图）被废后，转向详情页 prototype。`ExerciseDetailDemoScreen.tsx` 写死 1 个动作把 layout 跑通真机：
+- 头部（动作名 + ⋯）
+- 2 个 Badge（主肌群 + 器械）
+- GIF 240×240 居中
+- © Gym visual attribution
+- 中文步骤列表
+
+**用户多次确认 UI 锁死**（详见 `docs/architecture/G35-handoff.md` §2）
+
+### 决策
+
+**G34 pilot 不立独立目标**——仅作为 G35 实施前的 UI 模板/验收基准。后续 G35 直接复用 `ExerciseDetailDemoScreen` 的 layout。
+
+---
+
+## G35. 动作详情屏 + 1,324 动作批量接入 ✅
+
+**优先级**：P2（内容扩展）  |  **依赖**：G4  |  **阶段**：3  |  **状态**：✅ **2026-09-08 真机验收通过**
+
+### 涉及
+
+- `exercises` 表加 5 字段：`instructions_zh` / `instruction_steps_zh` / `gif_uri` / `target_muscle` / `attribution`（migration v6）
+- 接入 **hasaneyldrm/exercises-dataset** 1,324 条动作（MIT 许可 + Gym Visual 版权 GIF）
+- 仓库层 `exerciseRepo` 聚合视图适配新字段；测试 fixture 补全
+- `ExerciseDetailScreen`（G34 pilot 替换为真实数据）+ 入口接通（动作库长按 / 训练中组行 → 详情）
+- `ExerciseThumbnail` 抽象组件（GIF 静态首帧）+ 架构文档
+
+### 验收标准（AC）
+
+- AC-35.1 动作库任一动作 → 详情屏 → 看到 GIF + 中文步骤 + 2 个 Badge + attribution
+- AC-35.2 长按动作库行可跳详情；训练中组行 `→` 也可跳
+- AC-35.3 杀进程重启后 GIF 仍能从本地 bundle 加载
+- AC-35.4 1,324 动作数据全量入库（去重 by hasaneyldrm id）
+- AC-35.5 `target` 字段正确映射到本项目的 `category`（不是 `muscle_group`）
+
+### 自检清单
+
+- [x] `exercises` 表加 5 字段 + migration v6
+- [x] 1,324 动作数据批量入库
+- [x] 仓库层聚合视图适配 + 测试 fixture
+- [x] ExerciseDetailScreen 落地 + 入口接通 + 抽象头像组件 + 架构文档
+- [x] 真机：动作库/训练中均能跳详情 + GIF 播放 — 2026-09-08 用户实测通过
+
+### 提交记录
+
+- `b79a97c` feat(G35): exercises 表加 5 字段 + 1,324 动作数据接入(MIT + Gym Visual 版权)
+- `8ed11ec` feat(G35): 仓库层聚合视图适配 5 个新字段 + 测试 fixture 补全
+- `9309ed7` feat(G35): 动作详情屏 + 入口接通 + 抽象头像组件 + 架构文档
+
+---
+
+## G36. 动作头像 GIF 静态化落地 ✅
+
+**优先级**：P2（性能/视觉）  |  **依赖**：G35  |  **阶段**：3  |  **状态**：✅ **2026-09-08 真机验收通过**
+
+### 背景
+
+G35 接 1,324 动作后，列表全用 GIF 动态播放 → 滚动卡顿 + iOS/Android 内存暴涨。G36 把列表头像降级为 **GIF 静态首帧**（仅详情屏播放动画）。
+
+### 涉及
+
+- `ExerciseThumbnail` 组件：默认显示 GIF 第 1 帧（用 `Image.resizeMode` + 不循环），详情屏用全 GIF
+- 3 处落地：动作库列表 / 计划编辑器动作卡 / 训练中组行
+- HomeScreen（首页热力图卡）**回退**到字符占位（首字）—— 不需要 GIF 视觉
+- `ExerciseThumbnail` Jest 单测（6 用例）+ jest config 收 `.tsx`
+
+### 验收标准（AC）
+
+- AC-36.1 动作库 / 计划编辑 / 训练中 3 处均显示 GIF 静态首帧
+- AC-36.2 列表滚动帧率稳定（无动画占用）
+- AC-36.3 详情屏仍播完整 GIF（不静态化）
+- AC-36.4 HomeScreen 热力图卡仍走字符占位
+
+### 自检清单
+
+- [x] ExerciseThumbnail 组件落地
+- [x] 3 处列表头像替换
+- [x] HomeScreen 回退字符占位
+- [x] Jest 单测 6 用例全过
+- [x] 真机：列表滚动流畅 + 详情屏 GIF 正常播放 — 2026-09-08 用户实测通过
+
+### 提交记录
+
+- `fef0107` feat(G36): 动作头像 GIF 静态化落地 2 屏
+- `b3aff7e` test(G36-3): ExerciseThumbnail Jest 单测(6 用例) + jest config 收 .tsx
+
+---
+
+## G37. 补 20 个常用动作（变体 / 有氧 / 核心）✅
+
+**优先级**：P2（内容扩展）  |  **依赖**：G35  |  **阶段**：3  |  **状态**：✅ **2026-09-08 完成**
+
+### 背景
+
+G35 1,324 动作虽多，但 hasaneyldrm 数据集**侧重器械训练**（杠铃/哑铃/固定器械），常用变体（蝴蝶机夹胸、龙门架夹胸、悬垂举腿…）和有氧（跑步/划船机）、核心（平板支撑）覆盖不全。G37 从 **G35 之外**手动补 20 个。
+
+### 涉及
+
+- 在 G35 1,324 基础上**额外**入库 20 个动作（中文步骤 + GIF bundle）
+- 覆盖：胸 / 三头 / 背 / 肩 / 二头 / 腿 / 腹 / 有氧 8 个肌群
+
+### 验收标准（AC）
+
+- AC-37.1 动作库动作总数 = 1,324（G35）+ 20（G37）= 1,344
+- AC-37.2 8 个肌群各 ≥2 个变体/核心/有氧
+- AC-37.3 中文步骤 + GIF 完整入库
+
+### 自检清单
+
+- [x] 20 个动作入库（commit `5236e7f`）
+- [x] GIF bundle + 中文步骤同步
+
+### 提交记录
+
+- `5236e7f` feat(G37): 补 20 个健身常用动作(变体/有氧/核心) + GIF bundle + 中文步骤
+
+---
+
+## G38. RestTimer 通知栏同步 ⏸️ **已暂停**
+
+**优先级**：P2（体验补全）  |  **依赖**：G7  |  **阶段**：3  |  **状态**：⏸️ **2026-09-08 用户主动暂停**
+
+### 背景
+
+训练中切后台 / 锁屏，RestTimer Overlay（应用内倒计时）会因系统限制冻结；G38 想用 `expo-notifications` 在系统通知栏同步显示剩余秒数，让用户息屏也能看到休息剩余。
+
+### 涉及（已实现后回滚）
+
+- 装 `expo-notifications` + 配 Android channel/permissions（`app.json`）
+- `RestTimerOverlay` 在前台每 1s 更新通知 content；切后台 / 锁屏由系统保留
+- 切回前台重新校准（系统通知已冻结秒数 vs store 时间戳）
+- 单测 mock `expo-notifications` + iOS 跳过分支
+- 顺手：补 `expo-constants` 传递依赖（避免 `expo-asset` bundle 500）
+- `expo prebuild` 自动改 scripts 为 `expo run:android/run:ios`
+
+### 用户暂停原因
+
+「下载慢」 + 恢复需要 Java 17 + USB + dev client —— 用户不愿中断当前节奏。**5 个 revert 已落**，代码回到 G37 基线。
+
+### 暂停 vs 关闭
+
+**暂停**（非关闭）—— 用户态度「未来想恢复」。恢复条件：
+1. 用户主动说恢复 G38
+2. 准备 Java 17 + USB 真机 + dev client 三件套
+
+### 提交记录（5 实现 + 5 revert，全部未保留到 master）
+
+实现：
+- `792bed1` chore(G38): 装 expo-notifications + app.json 配 Android channel/permissions
+- `ea4829d` feat(G38): RestTimer 通知栏同步(前台秒级刷新 + background 冻结切回校准)
+- `911270d` test(G38): restTimerNotification 单测(mock expo-notifications + iOS 跳过分支)
+- `541422a` fix(G38): 补 expo-constants 传递依赖(解决 expo-asset bundle 500)
+- `2f820a0` chore(G38): expo prebuild 自动改 scripts 为 expo run:android/run:ios
+
+回滚（按 commit 时间倒序）：
+- `44751f7` Revert "chore(G38): 装 expo-notifications + app.json 配 Android channel/permissions"
+- `43462cc` Revert "feat(G38): RestTimer 通知栏同步(前台秒级刷新 + background 冻结切回校准)"
+- `6a26083` Revert "test(G38): restTimerNotification 单测(mock expo-notifications + iOS 跳过分支)"
+- `31db3a2` Revert "fix(G38): 补 expo-constants 传递依赖(解决 expo-asset bundle 500)"
+- `50d81af` Revert "chore(G38): expo prebuild 自动改 scripts 为 expo run:android/run:ios"
+
+---
+
+## US-12. 身体测量追踪（体重 + 体脂）✅
+
+**优先级**：P1（MVP 补全）  |  **依赖**：无  |  **阶段**：3  |  **状态**：✅ **2026-09-09 真机 13 条验收全过**
+
+### 背景
+
+G33-G38 解决训练内数据闭环，但「训练 → 体型变化」这条 user-facing 反馈链缺失。US-12 加身体测量追踪：用户定期记录体重 / 体脂，看趋势，让训练效果可视化。
+
+**MVP 范围**（用户主动定版）：
+- 仅 **2 项指标**：体重（kg）+ 体脂（%）
+- 可编辑可删除
+- 同一天允许多条记录
+- 列表 tab + 趋势 tab 双视图
+
+### 涉及
+
+- **数据层**：`body_measurements` 表（migration v7） + `bodyMeasurementRepo` + `bodyMeasurementStore`（独立 store，不复用 trainingStore）
+- **备份 / 清除兼容**：`exportBackup.ts` / `wipeAllData.ts` 同步含新表
+- **UI**：
+  - `BodyMeasurementScreen`（Stack 屏，Profile 入口）
+  - 列表 tab（按日分组 + 同日多条折叠）+ 趋势 tab（折线 + 双 y 轴）
+  - FAB 新建 / 编辑屏（体重 + 体脂 双输入）
+  - 复用 G32 `LineChart` 组件 + 加 G32 wrapper（趋势 tab 用）
+- **测试**：`bodyMeasurementRepo` + `bodyMeasurementStore` 单测
+- **修复**：首页热力图 + 删除后实时刷新（`useFocusEffect` 重拉）
+
+### 验收标准（AC）
+
+- AC-12.1 Profile → 身体测量 → 列表 tab 显示已记录条目（按日倒序）
+- AC-12.2 点 FAB → 编辑屏 → 输入体重 / 体脂 → 保存 → 列表立即出现
+- AC-12.3 同一天可加 2 条以上记录（无 UNIQUE 约束）
+- AC-12.4 长按 / 左滑条目 → 编辑 / 删除（带二次确认）
+- AC-12.5 趋势 tab 显示体重 + 体脂 双折线（双 y 轴 / 共享 x 时间轴）
+- AC-12.6 切换 kg / lb 单位 → 体重同步换算，体脂百分比不动
+- AC-12.7 空数据 → 友好提示「还没有记录，去加一条」+ CTA
+- AC-12.8 杀进程重启后数据保留
+- AC-12.9 备份 JSON 含 `body_measurements`；wipeAllData 后无残留
+- AC-12.10 首页热力图 + 删除后 useFocusEffect 重拉生效
+- AC-12.11 `tsc --noEmit` 通过；既有单测无 regression
+- AC-12.12 9 个新单测全过（repo + store 覆盖 CRUD / 同日多条 / 备份/清除）
+- AC-12.13 真机 13 条验收全过
+
+### 自检清单
+
+- [x] body_measurements 表 + v7 migration + repo + store
+- [x] 备份 / 清除兼容
+- [x] UI 列表 / 趋势 tab + FAB + 编辑屏 + Profile 入口
+- [x] LineChart 组件泛化 + G32 wrapper
+- [x] repo + store 单测
+- [x] useFocusEffect 重拉修复（首页热力图 + 删除后刷新）
+- [x] tsc --noEmit 通过
+- [x] 既有单测无 regression
+- [x] 真机 13 条全过 — 2026-09-09 用户实测通过
+
+### 提交记录
+
+- `4bab5e8` feat(US-12a): body_measurements 表 + v7 migration + repo + store + 备份/清除兼容
+- `b344e2b` feat(US-12b): 身体测量 UI — 列表/趋势 tab + FAB + 编辑屏 + Profile 入口
+- `10e28ef` feat(US-12c): 泛化 LineChart 组件 + G32 wrapper + 身体测量趋势 tab 接入
+- `62e5446` test(US-12d): bodyMeasurementRepo + bodyMeasurementStore 单测
+- `204a297` fix(US-12): 首页热力图 useFocusEffect 重拉,删除后实时刷新
+
+---
+
 ## Phase 2 路线（P2+，待评估优先级）
 
 > 下列项目 PRD 列入但未排期，是否纳入 Phase 2 视用户偏好决定。
@@ -1118,7 +1377,7 @@ G18 4 屏合一但只是概览（总训练量 / 时长 / 1RM 全局）。用户�
 | 编号 | 功能 | 备注 |
 |------|------|------|
 | US-11 | 杠铃片计算器 | 独立 utility；输入目标重量 + 杠铃片配置 → 输出每侧装载方案 |
-| US-12 | 身体测量追踪 | 新增表（body_measurements：日期/体重/体脂/胸围/臂围/腰围/腿围）+ 趋势图 |
+| US-12 | 身体测量追踪 | ✅ 2026-09-09 真机 13 条验收全过；MVP 范围定版 2 项（体重 + 体脂），可编辑可删除，同日允许多条；4 commit:4bab5e8 数据层 → b344e2b UI → 10e28ef 趋势 → 62e5446 测试 → 204a297 useFocusEffect 修复 |
 | | Lottie 训练完成动画 | 找/做 ✓ 动画 JSON 替换当前 Reanimated 兜底 |
 | US-14 | AI 生成计划 | 需 LLM 接入（API key + 网络）—— 最大块、最远离 MVP |
 
