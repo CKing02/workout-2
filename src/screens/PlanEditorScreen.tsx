@@ -73,6 +73,7 @@ import { Input } from '@/components/Input';
 import { NumberInput } from '@/components/NumberInput';
 import { Sheet } from '@/components/Sheet';
 import { SET_TYPES, type SetTypeValue } from '@/constants/setTypes';
+import { STUB_NEW_PLAN_ID } from '@/constants/plan';
 import { toast } from '@/hooks/useToast';
 import {
   usePlanStore,
@@ -91,7 +92,6 @@ type PlanEditorRoute = RouteProp<RootStackParamList, 'PlanEditor'>;
 
 const SWIPE_THRESHOLD = 80;
 const REVEAL_WIDTH = 80;
-const STUB_NEW_PLAN_ID = '__new';
 
 export function PlanEditorScreen() {
   const navigation = useNavigation<Navigation>();

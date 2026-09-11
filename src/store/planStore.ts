@@ -40,6 +40,18 @@ import {
 import { getExercise } from '@/db/repositories/exerciseRepo';
 import type { Exercise } from '@/db/schema';
 import type { SetTypeValue } from '@/constants/setTypes';
+import { STUB_NEW_PLAN_ID } from '@/constants/plan';
+
+/**
+ * v1.0.0-rc1 bug fix: 新建计划阶段 PlanEditorScreen 用 `tmp_${id}_${Date.now()...}`
+ * 这种临时 ID 给内存里的 plan_exercise 草稿占位 —— 这些 ID 在 `plan_exercises`
+ * 表根本不存在,直接拿去写 `plan_sets` 会撞 FK 约束失败 (promise reject 无 handler
+ * 被吞,数据静默丢失)。所以 set 类的操作需要先判断:临时 ID 只在内存里维护,
+ * 等 `create()` 落地时再统一 carry 到真正的 plan_exercise row id 下。
+ */
+function isStagingPlanExerciseId(id: string): boolean {
+  return id.startsWith('tmp_');
+}
 
 /** UI-level set row kept inside the plan editor; not persisted in MVP. */
 export interface PlanSetDraft {
@@ -240,6 +252,52 @@ export const usePlanStore = create<PlanStoreState>((set, get) => ({
     const db = await getDatabase();
     const plan = await createPlan(db, input);
     set((state) => ({ plans: [plan, ...state.plans] }));
+
+    // v1.0.0-rc1 bug fix: 新建计划时,PlanEditorScreen 用 `tmp_${id}_${...}`
+    // 临时 ID 在 detailById[STUB_NEW_PLAN_ID] 里维护 plan_exercise 草稿和
+    // set 草稿。createPlan() 在 DB 里给每个 exerciseId 生成了全新的
+    // plan_exercises row id,这里把 set drafts 按 exerciseId 映射 carry 过去
+    // —— 否则 plan_sets 一行都不会落,新建计划第一次保存后再打开就只剩
+    // 空的运动列表。
+    const stubDetail = get().detailById[STUB_NEW_PLAN_ID];
+    const pairs =
+      (
+        plan as PlanWithCount & {
+          planExercisePairs?: Array<{ exerciseId: string; planExerciseId: string }>;
+        }
+      ).planExercisePairs ?? [];
+    if (stubDetail && pairs.length > 0) {
+      const setsByExerciseId = new Map<string, PlanSetDraft[]>();
+      for (const e of stubDetail.exercises) {
+        if (e.sets.length > 0) setsByExerciseId.set(e.exerciseId, e.sets);
+      }
+      for (const { exerciseId, planExerciseId } of pairs) {
+        const carried = setsByExerciseId.get(exerciseId);
+        if (carried && carried.length > 0) {
+          await replaceSetsForPlanExercise(
+            db,
+            planExerciseId,
+            carried.map((s) => ({
+              setType: s.setType,
+              weight: s.weight,
+              reps: s.reps,
+            })),
+          );
+        }
+      }
+      // 同步把 detailById 翻到新 plan id,顺手清理 stub —— 屏幕 unmount
+      // 时本来也会清,但这里先做一次让编辑后立即重开也走得通(例如用户在
+      // 一次会话里保存后立刻又打开)。
+      set((state) => {
+        const { [STUB_NEW_PLAN_ID]: _removed, ...rest } = state.detailById;
+        return {
+          detailById: rest,
+          activePlanId:
+            state.activePlanId === STUB_NEW_PLAN_ID ? null : state.activePlanId,
+        };
+      });
+    }
+
     return plan;
   },
 
@@ -515,6 +573,10 @@ export const usePlanStore = create<PlanStoreState>((set, get) => ({
       (e) => e.id === planExerciseId,
     );
     if (!updated) return;
+    // v1.0.0-rc1 bug fix: 新建计划的内存草稿用 `tmp_` 前缀的 ID,这些 ID
+    // 在 plan_exercises 表不存在,直接写 plan_sets 会 FK 失败被吞。跳过
+    // DB 写,等 create() carry 时再持久化。
+    if (isStagingPlanExerciseId(planExerciseId)) return;
     const db = await getDatabase();
     await replaceSetsForPlanExercise(
       db,
@@ -546,6 +608,9 @@ export const usePlanStore = create<PlanStoreState>((set, get) => ({
       (e) => e.id === planExerciseId,
     );
     if (!updated) return;
+    // v1.0.0-rc1 bug fix: 同 addSetToPlanExercise —— tmp_ 前缀的内存草稿
+    // 跳过 DB 写,等 create() carry 时再持久化。
+    if (isStagingPlanExerciseId(planExerciseId)) return;
     const db = await getDatabase();
     await replaceSetsForPlanExercise(
       db,
@@ -568,6 +633,8 @@ export const usePlanStore = create<PlanStoreState>((set, get) => ({
       );
       return { detailById: { ...state.detailById, [planId]: { ...d, exercises } } };
     });
+    // v1.0.0-rc1 bug fix: tmp_ 前缀的草稿不写 DB,等 create() carry。
+    if (isStagingPlanExerciseId(planExerciseId)) return;
     const db = await getDatabase();
     await replaceSetsForPlanExercise(
       db,

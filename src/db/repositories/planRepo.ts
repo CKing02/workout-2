@@ -174,6 +174,10 @@ export async function createPlan(
 ): Promise<PlanWithCount> {
   const id = newId();
   const now = nowMs();
+  // 记录刚生成的 (exerciseId -> planExerciseId) 映射,方便 store 在
+  // create() 里把内存里临时 ID (tmp_xxx) 的 set drafts 一次性 carry
+  // 到真正的 plan_exercise row 上 —— 见 planStore.create 的 fix。
+  const createdPairs: Array<{ exerciseId: string; planExerciseId: string }> = [];
   await db.withTransactionAsync(async () => {
     await db.runAsync(
       `INSERT INTO plans (id, name, created_at, updated_at) VALUES (?, ?, ?, ?);`,
@@ -186,7 +190,9 @@ export async function createPlan(
       );
       try {
         for (let i = 0; i < exIds.length; i++) {
-          await stmt.executeAsync([newId(), id, exIds[i], i, DEFAULT_REST_SECONDS]);
+          const planExerciseId = newId();
+          await stmt.executeAsync([planExerciseId, id, exIds[i], i, DEFAULT_REST_SECONDS]);
+          createdPairs.push({ exerciseId: exIds[i], planExerciseId });
         }
       } finally {
         await stmt.finalizeAsync();
@@ -199,6 +205,12 @@ export async function createPlan(
     createdAt: now,
     updatedAt: now,
     exerciseCount: input.exerciseIds?.length ?? 0,
+    // 新建计划的 plan_exercises row IDs 暴露给上层(planStore.create 用它做
+    // set drafts carry)。其它既有调用方不会读这个字段,TypeScript 加 & 联合
+    // 类型在下面。
+    planExercisePairs: createdPairs,
+  } as PlanWithCount & {
+    planExercisePairs: Array<{ exerciseId: string; planExerciseId: string }>;
   };
 }
 
