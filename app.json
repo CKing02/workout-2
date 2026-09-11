@@ -34,6 +34,12 @@
       "expo-sqlite",
       "expo-sharing",
       "expo-notifications"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "5aafbfa5-957a-4497-b681-12e05cd119f0"
+      }
+    },
+    "owner": "cccking"
   }
 }
