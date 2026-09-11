@@ -1261,9 +1261,9 @@ G35 1,324 动作虽多，但 hasaneyldrm 数据集**侧重器械训练**（杠�
 
 ---
 
-## G38. RestTimer 通知栏同步 ⏸️ **已暂停**
+## G38. RestTimer 通知栏同步 ✅
 
-**优先级**：P2（体验补全）  |  **依赖**：G7  |  **阶段**：3  |  **状态**：⏸️ **2026-09-08 用户主动暂停**
+**优先级**：P2（体验补全）  |  **依赖**：G7  |  **阶段**：3  |  **状态**：✅ **2026-09-09 真机验收通过（经 G38.1 重构落地）**
 
 ### 背景
 
@@ -1278,31 +1278,65 @@ G35 1,324 动作虽多，但 hasaneyldrm 数据集**侧重器械训练**（杠�
 - 顺手：补 `expo-constants` 传递依赖（避免 `expo-asset` bundle 500）
 - `expo prebuild` 自动改 scripts 为 `expo run:android/run:ios`
 
-### 用户暂停原因
+### 历程：暂停 → G38.1 重构落地
 
-「下载慢」 + 恢复需要 Java 17 + USB + dev client —— 用户不愿中断当前节奏。**5 个 revert 已落**，代码回到 G37 基线。
+- **2026-09-08**：原 G38 5 个 commit 因 dev client 下载慢被 revert（代码回到 G37 基线）
+- **2026-09-09**：G38.1（commit `59f7a99`）在 RestTimer Overlay 折叠/展开 UX 修复中**重新实现了通知同步**（改进点：两行布局 + 块字符进度条），并加 `RestTimerNotificationBridge.tsx` 把 store tick → 通知更新接起来
+- **2026-09-09**：真机验收通过
 
-### 暂停 vs 关闭
+### 当前实现（G38.1 重构版）
 
-**暂停**（非关闭）—— 用户态度「未来想恢复」。恢复条件：
-1. 用户主动说恢复 G38
-2. 准备 Java 17 + USB 真机 + dev client 三件套
+- `src/features/training/restTimerNotification.ts` — 通知模块（channel 建/权限问/scheduleNotificationAsync 覆盖式更新/dismiss）
+- `src/features/training/RestTimerNotificationBridge.tsx` — AppState 监听 + restTimerStore tick → 调 `showOrUpdateRestTimerNotification`；进入后台冻结，切回前台用时间戳校准
+- `app.json` — `expo-notifications` plugin + `POST_NOTIFICATIONS`/`VIBRATE` 权限
+- `src/features/training/__tests__/restTimerNotification.test.ts` — 13 个单测（Android schedule / iOS noop / dismiss 路径 + 块字符 0%/50%/100% 边界）
 
-### 提交记录（5 实现 + 5 revert，全部未保留到 master）
+### 已知限制（不阻塞通过）
 
-实现：
-- `792bed1` chore(G38): 装 expo-notifications + app.json 配 Android channel/permissions
-- `ea4829d` feat(G38): RestTimer 通知栏同步(前台秒级刷新 + background 冻结切回校准)
-- `911270d` test(G38): restTimerNotification 单测(mock expo-notifications + iOS 跳过分支)
-- `541422a` fix(G38): 补 expo-constants 传递依赖(解决 expo-asset bundle 500)
-- `2f820a0` chore(G38): expo prebuild 自动改 scripts 为 expo run:android/run:ios
+- 锁屏停留 >60s：通知秒数停在锁屏瞬间值（系统冻结 JS，managed workflow 无法绕过）
+- iOS 路径本期 noop（`Platform.OS !== 'android'` 直接 return）
 
-回滚（按 commit 时间倒序）：
-- `44751f7` Revert "chore(G38): 装 expo-notifications + app.json 配 Android channel/permissions"
-- `43462cc` Revert "feat(G38): RestTimer 通知栏同步(前台秒级刷新 + background 冻结切回校准)"
-- `6a26083` Revert "test(G38): restTimerNotification 单测(mock expo-notifications + iOS 跳过分支)"
-- `31db3a2` Revert "fix(G38): 补 expo-constants 传递依赖(解决 expo-asset bundle 500)"
-- `50d81af` Revert "chore(G38): expo prebuild 自动改 scripts 为 expo run:android/run:ios"
+### 提交记录
+
+当前实现（G38.1 重构版，**在 master**）：
+- `59f7a99` feat(G38.1): RestTimer 真机验收 2 个 UX 修复（含通知两行布局 + `RestTimerNotificationBridge`）
+- `4cc8f86` fix(G38.1): +15s 数学 no-op + 去'准备下一组' + 添加组复制上组数据
+
+原 G38 5 个 commit 已被 revert（仅作历史参考，**未保留到 master**）：
+- `792bed1` / `ea4829d` / `911270d` / `541422a` / `2f820a0` — 原 G38 实现
+- `44751f7` / `43462cc` / `6a26083` / `31db3a2` / `50d81af` — 对应 5 个 revert
+
+---
+
+## G38.1. RestTimer 真机验收 UX 修复 ✅
+
+**优先级**：P1（体验收口）  |  **依赖**：G7  |  **阶段**：3  |  **状态**：✅ **2026-09-09 真机验收通过**
+
+### 背景
+
+G38 通知栏同步回滚后,基于 G7/G37 基线重做真机验收,暴露出 RestTimer 在「应用内」交互的几个体感 bug —— G38.1 一次性修干净,并把通知栏同步以更稳的形式重新实现(两行布局 + bridge + 块字符进度条)。**通知功能从此段起重新生效**(详见 G38 段)。
+
+### 涉及
+
+- **bug1**:`RestTimerOverlay` 双态(展开/折叠)+ 自然完成 → 1.1s 后滚动回视 + 0.6s 高亮(`SetRow` 2dp primary 顶边光带)
+- **bug2**:通知栏 2 行布局(`title="休息中　剩 N 秒"` + `body=20 段 unicode 块字符进度条` + 数字比例)
+- **fix**:`restTimerStore.extend` 只加 `durationMs` 不动 `startedAt`(原写法 `startedAt -= delta` 与 `durationMs += delta` 在 `remaining = durationMs - (now - startedAt)` 公式里相抵,+15s 体感 no-op)
+- **去文案**:Sheet/窄条 统一显示'秒',不再切到'准备下一组'
+- **加组**: `appendEmptySet` 继承上组 weight/reps/durationSeconds/distanceKm 实际值(上组 null 也继承 null)
+- **附加**:数据库 migration v3/v5/v6 `safeAddColumn` 幂等化(吞 `duplicate column name`,新装路径不再炸)
+- **测试**:`restTimerStore` +5(extend 三种路径/skip no-op),`restTimerNotification` 加块字符 0%/50%/100% 三边界 → **220/220 全过(22 suites)**
+
+### 验收标准(AC)
+
+- AC-38.1.1 展开 Overlay → 点 +15s → 数字 / 圆环比例明显推进 ✅
+- AC-38.1.2 展开 + 折叠态文案统一显示倒计时,不再切到'准备下一组' ✅
+- AC-38.1.3 + 添加组 → weight/reps/durationSeconds/distanceKm 继承上一组实际值 ✅
+- AC-38.1.4 通知栏 title="休息中　剩 N 秒",body 是 unicode 块字符进度条 ✅(G38 真机已验)
+
+### 提交
+
+- `59f7a99` feat(G38.1): RestTimer 真机验收 2 个 UX 修复
+- `4cc8f86` fix(G38.1): +15s 数学 no-op + 去'准备下一组' + 添加组复制上组数据
 
 ---
 
