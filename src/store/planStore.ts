@@ -60,6 +60,10 @@ export interface PlanSetDraft {
   setIndex: number;
   weight: number;
   reps: number;
+  /** Plan-level duration (seconds, UI shows minutes). 0 = not specified. */
+  durationSeconds: number;
+  /** Plan-level distance (km). 0 = not specified. */
+  distanceKm: number;
   setType: SetTypeValue;
 }
 
@@ -166,6 +170,8 @@ function makeEmptySet(): PlanSetDraft {
     setIndex: 1,
     weight: 0,
     reps: 0,
+    durationSeconds: 0,
+    distanceKm: 0,
     setType: 'normal',
   };
 }
@@ -176,6 +182,8 @@ function cloneSet(template: PlanSetDraft, newIndex: number): PlanSetDraft {
     setIndex: newIndex,
     weight: template.weight,
     reps: template.reps,
+    durationSeconds: template.durationSeconds,
+    distanceKm: template.distanceKm,
     setType: template.setType,
   };
 }
@@ -210,6 +218,8 @@ function toDraftState(plan: PlanWithExercises): PlanDetailState {
         setIndex: s.setIndex,
         weight: s.weight,
         reps: s.reps,
+        durationSeconds: s.durationSeconds,
+        distanceKm: s.distanceKm,
         setType: s.setType,
       })),
     })),
@@ -281,6 +291,8 @@ export const usePlanStore = create<PlanStoreState>((set, get) => ({
               setType: s.setType,
               weight: s.weight,
               reps: s.reps,
+              durationSeconds: s.durationSeconds,
+              distanceKm: s.distanceKm,
             })),
           );
         }
@@ -339,6 +351,8 @@ export const usePlanStore = create<PlanStoreState>((set, get) => ({
                 setType: s.setType,
                 weight: s.weight,
                 reps: s.reps,
+                durationSeconds: s.durationSeconds,
+                distanceKm: s.distanceKm,
               })),
             );
           }
@@ -376,6 +390,8 @@ export const usePlanStore = create<PlanStoreState>((set, get) => ({
                 setIndex: s.setIndex,
                 weight: s.weight,
                 reps: s.reps,
+                durationSeconds: s.durationSeconds,
+                distanceKm: s.distanceKm,
                 setType: s.setType,
               })),
             };
@@ -504,6 +520,8 @@ export const usePlanStore = create<PlanStoreState>((set, get) => ({
           setIndex: s.setIndex,
           weight: s.weight,
           reps: s.reps,
+          durationSeconds: s.durationSeconds,
+          distanceKm: s.distanceKm,
           setType: s.setType,
         }))),
       }));
@@ -581,7 +599,13 @@ export const usePlanStore = create<PlanStoreState>((set, get) => ({
     await replaceSetsForPlanExercise(
       db,
       planExerciseId,
-      updated.sets.map((s) => ({ setType: s.setType, weight: s.weight, reps: s.reps })),
+      updated.sets.map((s) => ({
+        setType: s.setType,
+        weight: s.weight,
+        reps: s.reps,
+        durationSeconds: s.durationSeconds,
+        distanceKm: s.distanceKm,
+      })),
     );
   },
 
@@ -615,7 +639,13 @@ export const usePlanStore = create<PlanStoreState>((set, get) => ({
     await replaceSetsForPlanExercise(
       db,
       planExerciseId,
-      updated.sets.map((s) => ({ setType: s.setType, weight: s.weight, reps: s.reps })),
+      updated.sets.map((s) => ({
+        setType: s.setType,
+        weight: s.weight,
+        reps: s.reps,
+        durationSeconds: s.durationSeconds,
+        distanceKm: s.distanceKm,
+      })),
     );
   },
 
@@ -639,7 +669,13 @@ export const usePlanStore = create<PlanStoreState>((set, get) => ({
     await replaceSetsForPlanExercise(
       db,
       planExerciseId,
-      reindexed.map((s) => ({ setType: s.setType, weight: s.weight, reps: s.reps })),
+      reindexed.map((s) => ({
+        setType: s.setType,
+        weight: s.weight,
+        reps: s.reps,
+        durationSeconds: s.durationSeconds,
+        distanceKm: s.distanceKm,
+      })),
     );
   },
 

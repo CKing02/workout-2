@@ -59,6 +59,9 @@ export interface PlanExerciseRow {
  * (which may differ from the plan) and those land in `training_sets`.
  * `plan_sets.weight/reps` are the planned values, persisted across
  * restarts so the user doesn't lose their template.
+ *
+ * ⋯ 组数据按 metricType 渲染:time 类动作写 `duration_seconds`(UI 显示分钟),
+ * km 类动作写 `distance_km`。`weight` / `reps` 不再是唯一字段组合。
  */
 export interface PlanSetRow {
   id: string;
@@ -67,6 +70,8 @@ export interface PlanSetRow {
   set_type: string;
   weight: number;
   reps: number;
+  duration_seconds: number;
+  distance_km: number;
 }
 
 export interface TrainingRow {
@@ -223,6 +228,10 @@ export interface PlanSet {
   weight: number;
   /** Planned rep count. 0 = not specified. */
   reps: number;
+  /** Planned duration (seconds, UI shows minutes). 0 = not specified. */
+  durationSeconds: number;
+  /** Planned distance (km). 0 = not specified. */
+  distanceKm: number;
 }
 
 export function rowToPlanSet(row: PlanSetRow): PlanSet {
@@ -233,6 +242,8 @@ export function rowToPlanSet(row: PlanSetRow): PlanSet {
     setType: row.set_type as PlanSet['setType'],
     weight: row.weight,
     reps: row.reps,
+    durationSeconds: row.duration_seconds ?? 0,
+    distanceKm: row.distance_km ?? 0,
   };
 }
 
@@ -356,6 +367,8 @@ export const CREATE_TABLE_SQL: string[] = [
      set_type TEXT NOT NULL DEFAULT 'normal',
      weight REAL NOT NULL DEFAULT 0,
      reps INTEGER NOT NULL DEFAULT 0,
+     duration_seconds INTEGER NOT NULL DEFAULT 0,
+     distance_km REAL NOT NULL DEFAULT 0,
      FOREIGN KEY (plan_exercise_id) REFERENCES plan_exercises(id) ON DELETE CASCADE
    );`,
 

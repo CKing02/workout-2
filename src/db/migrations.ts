@@ -109,6 +109,20 @@ export const MIGRATIONS: readonly Migration[] = [
            CREATE INDEX IF NOT EXISTS idx_body_measurements_date
              ON body_measurements(measured_date DESC, created_at DESC);`,
   },
+  {
+    version: 8,
+    description: '⋯: plan_sets 加 duration_seconds + distance_km 两列;exercises 内置 reps(负重)迁移到 weight_reps(自定 reps 不动,语义升级为自重)。',
+    sql: `ALTER TABLE plan_sets ADD COLUMN duration_seconds INTEGER NOT NULL DEFAULT 0;
+          ALTER TABLE plan_sets ADD COLUMN distance_km REAL NOT NULL DEFAULT 0;
+          UPDATE exercises SET metric_type = 'weight_reps' WHERE metric_type = 'reps' AND is_custom = 0;`,
+    run: async (db) => {
+      await safeAddColumn(db, 'plan_sets', 'duration_seconds', 'INTEGER NOT NULL DEFAULT 0');
+      await safeAddColumn(db, 'plan_sets', 'distance_km', 'REAL NOT NULL DEFAULT 0');
+      await db.runAsync(
+        `UPDATE exercises SET metric_type = 'weight_reps' WHERE metric_type = 'reps' AND is_custom = 0;`,
+      );
+    },
+  },
 ];
 
 /**

@@ -347,11 +347,20 @@ export async function setExerciseRestSeconds(
  * G24a follow-up: each set carries its full prescription (`weight`, `reps`,
  * `setType`). All three are persisted so the plan editor's
  * "10kg × 10 reps" template survives restarts.
+ *
+ * ⋯ 组数据按 metricType 渲染:time 类写 `durationSeconds`,km 类写 `distanceKm`。
+ * 旧调用方继续按 `{ setType, weight, reps }` 传 → 缺失字段默认 0。
  */
 export async function replaceSetsForPlanExercise(
   db: SQLiteDatabase,
   planExerciseId: string,
-  sets: ReadonlyArray<{ setType: string; weight: number; reps: number }>,
+  sets: ReadonlyArray<{
+    setType: string;
+    weight: number;
+    reps: number;
+    durationSeconds?: number;
+    distanceKm?: number;
+  }>,
 ): Promise<void> {
   await db.withTransactionAsync(async () => {
     await db.runAsync(
@@ -360,8 +369,8 @@ export async function replaceSetsForPlanExercise(
     );
     if (sets.length === 0) return;
     const stmt = await db.prepareAsync(
-      `INSERT INTO plan_sets (id, plan_exercise_id, set_index, set_type, weight, reps)
-       VALUES (?, ?, ?, ?, ?, ?);`,
+      `INSERT INTO plan_sets (id, plan_exercise_id, set_index, set_type, weight, reps, duration_seconds, distance_km)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?);`,
     );
     try {
       for (let i = 0; i < sets.length; i++) {
@@ -373,6 +382,8 @@ export async function replaceSetsForPlanExercise(
           s.setType,
           s.weight,
           s.reps,
+          s.durationSeconds ?? 0,
+          s.distanceKm ?? 0,
         ]);
       }
     } finally {
@@ -388,6 +399,8 @@ export async function replaceSetsForPlanExercise(
  *
  * G24a follow-up: also accepts initial `weight` + `reps` (e.g. when copying
  * the last set's values via the editor's "复制上组" button).
+ *
+ * ⋯ 增 `durationSeconds` / `distanceKm` 两个可选形参(time / km 类动作首组用)。
  */
 export async function appendSetForPlanExercise(
   db: SQLiteDatabase,
@@ -395,6 +408,8 @@ export async function appendSetForPlanExercise(
   setType: string,
   weight: number = 0,
   reps: number = 0,
+  durationSeconds: number = 0,
+  distanceKm: number = 0,
 ): Promise<number> {
   const nextIndexRow = await db.getFirstAsync<{ next_index: number }>(
     `SELECT COALESCE(MAX(set_index), 0) + 1 AS next_index
@@ -403,9 +418,9 @@ export async function appendSetForPlanExercise(
   );
   const setIndex = nextIndexRow?.next_index ?? 1;
   await db.runAsync(
-    `INSERT INTO plan_sets (id, plan_exercise_id, set_index, set_type, weight, reps)
-     VALUES (?, ?, ?, ?, ?, ?);`,
-    [newId(), planExerciseId, setIndex, setType, weight, reps],
+    `INSERT INTO plan_sets (id, plan_exercise_id, set_index, set_type, weight, reps, duration_seconds, distance_km)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?);`,
+    [newId(), planExerciseId, setIndex, setType, weight, reps, durationSeconds, distanceKm],
   );
   return setIndex;
 }
