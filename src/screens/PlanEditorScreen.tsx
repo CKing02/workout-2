@@ -70,10 +70,17 @@ import { Card } from '@/components/Card';
 import { Dialog } from '@/components/Dialog';
 import { ExerciseThumbnail } from '@/components/ExerciseThumbnail';
 import { Input } from '@/components/Input';
+import { MenuRow } from '@/components/MenuRow';
 import { NumberInput } from '@/components/NumberInput';
 import { Sheet } from '@/components/Sheet';
 import { SET_TYPES, type SetTypeValue } from '@/constants/setTypes';
 import { STUB_NEW_PLAN_ID } from '@/constants/plan';
+import {
+  METRIC_TYPES,
+  findMetricType,
+  type MetricField,
+  type MetricType,
+} from '@/constants/metricTypes';
 import { toast } from '@/hooks/useToast';
 import {
   usePlanStore,
@@ -730,6 +737,10 @@ function ExerciseEditorCard({
   onPressName,
 }: ExerciseEditorCardProps) {
   const { colors, spacing, typography, radius } = useTheme();
+  // ⋯ SetRow 按动作的 metricType 渲染字段。fallback 走第一个(reps)以防老数据
+  // 残留未知值。
+  const metricType =
+    findMetricType(draft.exercise.metricType) ?? METRIC_TYPES[0];
 
   return (
     <Card padding="md">
@@ -872,9 +883,14 @@ function ExerciseEditorCard({
             <SetRow
               key={s.localId}
               setRow={s}
+              metricType={metricType}
               onPressIndex={() => onOpenSetSheet(idx)}
               onChangeWeight={(w) => onUpdateSet(idx, { weight: w })}
               onChangeReps={(r) => onUpdateSet(idx, { reps: r })}
+              onChangeDuration={(seconds) =>
+                onUpdateSet(idx, { durationSeconds: seconds })
+              }
+              onChangeDistance={(km) => onUpdateSet(idx, { distanceKm: km })}
               onRemove={() => onRemoveSet(idx)}
             />
           ))}
@@ -886,21 +902,37 @@ function ExerciseEditorCard({
 
 /* -------------------------------------------------------------------------- */
 /* SetRow — supports swipe-to-delete                                          */
+/*                                                                            */
+/* 字段渲染按 metricType.fields 动态出 NumberInput:                             */
+/* - ['reps']              → 1 个「次」输入                                    */
+/* - ['weight']            → 1 个「kg」输入                                    */
+/* - ['weight','reps']     → 「kg」+「次」两个输入（现有负重类）              */
+/* - ['duration_seconds']  → 1 个「min」输入（DB 存秒,UI 显示分钟）            */
+/* - ['distance_km']       → 1 个「km」输入                                   */
+/*                                                                            */
+/* 旧调用方只接 weight/reps 回调;duration/distance 通过 onChangeDuration/      */
+/* onChangeDistance 写到 PlanSetDraft 的对应字段。                            */
 /* -------------------------------------------------------------------------- */
 
 interface SetRowProps {
   setRow: PlanSetDraft;
+  metricType: MetricType;
   onPressIndex: () => void;
   onChangeWeight: (next: number) => void;
   onChangeReps: (next: number) => void;
+  onChangeDuration?: (seconds: number) => void;
+  onChangeDistance?: (km: number) => void;
   onRemove: () => void;
 }
 
 function SetRow({
   setRow,
+  metricType,
   onPressIndex,
   onChangeWeight,
   onChangeReps,
+  onChangeDuration,
+  onChangeDistance,
   onRemove,
 }: SetRowProps) {
   const { colors, spacing, typography, radius } = useTheme();
@@ -1022,37 +1054,119 @@ function SetRow({
               </Text>
             </Pressable>
 
-            <View
-              style={{ flex: 1 }}
-              accessible
-              accessibilityLabel={`第 ${setRow.setIndex} 组 重量`}
-            >
-              <NumberInput
-                value={setRow.weight}
-                onChangeValue={onChangeWeight}
-                min={0}
-                max={500}
-                precision={1}
-                unitLabel="kg"
+            {/* 字段区:按 metricType.fields 动态渲染 1 / 2 个 NumberInput。 */}
+            {metricType.fields.map((field) => (
+              <SetRowField
+                key={field}
+                field={field}
+                setIndex={setRow.setIndex}
+                setRow={setRow}
+                onChangeWeight={onChangeWeight}
+                onChangeReps={onChangeReps}
+                onChangeDuration={onChangeDuration}
+                onChangeDistance={onChangeDistance}
               />
-            </View>
-            <View
-              style={{ flex: 1 }}
-              accessible
-              accessibilityLabel={`第 ${setRow.setIndex} 组 次数`}
-            >
-              <NumberInput
-                value={setRow.reps}
-                onChangeValue={onChangeReps}
-                min={0}
-                max={50}
-              />
-            </View>
+            ))}
           </View>
         </Animated.View>
       </GestureDetector>
     </View>
   );
+}
+
+/* -------------------------------------------------------------------------- */
+/* SetRowField — 单字段输入框,根据 MetricField 类型分发                       */
+/* -------------------------------------------------------------------------- */
+
+interface SetRowFieldProps {
+  field: MetricField;
+  setIndex: number;
+  setRow: PlanSetDraft;
+  onChangeWeight: (next: number) => void;
+  onChangeReps: (next: number) => void;
+  onChangeDuration?: (seconds: number) => void;
+  onChangeDistance?: (km: number) => void;
+}
+
+function SetRowField({
+  field,
+  setIndex,
+  setRow,
+  onChangeWeight,
+  onChangeReps,
+  onChangeDuration,
+  onChangeDistance,
+}: SetRowFieldProps) {
+  switch (field) {
+    case 'weight':
+      return (
+        <View
+          style={{ flex: 1 }}
+          accessible
+          accessibilityLabel={`第 ${setIndex} 组 重量`}
+        >
+          <NumberInput
+            value={setRow.weight}
+            onChangeValue={onChangeWeight}
+            min={0}
+            max={500}
+            precision={1}
+            unitLabel="kg"
+          />
+        </View>
+      );
+    case 'reps':
+      return (
+        <View
+          style={{ flex: 1 }}
+          accessible
+          accessibilityLabel={`第 ${setIndex} 组 次数`}
+        >
+          <NumberInput
+            value={setRow.reps}
+            onChangeValue={onChangeReps}
+            min={0}
+            max={50}
+          />
+        </View>
+      );
+    case 'duration_seconds':
+      // DB 存秒,NumberInput 显示分钟。转换只在 UI ↔ 存储的边界做。
+      return (
+        <View
+          style={{ flex: 1 }}
+          accessible
+          accessibilityLabel={`第 ${setIndex} 组 时间`}
+        >
+          <NumberInput
+            value={Math.round(setRow.durationSeconds / 60)}
+            onChangeValue={(minutes) =>
+              onChangeDuration?.(Math.max(0, Math.round(minutes * 60)))
+            }
+            min={0}
+            max={600}
+            unitLabel="min"
+          />
+        </View>
+      );
+    case 'distance_km':
+      return (
+        <View
+          style={{ flex: 1 }}
+          accessible
+          accessibilityLabel={`第 ${setIndex} 组 距离`}
+        >
+          <NumberInput
+            value={setRow.distanceKm}
+            onChangeValue={onChangeDistance ?? (() => {})}
+            min={0}
+            max={500}
+            precision={2}
+            unitLabel="km"
+          />
+        </View>
+      );
+  }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1086,60 +1200,6 @@ function MoreSheetBody({
         danger
       />
     </View>
-  );
-}
-
-interface MenuRowProps {
-  label: string;
-  hint?: string;
-  onPress: () => void;
-  danger?: boolean;
-}
-
-function MenuRow({ label, hint, onPress, danger }: MenuRowProps) {
-  const { spacing, colors, typography, radius } = useTheme();
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      accessibilityHint={hint}
-      onPress={onPress}
-      style={({ pressed }) => ({
-        paddingVertical: spacing.md,
-        paddingHorizontal: spacing.md,
-        borderRadius: radius.md,
-        backgroundColor: pressed
-          ? colors.surfaceMuted
-          : colors.surface,
-        borderWidth: StyleSheet.hairlineWidth,
-        borderColor: colors.border,
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-      })}
-    >
-      <View style={{ flex: 1 }}>
-        <Text
-          style={[
-            typography.body,
-            { color: danger ? colors.danger : colors.text },
-          ]}
-        >
-          {label}
-        </Text>
-        {hint ? (
-          <Text
-            style={[
-              typography.caption,
-              { color: colors.textTertiary, marginTop: 2 },
-            ]}
-          >
-            {hint}
-          </Text>
-        ) : null}
-      </View>
-      <Text style={{ color: colors.textTertiary, fontSize: 18 }}>›</Text>
-    </Pressable>
   );
 }
 
