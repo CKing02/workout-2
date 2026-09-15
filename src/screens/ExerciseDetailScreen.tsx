@@ -32,7 +32,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Image,
   ScrollView,
   StyleSheet,
   Text,
@@ -50,11 +49,11 @@ import { Card } from '@/components/Card';
 import { Dialog } from '@/components/Dialog';
 import { EmptyState } from '@/components/EmptyState';
 import { ExerciseFormSheet, type ExerciseFormInput } from '@/components/ExerciseFormSheet';
+import { ExerciseGifImage } from '@/components/ExerciseGifImage';
 import { IconButton } from '@/components/IconButton';
 import { MenuRow } from '@/components/MenuRow';
 import { Sheet } from '@/components/Sheet';
 import type { Exercise } from '@/db/schema';
-import { resolveGifSource } from '@/screens/exerciseGifAssets';
 import { useExerciseStore } from '@/store/exerciseStore';
 import { useTheme } from '@/theme';
 import { toast } from '@/hooks/useToast';
@@ -189,7 +188,7 @@ export function ExerciseDetailScreen() {
     );
   }
 
-  const gifSource = resolveGifSource(exercise.gifUrl);
+  const gifUrl = exercise.gifUrl ?? null;
   const steps = exercise.stepsZh ?? [];
   const attribution = exercise.attribution ?? '© Gym visual — https://gymvisual.com/';
 
@@ -222,14 +221,15 @@ export function ExerciseDetailScreen() {
         </View>
 
         {/* ===== 2. GIF 演示 ===== */}
-        {gifSource ? (
+        {gifUrl ? (
           <Card padding="md" elevated>
             <View style={styles.gifFrame}>
-              <Image
-                source={gifSource}
-                style={styles.gif}
+              {/* G39:ExerciseGifImage 内部处理 bundled(秒开)+ remote(Skeleton → cache → Image) */}
+              <ExerciseGifImage
+                gifUrl={gifUrl}
+                size={GIF_SIZE}
+                rounded="square"
                 resizeMode="contain"
-                accessible
                 accessibilityLabel={`${exercise.name} 动作演示`}
               />
             </View>
@@ -243,7 +243,7 @@ export function ExerciseDetailScreen() {
                 },
               ]}
             >
-              动作演示 · 180×180 循环播放
+              动作演示 · {GIF_SIZE}×{GIF_SIZE} 循环播放
             </Text>
           </Card>
         ) : (

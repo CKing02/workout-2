@@ -1,13 +1,13 @@
 /**
- * G36 — 动作头像缩略图
+ * G36 + G39 — 动作头像缩略图
  *
  * 用法:代替之前所有"圆 View + 首字符"的占位。
  *
- * 渲染策略:
- *  - 有 gifUrl 且 resolveGifSource 命中 → 显示 GIF 静态首帧
- *    (RN Image 无"播一次停"API,源 GIF 在 32-40px + cover 模式下视觉上
- *     看不出循环 — demo 验收结论。G36 用户接受"看起来像静态")
- *  - gifUrl 为 null(自定义动作)→ fallback 首字符,与旧风格一致
+ * 渲染策略(G39 升级):
+ *  - gifUrl 非空(无论 asset:/https://)→ 包 <ExerciseGifImage> 在圆形/square frame 里
+ *    - bundled(30 张)→ 秒开,无 Skeleton
+ *    - remote(22 张 + 未来扩展)→ Skeleton → Image
+ *  - gifUrl 为 null(自定义动作 / 数据缺失)→ fallback 首字符,与旧风格一致
  *
  * Props:
  *  - size: 渲染像素(默认 40)。外层容器 width=height=size
@@ -17,12 +17,12 @@
  *
  * 已知限制:
  *  - GIF 仍在循环播。如果未来用户报"动画太花眼",考虑
- *    react-native-fast-image 的 priority 或 Lottie 替代。
+ *    Lottie 替代或 react-native-fast-image 的 priority。
  */
 import React from 'react';
-import { Image, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 
-import { resolveGifSource } from '@/screens/exerciseGifAssets';
+import { ExerciseGifImage } from '@/components/ExerciseGifImage';
 import { useTheme } from '@/theme';
 
 export type ExerciseThumbnailProps = {
@@ -43,35 +43,11 @@ export function ExerciseThumbnail({
   const { colors, radius } = useTheme();
   const borderRadius = rounded === 'circle' ? size / 2 : radius.md;
 
-  const source = resolveGifSource(gifUrl);
+  const hasGif = !!gifUrl;
+  const accessibilityLabel = hasGif
+    ? `${name} 动作演示缩略图`
+    : `${name} 缩略图(无演示)`;
 
-  if (source) {
-    return (
-      <View
-        style={[
-          styles.frame,
-          {
-            width: size,
-            height: size,
-            borderRadius,
-            backgroundColor: colors.surfaceMuted,
-            overflow: 'hidden',
-          },
-        ]}
-        accessible
-        accessibilityLabel={`${name} 动作演示缩略图`}
-      >
-        <Image
-          source={source}
-          style={{ width: size, height: size }}
-          resizeMode={resizeMode}
-        />
-      </View>
-    );
-  }
-
-  // Fallback — user-created 动作 (gifUrl=null)
-  const initial = name.trim().charAt(0) || '·';
   return (
     <View
       style={[
@@ -80,17 +56,35 @@ export function ExerciseThumbnail({
           width: size,
           height: size,
           borderRadius,
-          backgroundColor: colors.primaryMuted,
+          backgroundColor: hasGif ? colors.surfaceMuted : colors.primaryMuted,
+          overflow: 'hidden',
           alignItems: 'center',
           justifyContent: 'center',
         },
       ]}
       accessible
-      accessibilityLabel={`${name} 缩略图(无演示)`}
+      accessibilityLabel={accessibilityLabel}
     >
-      <Text style={{ color: colors.primaryPressed, fontSize: Math.round(size * 0.4), fontWeight: '700' }}>
-        {initial}
-      </Text>
+      {hasGif ? (
+        <ExerciseGifImage
+          gifUrl={gifUrl}
+          size={size}
+          rounded={rounded}
+          resizeMode={resizeMode}
+          accessibilityLabel={accessibilityLabel}
+        />
+      ) : (
+        // Fallback — user-created 动作 (gifUrl=null)
+        <Text
+          style={{
+            color: colors.primaryPressed,
+            fontSize: Math.round(size * 0.4),
+            fontWeight: '700',
+          }}
+        >
+          {(name.trim().charAt(0) || '·').toUpperCase()}
+        </Text>
+      )}
     </View>
   );
 }
