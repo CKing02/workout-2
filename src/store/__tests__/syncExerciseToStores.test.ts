@@ -30,10 +30,10 @@ function makeExercise(id: string, overrides: Partial<Exercise> = {}): Exercise {
     imageUri: null,
     isCustom: true,
     createdAt: 1000,
-    instructionsZh: null,
-    instructionStepsZh: null,
+    descriptionZh: null,
+    stepsZh: null,
     gifUrl: null,
-    targetMuscle: 'chest',
+    targetZh: 'chest',
     attribution: null,
     ...overrides,
   };
