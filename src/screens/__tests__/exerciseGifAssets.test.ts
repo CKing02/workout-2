@@ -1,13 +1,15 @@
 /**
- * G35 §4 / G39 — exerciseGifAssets 单元测
+ * G35 §4 / G39 / G40 — exerciseGifAssets 单元测
  *
  * G35 §4 验证:
- * 1. 30 条 bundled mapping 的 assetFileName 都在 G35_GIF_ASSETS 里
+ * 1. 52 条 bundled mapping 的 assetFileName 都在 G35_GIF_ASSETS 里
  * 2. resolveGifSource 解析 'assets/exercises/{file}' 老路径(兼容)
  * 3. resolveGifSource 解析 'asset:{file}' 新前缀(G39)
  * 4. null / undefined / 空字符串 → undefined
  * 5. 找不到的文件名 → undefined
  * 6. classifyGifSource 把 'asset:' / 'https://' / 'http://' / 'assets/' / null 正确归类
+ *
+ * G40: 52/52 全 bundled(22 张原 remote 已并入)。
  */
 
 import { EXERCISE_G35_MAPPING } from '@/db/seeds/exerciseG35Mapping';
@@ -17,15 +19,15 @@ import {
   resolveGifSource,
 } from '@/screens/exerciseGifAssets';
 
-describe('G35 §4 / G39 exerciseGifAssets', () => {
+describe('G35 §4 / G40 exerciseGifAssets', () => {
   const bundledMappings = EXERCISE_G35_MAPPING.filter((m) => m.bundled);
 
-  it('G39: bundled mapping = 30 张(其余 22 走 CDN)', () => {
+  it('G40: bundled mapping = 52/52(全部 bundled,无 remote)', () => {
     expect(EXERCISE_G35_MAPPING.length).toBe(52);
-    expect(bundledMappings.length).toBe(30);
+    expect(bundledMappings.length).toBe(52);
   });
 
-  it('30 条 bundled mapping 的 assetFileName 都在 G35_GIF_ASSETS 里', () => {
+  it('52 条 bundled mapping 的 assetFileName 都在 G35_GIF_ASSETS 里', () => {
     for (const m of bundledMappings) {
       expect(G35_GIF_ASSETS[m.assetFileName!]).toBeDefined();
     }
@@ -37,8 +39,8 @@ describe('G35 §4 / G39 exerciseGifAssets', () => {
     );
   });
 
-  it('G35_GIF_ASSETS 恰好 30 项', () => {
-    expect(Object.keys(G35_GIF_ASSETS).length).toBe(30);
+  it('G35_GIF_ASSETS 恰好 52 项', () => {
+    expect(Object.keys(G35_GIF_ASSETS).length).toBe(52);
   });
 
   describe('resolveGifSource', () => {

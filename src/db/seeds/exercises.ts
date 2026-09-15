@@ -454,7 +454,11 @@ export function toExerciseRows(now: number): Omit<ExerciseRow, 'id'>[] {
       steps_zh: zh ? JSON.stringify(zh.steps) : null,
       // G39: gif_url 改为带前缀的语义。
       //   bundled === true  → 'asset:{filename}',走本地 require() 秒开
-      //   bundled === false → null(等 R2 配齐后由后续脚本回填 https:// URL)
+      //   bundled === false → null(G40 之后已无此分支,52 张全部 bundled。
+      //                         后续 1000+ 扩展时再启用 CDN 路线(Path C))
+      //
+      //   注:G40 之前的"22 张 remote → 等 CDN 回填"路径已废弃,所有
+      //   mapping 都翻成 bundled:true。CDN 路线留作 future use。
       gif_url:
         mapping.bundled && mapping.assetFileName
           ? `asset:${mapping.assetFileName}`

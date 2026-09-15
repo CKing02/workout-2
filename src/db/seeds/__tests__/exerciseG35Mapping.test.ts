@@ -1,5 +1,5 @@
 /**
- * G35 §1/§2 + G39 — 翻译 52 个动作 mapping 表 + bundle 30 张 GIF 自测
+ * G35 §1/§2 + G39 / G40 — 翻译 52 个动作 mapping 表 + bundle 52 张 GIF 自测
  *
  * §1 验证:
  * 1. 52 个 seed 全有 mapping
@@ -7,10 +7,10 @@
  * 3. 每个 mapping 都同时有 gif_url + 中文 instruction_steps
  * 4. equipment/target 中译表覆盖所有出现的 en 值
  *
- * §2/G39 验证:
+ * §2/G40 验证:
  * 5. assetFileName 和 gifUrl 的 basename 一致(改名时只能改一处)
- * 6. bundled === true 的 30 张 GIF 都真实落盘 + GIF89a magic
- * 7. G39 bundled 字段:30 条 true / 22 条 false;true 时 assetFileName 必填
+ * 6. bundled === true 的 52 张 GIF 都真实落盘 + GIF89a magic
+ * 7. G40 bundled 字段:52 条 true / 0 条 false;true 时 assetFileName 必填
  */
 
 import { EXERCISE_SEEDS } from '../exercises';
@@ -174,31 +174,23 @@ describe('G35 §2 GIF bundle', () => {
   });
 });
 
-describe('G39 GIF bundle split(bundled 30 + remote 22)', () => {
+describe('G40 GIF bundle(52/52 全 bundled,无 remote)', () => {
   const bundled = EXERCISE_G35_MAPPING.filter((m) => m.bundled);
   const remote = EXERCISE_G35_MAPPING.filter((m) => !m.bundled);
 
-  it('bundled === true = 30 张;bundled === false = 22 张', () => {
-    expect(bundled.length).toBe(30);
-    expect(remote.length).toBe(22);
+  it('bundled === true = 52 张;bundled === false = 0 张', () => {
+    expect(bundled.length).toBe(52);
+    expect(remote.length).toBe(0);
   });
 
-  it('bundled === true 时 assetFileName 必填且在 G35_GIF_ASSETS 白名单', () => {
+  it('bundled === true 时 assetFileName 必填且匹配命名规范', () => {
     for (const m of bundled) {
       expect(m.assetFileName).toBeTruthy();
       expect(m.assetFileName).toMatch(/^[0-9]{4}-[A-Za-z0-9]+\.gif$/);
     }
   });
 
-  it('bundled === false 的 22 张不依赖 assetFileName', () => {
-    // bundled=false 时 assetFileName 是迁移残留字段;toExerciseRows 不读它。
-    // 仅校验 bundled 字段不是 true,具体值不再做硬要求(可能保留也可能清空)。
-    for (const m of remote) {
-      expect(m.bundled).toBe(false);
-    }
-  });
-
-  it('30 张 bundled GIF 都真实落在 assets/exercises/ 下且 > 1 KB', () => {
+  it('52 张 bundled GIF 都真实落在 assets/exercises/ 下且 > 1 KB', () => {
     for (const m of bundled) {
       const p = path.join(ASSETS_DIR, m.assetFileName!);
       expect(fs.existsSync(p)).toBe(true);
@@ -206,7 +198,7 @@ describe('G39 GIF bundle split(bundled 30 + remote 22)', () => {
     }
   });
 
-  it('30 张 bundled GIF 都是合法 GIF(GIF87a / GIF89a magic)', () => {
+  it('52 张 bundled GIF 都是合法 GIF(GIF87a / GIF89a magic)', () => {
     for (const m of bundled) {
       const p = path.join(ASSETS_DIR, m.assetFileName!);
       const fd = fs.openSync(p, 'r');
@@ -219,13 +211,6 @@ describe('G39 GIF bundle split(bundled 30 + remote 22)', () => {
       } finally {
         fs.closeSync(fd);
       }
-    }
-  });
-
-  it('22 张 remote GIF 不在 assets/exercises/ 下', () => {
-    for (const m of remote) {
-      const p = path.join(ASSETS_DIR, m.assetFileName!);
-      expect(fs.existsSync(p)).toBe(false);
     }
   });
 });

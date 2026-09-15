@@ -619,7 +619,18 @@ function EquipmentControl({ value, onChange }: EquipmentControlProps) {
 }
 
 function Row({ item, selectMode, checked, onPress, onLongPress, onToggle, onDelete }: RowProps) {
-  const { colors, spacing, typography, radius } = useTheme();
+  const { colors, spacing, typography, radius, shadows } = useTheme();
+
+  // G40: 行级选中反馈 —— bg + border + badge 三层叠加。
+  // 浅色模式 #FFE4D8 / 深色模式 #3A1E14 都跟中性 surface 拉出"温度差",
+  // 即使色相不同,选中卡片在两种模式下都能跟未选中区分开。
+  const cardOverride = selectMode && checked
+    ? {
+        backgroundColor: colors.primaryMuted,
+        borderColor: colors.primary,
+        borderWidth: 1.5,
+      }
+    : undefined;
 
   return (
     <Pressable
@@ -630,74 +641,99 @@ function Row({ item, selectMode, checked, onPress, onLongPress, onToggle, onDele
       accessibilityState={{ checked: selectMode ? checked : undefined }}
       accessibilityLabel={item.name}
     >
-      <Card padding="sm" style={{ minHeight: ROW_HEIGHT - 8 }}>
-        <View style={[styles.rowInner, { gap: spacing.md }]}>
-          {/* Checkbox (multi-select only) */}
-          {selectMode ? (
-            <Pressable
-              onPress={() => onToggle(item)}
-              hitSlop={8}
-              accessibilityRole="checkbox"
-              accessibilityState={{ checked }}
-              style={({ pressed }) => ({
-                width: 24,
-                height: 24,
-                borderRadius: radius.xs,
-                borderWidth: 2,
-                borderColor: checked ? colors.primary : colors.border,
-                backgroundColor: checked ? colors.primary : colors.transparent,
-                alignItems: 'center',
-                justifyContent: 'center',
-                opacity: pressed ? 0.7 : 1,
-                marginLeft: spacing.xs,
-              })}
-            >
-              {checked ? (
-                <Text style={{ color: colors.onPrimary, fontWeight: '900', fontSize: 14 }}>✓</Text>
-              ) : null}
-            </Pressable>
-          ) : (
+      <Card padding="sm" style={[{ minHeight: ROW_HEIGHT - 8 }, cardOverride]}>
+        {/* 相对容器 — 让右上角 ✓ 徽章锚定在卡片内,而不是脱离到屏幕。 */}
+        <View style={{ position: 'relative' }}>
+          <View style={[styles.rowInner, { gap: spacing.md }]}>
+            {/* G40: 始终渲染 GIF 头像(动作库同款),让 browse / select 两个
+                模式左侧视觉一致。多选模式不再用左侧 24×24 复选框 —
+                选中态改由右上角 ✓ 徽章表达(下方)。整行 Pressable 已处理
+                toggle,不需要保留 checkbox 自身的 hit target。 */}
             <Avatar name={item.name} gifUrl={item.gifUrl} />
-          )}
 
-          {/* Name + badges */}
-          <View style={{ flex: 1 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
-              <Text
-                style={[typography.subtitle, { color: colors.text, flexShrink: 1 }]}
-                numberOfLines={1}
+            {/* Name + badges */}
+            <View style={{ flex: 1 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
+                <Text
+                  style={[typography.subtitle, { color: colors.text, flexShrink: 1 }]}
+                  numberOfLines={1}
+                >
+                  {item.name}
+                </Text>
+                {item.isCustom ? (
+                  <Badge label="自定" variant="info" size="sm" />
+                ) : null}
+              </View>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: 4 }}>
+                <Badge label={item.muscleGroup} variant={muscleGroupVariant(item.muscleGroup)} size="sm" />
+                <Badge label={item.equipment} variant="default" size="sm" />
+              </View>
+            </View>
+
+            {/* G15: 自定义动作的删除入口（非多选模式） */}
+            {!selectMode && item.isCustom ? (
+              <Pressable
+                onPress={() => onDelete(item)}
+                hitSlop={10}
+                accessibilityRole="button"
+                accessibilityLabel={`删除自定义动作 ${item.name}`}
+                accessibilityHint="弹出二次确认对话框"
+                style={({ pressed }) => ({
+                  width: 36,
+                  height: 36,
+                  borderRadius: radius.full,
+                  backgroundColor: pressed ? colors.surfaceMuted : 'transparent',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                })}
               >
-                {item.name}
-              </Text>
-              {item.isCustom ? (
-                <Badge label="自定" variant="info" size="sm" />
-              ) : null}
-            </View>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: 4 }}>
-              <Badge label={item.muscleGroup} variant={muscleGroupVariant(item.muscleGroup)} size="sm" />
-              <Badge label={item.equipment} variant="default" size="sm" />
-            </View>
+                <Text style={{ color: colors.danger, fontSize: 18, fontWeight: '700' }}>×</Text>
+              </Pressable>
+            ) : null}
           </View>
 
-          {/* G15: 自定义动作的删除入口（非多选模式） */}
-          {!selectMode && item.isCustom ? (
-            <Pressable
-              onPress={() => onDelete(item)}
-              hitSlop={10}
-              accessibilityRole="button"
-              accessibilityLabel={`删除自定义动作 ${item.name}`}
-              accessibilityHint="弹出二次确认对话框"
-              style={({ pressed }) => ({
-                width: 36,
-                height: 36,
-                borderRadius: radius.full,
-                backgroundColor: pressed ? colors.surfaceMuted : 'transparent',
-                alignItems: 'center',
-                justifyContent: 'center',
-              })}
+          {/* G40: 右上角 ✓ 徽章 ——
+              设计选择:
+              · 纯色 primary(#FF6B35)填充 + 白勾,与品牌色一致,识别度高。
+              · 2px surfaceElevated 描边 ——
+                  浅色模式下是 #FFFFFF(亮于卡片 #F7F8FA),
+                  深色模式下是 #22252B(亮于卡片 #181A20)。
+                  两种模式都能产生「从卡片表面凹陷出印章」的视觉错觉,
+                  而非「平贴在卡片上」。
+              · shadows.sm — 让徽章抬离卡片 1px,呼应「教练在清单上盖
+                  章」的物理质感。
+              · 不加旋转 — 全 app 走 disciplined 路线,微抖会很跳。
+              · 不加 toggle 动画 — FlatList 重渲染够快,fade 反而像
+                  套模板。
+              · pointerEvents="none" — 整行已 Pressable,徽章只是视觉指示。 */}
+          {selectMode && checked ? (
+            <View
+              pointerEvents="none"
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+              style={[
+                styles.selectedBadge,
+                {
+                  top: spacing.xs,
+                  right: spacing.xs,
+                  backgroundColor: colors.primary,
+                  borderColor: colors.surfaceElevated,
+                },
+                shadows.sm,
+              ]}
             >
-              <Text style={{ color: colors.danger, fontSize: 18, fontWeight: '700' }}>×</Text>
-            </Pressable>
+              <Text
+                allowFontScaling={false}
+                style={{
+                  color: colors.onPrimary,
+                  fontSize: 14,
+                  fontWeight: '800',
+                  lineHeight: 16,
+                }}
+              >
+                ✓
+              </Text>
+            </View>
           ) : null}
         </View>
       </Card>
@@ -786,5 +822,17 @@ const styles = StyleSheet.create({
   headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  // G40: 右上角 ✓ 徽章 ——
+  // 结构性样式放这里;颜色 / 阴影 / top/right 通过组件 inline style 注入,
+  // 以便跟 useTheme() 联动 + 跟其他动效/状态变量解耦。
+  selectedBadge: {
+    position: 'absolute',
+    width: 22,
+    height: 22,
+    borderRadius: 9999,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

@@ -1,5 +1,5 @@
 /**
- * G35 §3 / G39 — toExerciseRows 把 5 字段填满(单元测,不连 DB)
+ * G35 §3 / G39 / G40 — toExerciseRows 把 5 字段填满(单元测,不连 DB)
  *
  * 集成验证交给真机(Jest 里跑 expo-sqlite in-memory 配置成本太高,
  * 这里只测 toExerciseRows 输出);seedRunner 那侧手写 INSERT 列数已在
@@ -7,7 +7,8 @@
  *
  * G39: gif_url 改为带前缀的语义。
  *   bundled === true  → 'asset:{filename}'
- *   bundled === false → null(等 R2 配齐后由后续脚本回填 https:// URL)
+ *   bundled === false → null(已废:G40 后 52/52 全部 bundled,CDN 路线
+ *                          留作后续 1000+ 动作扩展用 — Path C 待开发)
  */
 
 import { EXERCISE_SEEDS, toExerciseRows } from '../exercises';
@@ -30,17 +31,17 @@ describe('G35 §3 / G39 toExerciseRows 字段填充', () => {
     }
   });
 
-  it('G39: 30 条 bundled → gif_url = "asset:{filename}"', () => {
+  it('G40: 52 条 bundled → gif_url = "asset:{filename}"(全部 52/52)', () => {
     const bundledRows = rows.filter((r) => r.gif_url?.startsWith('asset:'));
-    expect(bundledRows.length).toBe(30);
+    expect(bundledRows.length).toBe(52);
     for (const r of bundledRows) {
       expect(r.gif_url).toMatch(/^asset:[0-9]{4}-[A-Za-z0-9]+\.gif$/);
     }
   });
 
-  it('G39: 22 条 remote → gif_url = null', () => {
+  it('G40: 0 条 remote(52/52 全 bundled)', () => {
     const remoteRows = rows.filter((r) => r.gif_url === null);
-    expect(remoteRows.length).toBe(22);
+    expect(remoteRows.length).toBe(0);
   });
 
   it('52 条 seed 全有 description_zh + 非空 steps_zh(JSON 数组字符串)', () => {
