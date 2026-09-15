@@ -1,25 +1,33 @@
 /**
- * G35 §4 — exerciseGifAssets 单元测
+ * G35 §4 / G39 — exerciseGifAssets 单元测
  *
- * 验证:
- * 1. 52 条 mapping 里的 assetFileName 都在 G35_GIF_ASSETS 里
- * 2. resolveGifSource 解析 'assets/exercises/{file}' 路径
- * 3. resolveGifSource 解析 hasaneyldrm 风格 'videos/{file}' 路径(basename 一致就行)
+ * G35 §4 验证:
+ * 1. 30 条 bundled mapping 的 assetFileName 都在 G35_GIF_ASSETS 里
+ * 2. resolveGifSource 解析 'assets/exercises/{file}' 老路径(兼容)
+ * 3. resolveGifSource 解析 'asset:{file}' 新前缀(G39)
  * 4. null / undefined / 空字符串 → undefined
  * 5. 找不到的文件名 → undefined
+ * 6. classifyGifSource 把 'asset:' / 'https://' / 'http://' / 'assets/' / null 正确归类
  */
 
 import { EXERCISE_G35_MAPPING } from '@/db/seeds/exerciseG35Mapping';
 import {
   G35_GIF_ASSETS,
+  classifyGifSource,
   resolveGifSource,
 } from '@/screens/exerciseGifAssets';
 
-describe('G35 §4 exerciseGifAssets', () => {
-  it('52 条 mapping 的 assetFileName 都在 G35_GIF_ASSETS 里', () => {
+describe('G35 §4 / G39 exerciseGifAssets', () => {
+  const bundledMappings = EXERCISE_G35_MAPPING.filter((m) => m.bundled);
+
+  it('G39: bundled mapping = 30 张(其余 22 走 CDN)', () => {
     expect(EXERCISE_G35_MAPPING.length).toBe(52);
-    for (const m of EXERCISE_G35_MAPPING) {
-      expect(G35_GIF_ASSETS[m.assetFileName]).toBeDefined();
+    expect(bundledMappings.length).toBe(30);
+  });
+
+  it('30 条 bundled mapping 的 assetFileName 都在 G35_GIF_ASSETS 里', () => {
+    for (const m of bundledMappings) {
+      expect(G35_GIF_ASSETS[m.assetFileName!]).toBeDefined();
     }
   });
 
@@ -29,21 +37,20 @@ describe('G35 §4 exerciseGifAssets', () => {
     );
   });
 
-  it('G35_GIF_ASSETS 里至少有 52 项', () => {
-    // §2 测试已经验证 52 张 GIF 都落地,这里只粗校验表大小
-    expect(Object.keys(G35_GIF_ASSETS).length).toBeGreaterThanOrEqual(52);
+  it('G35_GIF_ASSETS 恰好 30 项', () => {
+    expect(Object.keys(G35_GIF_ASSETS).length).toBe(30);
   });
 
   describe('resolveGifSource', () => {
-    it('解析完整路径 "assets/exercises/{file}"', () => {
-      const first = EXERCISE_G35_MAPPING[0];
-      const result = resolveGifSource(`assets/exercises/${first.assetFileName}`);
+    it('解析新前缀 "asset:{file}"(G39)', () => {
+      const first = bundledMappings[0];
+      const result = resolveGifSource(`asset:${first.assetFileName}`);
       expect(result).toBeDefined();
     });
 
-    it('解析 hasaneyldrm 风格 "videos/{file}"(basename 一致即可)', () => {
-      const first = EXERCISE_G35_MAPPING[0];
-      const result = resolveGifSource(`videos/${first.assetFileName}`);
+    it('解析完整路径 "assets/exercises/{file}"(迁移前老路径兼容)', () => {
+      const first = bundledMappings[0];
+      const result = resolveGifSource(`assets/exercises/${first.assetFileName}`);
       expect(result).toBeDefined();
     });
 
@@ -59,13 +66,45 @@ describe('G35 §4 exerciseGifAssets', () => {
       expect(resolveGifSource('')).toBeUndefined();
     });
 
-    it('"foo/bar/baz.gif" 但 baz.gif 不存在 → undefined', () => {
+    it('"foo/bar/9999-NOTFOUND.gif" → undefined', () => {
       expect(resolveGifSource('foo/bar/9999-NOTFOUND.gif')).toBeUndefined();
     });
 
-    it('路径无 basename → undefined', () => {
-      // 'trailing/' → basename 是空
-      expect(resolveGifSource('trailing/')).toBeUndefined();
+    it('"asset:"(空 basename)→ undefined', () => {
+      expect(resolveGifSource('asset:')).toBeUndefined();
+    });
+
+    it('"https://cdn/foo.gif" → undefined(走 cache 异步路径,同步 resolver 不识别)', () => {
+      expect(resolveGifSource('https://cdn.example.com/exercises/0025-EIeI8Vf.gif')).toBeUndefined();
+    });
+  });
+
+  describe('classifyGifSource', () => {
+    it('null / undefined / "" → "none"', () => {
+      expect(classifyGifSource(null)).toBe('none');
+      expect(classifyGifSource(undefined)).toBe('none');
+      expect(classifyGifSource('')).toBe('none');
+    });
+
+    it('"asset:{file}" → "asset"', () => {
+      expect(classifyGifSource('asset:0025-EIeI8Vf.gif')).toBe('asset');
+    });
+
+    it('"assets/exercises/{file}" 老路径 → "asset"(迁移前兼容)', () => {
+      expect(classifyGifSource('assets/exercises/0025-EIeI8Vf.gif')).toBe('asset');
+    });
+
+    it('"https://..." → "remote"', () => {
+      expect(classifyGifSource('https://pub-abc.r2.dev/workout2-gifs/exercises/0025-EIeI8Vf.gif')).toBe('remote');
+    });
+
+    it('"http://..." → "remote"', () => {
+      expect(classifyGifSource('http://example.com/0025.gif')).toBe('remote');
+    });
+
+    it('未知前缀 → "none"', () => {
+      expect(classifyGifSource('relative/path.gif')).toBe('none');
+      expect(classifyGifSource('videos/0025-EIeI8Vf.gif')).toBe('none'); // 老 hasaneyldrm 源路径,不会写入 DB
     });
   });
 });

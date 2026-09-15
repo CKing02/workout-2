@@ -11,6 +11,7 @@
 
 import type { SQLiteDatabase } from 'expo-sqlite';
 
+import { EXERCISE_G35_MAPPING } from './seeds/exerciseG35Mapping';
 import { applyCreateTables, configurePragmas } from './schema';
 
 interface Migration {
@@ -121,6 +122,45 @@ export const MIGRATIONS: readonly Migration[] = [
       await db.runAsync(
         `UPDATE exercises SET metric_type = 'weight_reps' WHERE metric_type = 'reps' AND is_custom = 0;`,
       );
+    },
+  },
+  {
+    version: 9,
+    description:
+      'G39: gif_url 改为带前缀的语义(asset: 本地 bundle;https:// 走 CDN;null 等 R2 配齐后回填)。' +
+      '存量 assets/exercises/{file}.gif → asset:{file}(30 条 bundled);其他老路径 → null。',
+    sql: '-- placeholder; UPDATE via run, basename 白名单来自 EXERCISE_G35_MAPPING',
+    run: async (db) => {
+      // 30 张 bundled 的 basename 白名单(mapping.bundled === true)。
+      const bundled = new Set(
+        EXERCISE_G35_MAPPING.filter((m) => m.bundled && m.assetFileName).map(
+          (m) => m.assetFileName as string,
+        ),
+      );
+      if (bundled.size === 0) return;
+
+      // 拉所有老路径,逐行决定转 asset: 前缀还是置 NULL。
+      const rows = await db.getAllAsync<{ gif_url: string }>(
+        `SELECT gif_url FROM exercises WHERE gif_url LIKE 'assets/exercises/%';`,
+      );
+      await db.withTransactionAsync(async () => {
+        for (const r of rows) {
+          const basename = r.gif_url.slice('assets/exercises/'.length);
+          if (bundled.has(basename)) {
+            await db.runAsync(
+              `UPDATE exercises SET gif_url = ? WHERE gif_url = ?;`,
+              [`asset:${basename}`, r.gif_url],
+            );
+          } else {
+            // 老装里这 22 张 + 1 orphan 走 CDN;此处置 NULL,等 R2 配齐后
+            // 由 scripts/seed-cdn-gif-urls.ts 或 G39 后续 commit 回填。
+            await db.runAsync(
+              `UPDATE exercises SET gif_url = NULL WHERE gif_url = ?;`,
+              [r.gif_url],
+            );
+          }
+        }
+      });
     },
   },
 ];

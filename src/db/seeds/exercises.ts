@@ -452,7 +452,13 @@ export function toExerciseRows(now: number): Omit<ExerciseRow, 'id'>[] {
       created_at: now,
       description_zh: zh?.description ?? null,
       steps_zh: zh ? JSON.stringify(zh.steps) : null,
-      gif_url: `assets/exercises/${mapping.assetFileName}`,
+      // G39: gif_url 改为带前缀的语义。
+      //   bundled === true  → 'asset:{filename}',走本地 require() 秒开
+      //   bundled === false → null(等 R2 配齐后由后续脚本回填 https:// URL)
+      gif_url:
+        mapping.bundled && mapping.assetFileName
+          ? `asset:${mapping.assetFileName}`
+          : null,
       target_zh: translateTarget(mapping.targetEn),
       attribution: '© Gym visual — https://gymvisual.com/',
     };

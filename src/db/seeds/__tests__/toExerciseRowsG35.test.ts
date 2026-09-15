@@ -1,16 +1,20 @@
 /**
- * G35 §3 — toExerciseRows 把 5 字段填满(单元测,不连 DB)
+ * G35 §3 / G39 — toExerciseRows 把 5 字段填满(单元测,不连 DB)
  *
  * 集成验证交给真机(Jest 里跑 expo-sqlite in-memory 配置成本太高,
  * 这里只测 toExerciseRows 输出);seedRunner 那侧手写 INSERT 列数已在
  * review 时校对。
+ *
+ * G39: gif_url 改为带前缀的语义。
+ *   bundled === true  → 'asset:{filename}'
+ *   bundled === false → null(等 R2 配齐后由后续脚本回填 https:// URL)
  */
 
 import { EXERCISE_SEEDS, toExerciseRows } from '../exercises';
 import { EXERCISE_G35_BY_NAME, EXERCISE_G35_MAPPING } from '../exerciseG35Mapping';
 import { EXERCISE_ZH_BY_HASANEYLDRM_ID } from '../exerciseZhData';
 
-describe('G35 §3 toExerciseRows 5 字段填充', () => {
+describe('G35 §3 / G39 toExerciseRows 字段填充', () => {
   const rows = toExerciseRows(1700000000000);
 
   it('52 条 seed 全部有 14 列(含 5 个 G35 新字段)', () => {
@@ -26,10 +30,17 @@ describe('G35 §3 toExerciseRows 5 字段填充', () => {
     }
   });
 
-  it('52 条 seed 全有 gif_url(指向 assets/exercises/{file})', () => {
-    for (const r of rows) {
-      expect(r.gif_url).toMatch(/^assets\/exercises\/[0-9]{4}-[A-Za-z0-9]+\.gif$/);
+  it('G39: 30 条 bundled → gif_url = "asset:{filename}"', () => {
+    const bundledRows = rows.filter((r) => r.gif_url?.startsWith('asset:'));
+    expect(bundledRows.length).toBe(30);
+    for (const r of bundledRows) {
+      expect(r.gif_url).toMatch(/^asset:[0-9]{4}-[A-Za-z0-9]+\.gif$/);
     }
+  });
+
+  it('G39: 22 条 remote → gif_url = null', () => {
+    const remoteRows = rows.filter((r) => r.gif_url === null);
+    expect(remoteRows.length).toBe(22);
   });
 
   it('52 条 seed 全有 description_zh + 非空 steps_zh(JSON 数组字符串)', () => {
@@ -60,11 +71,15 @@ describe('G35 §3 toExerciseRows 5 字段填充', () => {
     }
   });
 
-  it('gif_url 字段和 mapping 的 assetFileName 严格一致', () => {
+  it('G39: bundled 的 gif_url = "asset:" + mapping.assetFileName', () => {
     for (const r of rows) {
       const mapping = EXERCISE_G35_BY_NAME.get(r.name);
       expect(mapping).toBeTruthy();
-      expect(r.gif_url).toBe(`assets/exercises/${mapping!.assetFileName}`);
+      if (mapping!.bundled) {
+        expect(r.gif_url).toBe(`asset:${mapping!.assetFileName}`);
+      } else {
+        expect(r.gif_url).toBeNull();
+      }
     }
   });
 
