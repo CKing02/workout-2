@@ -737,8 +737,11 @@ function ExerciseEditorCard({
   onPressName,
 }: ExerciseEditorCardProps) {
   const { colors, spacing, typography, radius } = useTheme();
+
   // ⋯ SetRow 按动作的 metricType 渲染字段。fallback 走第一个(reps)以防老数据
   // 残留未知值。
+  // 注:PlanExerciseDraft.exercise 的"快照陈旧"由 src/store/syncExerciseToStores
+  // 在架构层处理,本组件读 draft.exercise 即可拿到 live 值。
   const metricType =
     findMetricType(draft.exercise.metricType) ?? METRIC_TYPES[0];
 
