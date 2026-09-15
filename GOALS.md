@@ -1404,6 +1404,60 @@ G33-G38 解决训练内数据闭环，但「训练 → 体型变化」这条 use
 
 ---
 
+## G38.3. 动作编辑/Plan editor SetRow 按 metricType 动态渲染 ✅
+
+**优先级**：P2（UX 收口）  |  **依赖**：G15（自定义动作）+ G24a（plan_sets 持久化）  |  **阶段**：3  |  **状态**：✅ 2026-09-15 真机验收通过（含 1 个 hotfix 的架构层根治）
+
+### 涉及
+
+- `src/components/ExerciseFormSheet.tsx`（新，321 行）— create/edit 双模表单组件，字段 name / muscleGroup / secondaryMuscles / equipment / metricType；名称必填 canSave 校验，主/次肌群互斥
+- `src/components/MenuRow.tsx`（新，66 行）— Sheet 内单行菜单通用件，支持 danger 色
+- `ExerciseLibraryScreen`：`CreateExerciseForm` 255 行删除，改用 `ExerciseFormSheet mode="create"`
+- `ExerciseDetailScreen`：仅自定义动作挂 headerRight '⋯'；Sheet '更多操作' 内 MenuRow 编辑 + MenuRow(danger) 删除；编辑走 `ExerciseFormSheet mode="edit"`，删除走 Dialog 二次确认 → `exerciseStore.remove` → goBack
+- `PlanEditorScreen`：
+  - `SetRow` 按 `draft.exercise.metricType.fields` 动态渲染字段；`SetRowField` 单字段分发（weight / reps / duration_seconds / distance_km）
+  - `MenuRow` 替换原内嵌 ⋯ 菜单 UI
+  - `metricType` 语义拆分：'reps' → 'reps'（自重）+ 'weight_reps'（负重）；migration v8 加 `plan_sets.duration_seconds/distance_km`；58 条 seed 负重动作从 'reps' → 'weight_reps'
+
+### G38.3 hotfix（2026-09-15）— 架构层修快照陈旧
+
+**根因**：`PlanExerciseDraft.exercise: Exercise`（`planStore.ts:79`）与 `ActiveExercise.exercise: Exercise`（`trainingStore.ts:50`）是 `loadDetail` / `startTraining` 时的快照，`useExerciseStore.update` 不传播。用户从动作库或计划内点动作名→详情→⋯ 编辑改 metricType，第 2/3 次起 SetRow 字段不刷新。
+
+**旧 hotfix（commit 359c6c7 同行）**：`ExerciseEditorCard` 局部订阅 `useExerciseStore` 拿 live exercise + `?? draft.exercise` fallback。**只修一处**，ActiveTrainingScreen 仍有同类隐患。
+
+**架构层根治（commit 34c0824）**：
+- 新建 `src/store/syncExerciseToStores.ts`：单一订阅源，useExerciseStore 变化时 walk planStore.detailById[].exercises[] 和 trainingStore.activeTraining.exercises[]，按 `exerciseId` 查 live，引用不等才替换（没变的行引用不刷新，React 重渲染精确）
+- `index.ts` 调 `initExerciseSync()`（幂等，多次调用只装一份订阅）
+- 回退 `ExerciseEditorCard` 局部订阅，继续读 `draft.exercise`（架构层已保证它是 live）
+- 单测 9 用例：同步 / no-op / 多 plan / 删除保旧 snapshot / trainingStore active null / 幂等 / teardown / 启动立即同步
+
+### 验收标准（AC）
+
+- AC-38.3.1 动作库 `+` → 弹 Sheet → 名称必填校验 ✅
+- AC-38.3.2 动作库任一行 → 详情 → **内置动作不显示 ⋯**（系统返回） ✅
+- AC-38.3.3 自定义动作详情 → 右上 ⋯ → Sheet「更多操作」2 行 ✅
+- AC-38.3.4 编辑 → ExerciseFormSheet prefill → 改 name → toast「已保存 XXX」+ 详情页立即反映 ✅
+- AC-38.3.5 删除 → Dialog 二次确认 → toast + goBack → 列表少一条 ✅
+- AC-38.3.6 Plan editor 不同 metricType → SetRow 字段数量/类型动态切 ✅
+- AC-38.3.7 metricType 拆分后老 'reps' 数据迁移 → migration v8 升列 + UPDATE is_custom=0 行到 'weight_reps' ✅
+- AC-38.3.8 hotfix: 第 N 次编辑自定义动作，Plan editor SetRow 字段每次都跟新 ✅（架构层根治）
+- AC-38.3.9 `tsc --noEmit` 通过，23 suites / 229 tests 全过（含 1 新 suite / 9 tests）✅
+
+### 提交记录
+
+G38.3 主体 3 commit：
+- `bb0ce42` feat(G38.3): 拆分 reps/weight_reps + plan_sets 加 duration_seconds/distance_km
+- `08ab73b` feat(G38.3): Plan editor SetRow 按 metricType 动态渲染 + 提取 MenuRow
+- `359c6c7` feat(G38.3): ExerciseFormSheet 抽取 + 详情页 ⋯ 菜单接入编辑/删除
+
+hotfix + 架构根治 1 commit：
+- `34c0824` fix(G38.3): 架构层修 PlanExerciseDraft/ActiveExercise 快照陈旧
+
+并行收口（worklets 0.12 bundle mode，与本目标主题不同但同日 commit）：
+- `085bf39` chore(G38.1): 收口 worklets 0.12 bundle mode 配置
+
+---
+
 ## Phase 2 路线（P2+，待评估优先级）
 
 > 下列项目 PRD 列入但未排期，是否纳入 Phase 2 视用户偏好决定。
