@@ -140,27 +140,28 @@ export const MIGRATIONS: readonly Migration[] = [
       if (bundled.size === 0) return;
 
       // 拉所有老路径,逐行决定转 asset: 前缀还是置 NULL。
+      // 注:runMigrations 已经包了一层 withTransactionAsync,这里不能再开
+      // 嵌套事务 —— SQLite 不支持,会抛 "cannot rollback - no transaction is active"。
+      // 直接 runAsync,外层事务统一兜底提交/回滚。
       const rows = await db.getAllAsync<{ gif_url: string }>(
         `SELECT gif_url FROM exercises WHERE gif_url LIKE 'assets/exercises/%';`,
       );
-      await db.withTransactionAsync(async () => {
-        for (const r of rows) {
-          const basename = r.gif_url.slice('assets/exercises/'.length);
-          if (bundled.has(basename)) {
-            await db.runAsync(
-              `UPDATE exercises SET gif_url = ? WHERE gif_url = ?;`,
-              [`asset:${basename}`, r.gif_url],
-            );
-          } else {
-            // 老装里这 22 张 + 1 orphan 走 CDN;此处置 NULL,等 R2 配齐后
-            // 由 scripts/seed-cdn-gif-urls.ts 或 G39 后续 commit 回填。
-            await db.runAsync(
-              `UPDATE exercises SET gif_url = NULL WHERE gif_url = ?;`,
-              [r.gif_url],
-            );
-          }
+      for (const r of rows) {
+        const basename = r.gif_url.slice('assets/exercises/'.length);
+        if (bundled.has(basename)) {
+          await db.runAsync(
+            `UPDATE exercises SET gif_url = ? WHERE gif_url = ?;`,
+            [`asset:${basename}`, r.gif_url],
+          );
+        } else {
+          // 老装里这 22 张 + 1 orphan 走 CDN;此处置 NULL,等 R2 配齐后
+          // 由 scripts/seed-cdn-gif-urls.ts 或 G39 后续 commit 回填。
+          await db.runAsync(
+            `UPDATE exercises SET gif_url = NULL WHERE gif_url = ?;`,
+            [r.gif_url],
+          );
         }
-      });
+      }
     },
   },
 ];
