@@ -144,6 +144,49 @@ describe('G38 restTimerNotification (Android)', () => {
     });
   });
 
+  it('设计优化 #1:showOrUpdate 传 exerciseName → title 追加"· <动作名>",data 也带上', async () => {
+    let mod!: typeof import('../restTimerNotification');
+    jest.isolateModules(() => {
+      mod = require('../restTimerNotification');
+    });
+
+    await mod.showOrUpdateRestTimerNotification(45, 90, '杠铃卧推');
+
+    const call = mockSchedule.mock.calls[0][0];
+    // title 在原 G38.1 基础上追加"　· 杠铃卧推"(全角空格+中点+空格)
+    expect(call.content.title).toBe('休息中　剩 45 秒　· 杠铃卧推');
+    // body 进度条不变
+    expect(call.content.body).toBe('██████████░░░░░░░░░░ 45/90');
+    // data 里也带上,后续接 Live Activity / tap 跳转能用到
+    expect(call.content.data.exerciseName).toBe('杠铃卧推');
+  });
+
+  it('设计优化 #1:exerciseName 前后空白自动 trim', async () => {
+    let mod!: typeof import('../restTimerNotification');
+    jest.isolateModules(() => {
+      mod = require('../restTimerNotification');
+    });
+
+    await mod.showOrUpdateRestTimerNotification(45, 90, '  哑铃划船  ');
+
+    const call = mockSchedule.mock.calls[0][0];
+    expect(call.content.title).toBe('休息中　剩 45 秒　· 哑铃划船');
+    expect(call.content.data.exerciseName).toBe('哑铃划船');
+  });
+
+  it('设计优化 #1:空串 / 全空白 exerciseName → 当匿名处理,不追加', async () => {
+    let mod!: typeof import('../restTimerNotification');
+    jest.isolateModules(() => {
+      mod = require('../restTimerNotification');
+    });
+
+    await mod.showOrUpdateRestTimerNotification(45, 90, '');
+
+    const call = mockSchedule.mock.calls[0][0];
+    expect(call.content.title).toBe('休息中　剩 45 秒');
+    expect(call.content.data.exerciseName).toBeNull();
+  });
+
   it('showOrUpdate:剩余秒数 < 0 自动 clamp 到 0', async () => {
     let mod!: typeof import('../restTimerNotification');
     jest.isolateModules(() => {

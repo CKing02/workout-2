@@ -32,11 +32,13 @@ import {
 } from './restTimerNotification';
 
 export function RestTimerNotificationBridge(): null {
-  // 只订阅需要的 4 个字段,避免 store 任何变动都重渲(虽然返回 null 无所谓)
+  // 只订阅需要的 5 个字段,避免 store 任何变动都重渲(虽然返回 null 无所谓)
   const startedAt = useRestTimerStore((s) => s.startedAt);
   const durationMs = useRestTimerStore((s) => s.durationMs);
   const completedAt = useRestTimerStore((s) => s.completedAt);
   const runId = useRestTimerStore((s) => s.runId);
+  // 设计优化 #1: 通知栏 title 要展示"刚做完的动作名"
+  const exerciseName = useRestTimerStore((s) => s.exerciseName);
 
   /* ---------------------- 1. mount:channel + 前台 handler -------------------- */
   useEffect(() => {
@@ -69,7 +71,8 @@ export function RestTimerNotificationBridge(): null {
     const tick = () => {
       const ms = durationMs - (Date.now() - startedAt);
       const remaining = Math.max(0, Math.ceil(ms / 1000));
-      showOrUpdateRestTimerNotification(remaining, totalSec);
+      // 设计优化 #1: 动作名也带进通知栏,用户在系统抽屉能看清"刚做完什么动作"
+      showOrUpdateRestTimerNotification(remaining, totalSec, exerciseName);
       if (remaining <= 0) {
         // 自然到 0:切到 completedAt 分支后下一次 render 会 dismiss;
         // 这里主动 dismiss 兜底,避免最后一秒通知在抽屉多停 1s
@@ -81,7 +84,7 @@ export function RestTimerNotificationBridge(): null {
     tick();
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
-  }, [startedAt, durationMs, completedAt, runId]);
+  }, [startedAt, durationMs, completedAt, runId, exerciseName]);
 
   /* --------------- 3. AppState 监听:active 时立刻校准秒数 ----------------- */
   useEffect(() => {
@@ -91,12 +94,13 @@ export function RestTimerNotificationBridge(): null {
       const sStartedAt = useRestTimerStore.getState().startedAt;
       const sDurationMs = useRestTimerStore.getState().durationMs;
       const sCompletedAt = useRestTimerStore.getState().completedAt;
+      const sExerciseName = useRestTimerStore.getState().exerciseName;
       if (sStartedAt === null || sDurationMs === null || sCompletedAt !== null) return;
 
       const ms = sDurationMs - (Date.now() - sStartedAt);
       const remaining = Math.max(0, Math.ceil(ms / 1000));
       const totalSec = Math.ceil(sDurationMs / 1000);
-      showOrUpdateRestTimerNotification(remaining, totalSec);
+      showOrUpdateRestTimerNotification(remaining, totalSec, sExerciseName);
     };
 
     const sub = AppState.addEventListener('change', onChange);

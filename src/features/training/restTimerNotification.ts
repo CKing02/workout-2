@@ -1,11 +1,13 @@
 /**
- * G38 §2 + G38.1 — RestTimer 通知栏同步模块
+ * G38 §2 + G38.1 + 设计优化 #1 — RestTimer 通知栏同步模块
  *
  * 责任:
  *   1. ensureChannelAndPermissions:建 Android notification channel + 请求 POST_NOTIFICATIONS 权限(Android 13+)
  *   2. showOrUpdateRestTimerNotification:用同一 identifier 覆盖式更新通知,
  *      G38.1 改为"两行布局"——title 显"休息中   剩 N 秒",body 是 unicode
  *      块字符进度条(20 段)+ 数字比例;每秒 tick 时 body 同步重画
+ *      设计优化 #1: 传入 exerciseName 时,title 第二行追加"· 杠铃卧推"让用户
+ *      在系统抽屉就知道"刚做完哪个动作"
  *   3. dismissRestTimerNotification:隐藏通知
  *
  * 设计选择:
@@ -109,10 +111,12 @@ function formatBlockBar(remaining: number, total: number): string {
  *
  * @param remainingSec 当前剩余秒数(向上取整)— 显示在通知 title 和 body
  * @param totalSec 本轮总秒数 — 用于 body 块字符进度条 + 数字比例
+ * @param exerciseName 触发本轮休息的动作名(可选);有则 title 追加"· <动作名>"
  */
 export async function showOrUpdateRestTimerNotification(
   remainingSec: number,
   totalSec: number,
+  exerciseName?: string | null,
 ): Promise<void> {
   if (Platform.OS !== 'android') return; // iOS 暂未实现,本期末做
 
@@ -120,12 +124,20 @@ export async function showOrUpdateRestTimerNotification(
   const safeRemaining = Math.max(0, remainingSec);
   const safeTotal = Math.max(1, totalSec);
 
+  // 设计优化 #1: title 拼接"休息中　剩 N 秒"+"· <动作名>"
+  // 没传或空串 → 不拼接(老行为,兼容匿名触发场景)
+  const trimmedName =
+    typeof exerciseName === 'string' ? exerciseName.trim() : '';
+  const title = trimmedName
+    ? `休息中　剩 ${safeRemaining} 秒　· ${trimmedName}`
+    : `休息中　剩 ${safeRemaining} 秒`;
+
   try {
     await Notifications.scheduleNotificationAsync({
       identifier: REST_TIMER_NOTIFICATION_IDENTIFIER,
       content: {
-        // G38.1: 第一行 — "休息中" + 全角空格分隔 + "剩 N 秒"
-        title: `休息中　剩 ${safeRemaining} 秒`,
+        // G38.1 + 设计优化 #1: 第一行 — 基础文案 + 可选动作名
+        title,
         // 第二行 — 块字符进度条 + 数字比例
         body: formatBlockBar(safeRemaining, safeTotal),
         // sticky: Android only,iOS 自动忽略(SDK 57 行为)
@@ -135,6 +147,7 @@ export async function showOrUpdateRestTimerNotification(
           kind: 'restTimer',
           remainingSec: safeRemaining,
           totalSec: safeTotal,
+          exerciseName: trimmedName || null,
         },
         // autoDismiss 缺省 true → 显式 false 让通知不会因为显示完一条就自动划掉
         autoDismiss: false,

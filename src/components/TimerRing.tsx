@@ -2,14 +2,26 @@
  * TimerRing — animated countdown ring with timestamp-driven accuracy.
  *
  * The visible progress arc is a stroked `Circle` from `react-native-svg`. We
- * animate the stroke offset via a Reanimated `useSharedValue` driven by
- * `withTiming`, **not** `setInterval`. Accuracy is preserved across long
- * pauses / backgrounded states because we compare against wall-clock time:
+ * animate the stroke offset via a Reanimated `useSharedValue`, **not**
+ * `setInterval`. Accuracy is preserved across long pauses / backgrounded
+ * states because we compare against wall-clock time:
  *
  *     remaining  = duration - (now - startedAt)
  *
  * A single `requestAnimationFrame` loop recomputes the remaining fraction
- * every frame so the animation looks fluid without drift.
+ * every frame and writes it directly to the shared value. Direct assignment
+ * (instead of `withTiming`) gives the smoothest possible motion — at 60fps,
+ * Date.now() advances ~16.7ms per frame, so the ring progresses by exactly
+ * `1 / duration` of the circumference per frame regardless of remaining time.
+ *
+ * Why **not** `withTiming(fraction, { duration: 120 })`? That pattern cancels
+ * and restarts a 120ms timing animation on every frame, so the visible value
+ * always trails the true fraction by ~14% of the curve (~17ms lag) and the
+ * linear easing produces a mechanical, slightly-robotic feel. Direct
+ * assignment eliminates both problems.
+ *
+ * The **only** timing we keep is a brief 120ms ease-out on the final snap to
+ * zero, so the ring "settles" instead of abruptly hitting the bottom.
  *
  * Props:
  *  - `duration`  : total seconds (positive integer, > 0)
@@ -94,14 +106,17 @@ export function TimerRing({
     if (start === null) return;
     const remainingMs = duration * 1000 - (Date.now() - start);
     const fraction = Math.max(0, remainingMs / (duration * 1000));
-    progress.value = withTiming(fraction, {
-      duration: 120,
-      easing: Easing.linear,
-    });
+    // 直接写 shared value:RAF 60fps 已经足够顺滑,任何 withTiming 都会
+    // 引入 ~17ms 滞后 + 取消重启造成的"橡皮筋"感。直接赋值 = 每帧准确推进
+    // circumference / duration 个像素,完全 frame-perfect。
+    progress.value = fraction;
     if (remainingMs <= 0 && !firedRef.current) {
       firedRef.current = true;
-      // Settle exactly at 0 before firing.
-      progress.value = withTiming(0, { duration: 80 }, () => {
+      // 收尾:120ms ease-out 让 ring"落入"零点而不是撞停(细节,让完成感柔和)
+      progress.value = withTiming(0, {
+        duration: 120,
+        easing: Easing.out(Easing.quad),
+      }, () => {
         // Use runOnJS through setImmediate for safety.
         setImmediate(() => onCompleteRef.current?.());
       });

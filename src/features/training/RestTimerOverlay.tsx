@@ -23,14 +23,18 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Animated,
-  Easing,
   Pressable,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Animated, {
+  Easing,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 
 import { Button } from '@/components/Button';
 import { Sheet } from '@/components/Sheet';
@@ -69,8 +73,9 @@ export function RestTimerOverlay() {
   const [expanded, setExpanded] = useState(true);
 
   const autoCloseRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // 折叠时窄条进入动画
-  const collapseAnim = useRef(new Animated.Value(0)).current;
+  // 折叠时窄条进入动画(Reanimated shared value,跟 CollapsedBar 的 RAF 进度条
+  // 共用同一渲染管线,避免一帧里 legacy Animated + Reanimated 双跑)
+  const collapseAnim = useSharedValue(0);
 
   // 新一轮:自动展开 + 清 pending auto-close + 跑入动画
   useEffect(() => {
@@ -80,11 +85,7 @@ export function RestTimerOverlay() {
       autoCloseRef.current = null;
     }
     // 切到 expanded 时让窄条退场(如果还在)
-    Animated.timing(collapseAnim, {
-      toValue: 0,
-      duration: 140,
-      useNativeDriver: true,
-    }).start();
+    collapseAnim.value = withTiming(0, { duration: 140 });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runId]);
 
@@ -96,12 +97,10 @@ export function RestTimerOverlay() {
     markCompleted();
     haptic.success();
     setExpanded(false);
-    Animated.timing(collapseAnim, {
-      toValue: 1,
+    collapseAnim.value = withTiming(1, {
       duration: 220,
       easing: Easing.out(Easing.cubic),
-      useNativeDriver: true,
-    }).start();
+    });
 
     if (autoCloseRef.current) clearTimeout(autoCloseRef.current);
     autoCloseRef.current = setTimeout(() => {
@@ -145,23 +144,19 @@ export function RestTimerOverlay() {
   // 展开态被点背景 → 折叠
   const handleCollapse = useCallback(() => {
     setExpanded(false);
-    Animated.timing(collapseAnim, {
-      toValue: 1,
+    collapseAnim.value = withTiming(1, {
       duration: 220,
       easing: Easing.out(Easing.cubic),
-      useNativeDriver: true,
-    }).start();
+    });
   }, [collapseAnim]);
 
   // 折叠态被点窄条 → 重新展开
   const handleExpand = useCallback(() => {
     setExpanded(true);
-    Animated.timing(collapseAnim, {
-      toValue: 0,
+    collapseAnim.value = withTiming(0, {
       duration: 180,
       easing: Easing.out(Easing.cubic),
-      useNativeDriver: true,
-    }).start();
+    });
   }, [collapseAnim]);
 
   // TimerRing 用的初始 elapsed(基于 startedAt)
@@ -178,14 +173,9 @@ export function RestTimerOverlay() {
         )
       : 0;
 
-  // 窄条用进度比 0..1(剩余比例)
-  const progressFrac =
-    startedAt !== null && durationMs !== null && durationMs > 0
-      ? Math.max(
-          0,
-          Math.min(1, (durationMs - (Date.now() - startedAt)) / durationMs),
-        )
-      : 0;
+  // 设计优化 #2: 窄条进度条改用 Reanimated + RAF,不再需要父组件预计算 progressFrac。
+  // 父组件只负责传 startedAt/durationMs,CollapsedBar 自己跑 RAF 推 shared value。
+  // (代码注释保留 — 后续若需要外部读此值,知道去 CollapsedBar 内部拿)
 
   // G38.1:倒计时归 0 时不再切到"准备下一组"文案 ——
   // 1s 后 overlay 整体消失,中间没有用户需要做的决策,显示"秒"更克制
@@ -263,7 +253,8 @@ export function RestTimerOverlay() {
         <CollapsedBar
           remainingSec={remainingSec}
           totalSec={totalSec}
-          progressFrac={progressFrac}
+          startedAt={startedAt!}
+          durationMs={durationMs!}
           isCompleted={completedAt !== null}
           bottomInset={insets.bottom}
           onTap={handleExpand}
@@ -283,20 +274,22 @@ export function RestTimerOverlay() {
 interface CollapsedBarProps {
   remainingSec: number;
   totalSec: number;
-  /** 剩余比例 0..1(0=结束,1=刚开始) */
-  progressFrac: number;
+  /** 用于秒级重渲的整秒剩余秒数(Reanimated 进度条独立 RAF,跟秒数节流解耦) */
+  startedAt: number;
+  durationMs: number;
   isCompleted: boolean;
   bottomInset: number;
   onTap: () => void;
   onSkip: () => void;
   onExtend: () => void;
-  animValue: Animated.Value;
+  animValue: Animated.SharedValue<number>;
 }
 
 function CollapsedBar({
   remainingSec,
   totalSec,
-  progressFrac,
+  startedAt,
+  durationMs,
   isCompleted,
   bottomInset,
   onTap,
@@ -306,18 +299,52 @@ function CollapsedBar({
 }: CollapsedBarProps) {
   const { colors, spacing, typography, radius } = useTheme();
 
-  // 入场 translateY:32→0 + opacity:0→1
-  const animatedStyle = {
-    opacity: animValue,
+  // 设计优化 #2: 进度条用 Reanimated 共享值 + RAF 直接写,而不是父组件
+  // 每秒传 progressFrac 再硬切宽度。原方案每秒跳一次 + View 宽度重渲,
+  // 视觉上"一格一格掉",而且在 background→foreground 时无补间会突跳。
+  // 现在 RAF 60fps 驱动,frame-perfect,后台回前台自动校准(因为是
+  // Date.now()-startedAt 推导,跟 TimerRing 一致)。
+  const progress = useSharedValue(1);
+
+  useEffect(() => {
+    let raf = 0;
+    let mounted = true;
+    const loop = () => {
+      if (!mounted) return;
+      const ms = durationMs - (Date.now() - startedAt);
+      const fraction = Math.max(0, Math.min(1, ms / durationMs));
+      progress.value = fraction;
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => {
+      mounted = false;
+      cancelAnimationFrame(raf);
+    };
+  }, [startedAt, durationMs, progress]);
+
+  // 完成态用 200ms ease-out 收尾到 0,跟 TimerRing 的最终 snap 同步
+  useEffect(() => {
+    if (!isCompleted) return;
+    progress.value = withTiming(0, {
+      duration: 200,
+      easing: Easing.out(Easing.quad),
+    });
+  }, [isCompleted, progress]);
+
+  const fillStyle = useAnimatedStyle(() => ({
+    width: `${progress.value * 100}%`,
+  }));
+
+  // 入场 translateY:32→0 + opacity:0→1(动画值是 shared value)
+  const wrapperStyle = useAnimatedStyle(() => ({
+    opacity: animValue.value,
     transform: [
       {
-        translateY: animValue.interpolate({
-          inputRange: [0, 1],
-          outputRange: [32, 0],
-        }),
+        translateY: (1 - animValue.value) * 32,
       },
     ],
-  };
+  }));
 
   return (
     <View
@@ -335,7 +362,7 @@ function CollapsedBar({
             left: spacing.md,
             right: spacing.md,
           },
-          animatedStyle,
+          wrapperStyle,
         ]}
       >
         <View
@@ -395,7 +422,7 @@ function CollapsedBar({
                 {`剩 ${remainingSec} 秒`}
               </Text>
             </View>
-            {/* 细进度条 */}
+            {/* 细进度条 — 用 Reanimated 直接写 width(60fps frame-perfect) */}
             <View
               style={{
                 width: COLLAPSED_PROGRESS_TRACK_WIDTH,
@@ -405,14 +432,14 @@ function CollapsedBar({
                 overflow: 'hidden',
               }}
             >
-              <View
-                style={{
-                  width: `${Math.max(0, Math.min(1, progressFrac)) * 100}%`,
-                  height: '100%',
-                  backgroundColor: isCompleted
-                    ? colors.primary
-                    : colors.primary,
-                }}
+              <Animated.View
+                style={[
+                  {
+                    height: '100%',
+                    backgroundColor: colors.primary,
+                  },
+                  fillStyle,
+                ]}
               />
             </View>
             {/* 展开 chevron */}

@@ -1,5 +1,5 @@
 /**
- * G7 — 休息计时器 Store（模块级 Zustand mini-store）
+ * G7 + 通知栏动作名 — 休息计时器 Store（模块级 Zustand mini-store）
  *
  * 设计要点：
  * - **模块级单例**：跨屏幕共享，Overlay 的 unmount/remount 不会丢失计时状态
@@ -16,6 +16,10 @@
  *   早期版本错误地同时把 startedAt 往前推 deltaMs,导致两项相抵,+15 数学上
  *   是 no-op;G38.1 真机验证时被发现,改为不动 startedAt。`completedAt` 顺手
  *   清空，便于"完成后再 +15"重置流程。
+ * - **`exerciseName`**（设计优化 #1）：触发本轮休息的动作名。传给通知栏
+ *   让用户在系统抽屉也能看到"在做什么动作"。`start` 时写入，`skip` 时清空；
+ *   `extend` 不动（动作还是同一个）。`null` 表示空闲或匿名触发（不写入通知
+ *   title 的第二行）。
  *
  * 备注：`markCompleted` 只在 overlay 的 useEffect 里调用一次（受
  * `completedAt === null` 守护），保证 setState 是幂等的。
@@ -32,10 +36,12 @@ export interface RestTimerState {
   completedAt: number | null;
   /** 单调递增 id；订阅方用以区分不同轮（start 重置；extend 不变）。 */
   runId: number;
+  /** 触发本轮休息的动作名（设计优化 #1 — 通知栏展示）。`null` = 空闲 / 匿名触发。 */
+  exerciseName: string | null;
 
   // -- actions ----------------------------------------------------------------
   /** 启动新一轮；如果已有计时，会覆盖（PRD：快速连续完成多组）。 */
-  start: (seconds: number) => void;
+  start: (seconds: number, exerciseName?: string | null) => void;
   /** 立即结束当前轮（"跳过" 按钮 / 完成态 1s 后自动收起）。 */
   skip: () => void;
   /** 给当前轮增加 deltaSeconds（>0）；如果已完成或空闲，无操作。 */
@@ -48,19 +54,28 @@ export interface RestTimerState {
 const clampSeconds = (s: number) =>
   Math.max(1, Math.min(3600, Math.floor(s)));
 
+/** 标准化动作名（去前后空白、空字符串 → null）— 通知栏不要空白或全空格标题。 */
+const normalizeExerciseName = (name?: string | null): string | null => {
+  if (typeof name !== 'string') return null;
+  const trimmed = name.trim();
+  return trimmed.length > 0 ? trimmed : null;
+};
+
 export const useRestTimerStore = create<RestTimerState>((set, get) => ({
   startedAt: null,
   durationMs: null,
   completedAt: null,
   runId: 0,
+  exerciseName: null,
 
-  start: (seconds) => {
+  start: (seconds, exerciseName) => {
     const ms = clampSeconds(seconds) * 1000;
     set((s) => ({
       startedAt: Date.now(),
       durationMs: ms,
       completedAt: null,
       runId: s.runId + 1,
+      exerciseName: normalizeExerciseName(exerciseName),
     }));
   },
 
@@ -73,6 +88,7 @@ export const useRestTimerStore = create<RestTimerState>((set, get) => ({
       startedAt: null,
       durationMs: null,
       completedAt: null,
+      exerciseName: null,
     });
   },
 

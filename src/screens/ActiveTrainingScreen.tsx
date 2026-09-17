@@ -669,9 +669,11 @@ export function ActiveTrainingScreen() {
     // G7 + G24: 触发休息计时器（restTimerStore.start → RestTimerOverlay 自动渲染）。
     // 优先用当前动作的 per-exercise 覆盖（plan_exercises.rest_seconds），
     // 自由训练 / 无覆盖时回落到设置里的全局默认。
+    // 设计优化 #1: 同步把"刚做完的动作名"塞进 store,通知栏 title 展示出来,
+    // 让用户在系统抽屉就能识别"休息的是哪个动作"。
     const activeEx = activeTraining?.exercises[currentExerciseIndex];
     const restSeconds = activeEx?.restSeconds ?? defaultRestSeconds;
-    triggerRestTimer(restSeconds);
+    triggerRestTimer(restSeconds, activeEx?.exercise.name ?? null);
 
     // G29: 跨动作跳转 / 整体收尾。当前动作做完后：
     //   1. 找下一个还有未完成组的动作 → 跳过去（store 自动把 currentSetIndex 重置为 0）
