@@ -98,12 +98,6 @@ export function ProfileScreen({ navigation }: ProfileScreenProps) {
     );
   };
 
-  const handleGoDiagnostics = () => {
-    (navigation as unknown as { navigate: (s: 'Diagnostics') => void } | undefined)?.navigate(
-      'Diagnostics',
-    );
-  };
-
   const handleGoDataOverview = () => {
     (navigation as unknown as { navigate: (s: 'DataOverview') => void } | undefined)?.navigate(
       'DataOverview',
@@ -122,21 +116,6 @@ export function ProfileScreen({ navigation }: ProfileScreenProps) {
     (navigation as unknown as { navigate: (s: 'BodyMeasurement') => void } | undefined)?.navigate(
       'BodyMeasurement',
     );
-  };
-
-  // G35 §4: 跳到动作详情正式屏。
-  // 用 store 里第一个 seed(杠铃卧推)做 demo id —— ProfileScreen 入口是 dev 入口,
-  // 真实浏览走"动作库 → 点任意一行"。
-  const handleGoExerciseDetail = () => {
-    const exercises = useExerciseStore.getState().exercises;
-    const first = exercises[0];
-    if (!first) {
-      toast.show('动作列表还没加载完，先去动作库逛一圈', 'warning');
-      return;
-    }
-    (navigation as unknown as {
-      navigate: (s: 'ExerciseDetail', p: { exerciseId: string }) => void;
-    } | undefined)?.navigate('ExerciseDetail', { exerciseId: first.id });
   };
 
   // G19: 真实导出 —— 全表读 → 写文件 → 弹分享面板。
@@ -235,21 +214,12 @@ export function ProfileScreen({ navigation }: ProfileScreenProps) {
             accessibilityHint="打开动作库浏览页"
           />
           <ListItem
-            title="诊断"
-            subtitle="查看应用错误日志"
-            leftSlot={<Glyph text="🩺" colors={colors} spacing={spacing} />}
-            rightSlot={<Chevron colors={colors} typography={typography} />}
-            onPress={handleGoDiagnostics}
-            divider
-            accessibilityLabel="诊断"
-            accessibilityHint="查看应用错误日志,便于排查问题"
-          />
-          <ListItem
             title="数据"
             subtitle="热力图 / 训练量 / 肌群分布 / 1RM"
             leftSlot={<Glyph text="📊" colors={colors} spacing={spacing} />}
             rightSlot={<Chevron colors={colors} typography={typography} />}
             onPress={handleGoDataOverview}
+            divider
             accessibilityLabel="数据可视化"
             accessibilityHint="打开数据可视化总览页"
           />
@@ -262,20 +232,9 @@ export function ProfileScreen({ navigation }: ProfileScreenProps) {
               haptic.selection();
               void handleExport();
             }}
+            divider
             accessibilityLabel="数据导出"
             accessibilityHint="把所有训练数据导出为 JSON 文件，弹出系统分享面板"
-          />
-          {/* G35 §4 — 动作详情(跳第一个 seed 演示)。
-              真实浏览走"动作库 → 点任意一行"。 */}
-          <ListItem
-            title="动作详情"
-            subtitle="GIF 演示 + 中文分步 + Gym Visual 署名"
-            leftSlot={<Glyph text="🏋️" colors={colors} spacing={spacing} />}
-            rightSlot={<Chevron colors={colors} typography={typography} />}
-            onPress={handleGoExerciseDetail}
-            divider
-            accessibilityLabel="动作详情"
-            accessibilityHint="打开第一个 seed 动作的详情页"
           />
           {/* US-12 — 身体测量（体重 + 体脂）。 */}
           <ListItem

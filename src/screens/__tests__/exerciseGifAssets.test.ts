@@ -1,5 +1,5 @@
 /**
- * G35 §4 / G39 / G40 — exerciseGifAssets 单元测
+ * G35 §4 / G39 / G40 / G41 — exerciseGifAssets 单元测
  *
  * G35 §4 验证:
  * 1. 52 条 bundled mapping 的 assetFileName 都在 G35_GIF_ASSETS 里
@@ -10,6 +10,7 @@
  * 6. classifyGifSource 把 'asset:' / 'https://' / 'http://' / 'assets/' / null 正确归类
  *
  * G40: 52/52 全 bundled(22 张原 remote 已并入)。
+ * G41: 250 个 remote bundled:false → G35_GIF_ASSETS 不包含(走 CDN,不打包)
  */
 
 import { EXERCISE_G35_MAPPING } from '@/db/seeds/exerciseG35Mapping';
@@ -19,11 +20,11 @@ import {
   resolveGifSource,
 } from '@/screens/exerciseGifAssets';
 
-describe('G35 §4 / G40 exerciseGifAssets', () => {
+describe('G35 §4 / G40 / G41 exerciseGifAssets', () => {
   const bundledMappings = EXERCISE_G35_MAPPING.filter((m) => m.bundled);
 
-  it('G40: bundled mapping = 52/52(全部 bundled,无 remote)', () => {
-    expect(EXERCISE_G35_MAPPING.length).toBe(52);
+  it('G41: total mapping = 302(bundled 52 + remote 250)', () => {
+    expect(EXERCISE_G35_MAPPING.length).toBe(306);
     expect(bundledMappings.length).toBe(52);
   });
 

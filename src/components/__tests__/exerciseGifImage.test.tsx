@@ -323,6 +323,139 @@ describe('G39 ExerciseGifImage', () => {
 
     act(() => tree.unmount());
   });
+
+  // === G41 R2 CDN 路径(250 个 bundled:false 走 https) ===
+  describe('G41 R2 CDN 路径', () => {
+    const R2_BASE = 'https://pub-PLACEHOLDER.r2.dev/workout2-gifs/exercises';
+
+    it('R2 URL → 初始 Skeleton,异步成功后切到 Image(Skeleton → setSource 序列)', async () => {
+      const r2Url = `${R2_BASE}/0151-7xI5MXA.gif`;
+      const fileUri = 'file:///mock/cache/gifs/0151-7xI5MXA.gif';
+      mockGetCachedOrDownload.mockResolvedValueOnce(fileUri);
+
+      let tree!: TestRenderer.ReactTestRenderer;
+      act(() => {
+        tree = TestRenderer.create(<ExerciseGifImage gifUrl={r2Url} size={40} />);
+      });
+
+      // 第一帧:Skeleton(remote 还没解析)
+      expect(hostViewsByTestId(tree, 'skeleton')).toHaveLength(1);
+      expect(hostViewsByTestId(tree, 'expo-image')).toHaveLength(0);
+      expect(mockGetCachedOrDownload).toHaveBeenCalledWith(r2Url);
+
+      // 等 promise → setSource
+      await act(async () => {
+        await flushPromises();
+      });
+
+      // 第二帧:Image with file:// URI(从 cache 走)
+      const images = hostViewsByTestId(tree, 'expo-image');
+      expect(images).toHaveLength(1);
+      expect(images[0].props['data-source']).toBe(JSON.stringify({ uri: fileUri }));
+      expect(hostViewsByTestId(tree, 'skeleton')).toHaveLength(0);
+
+      act(() => tree.unmount());
+    });
+
+    it('R2 URL 缓存命中(getCachedOrDownload 立即返 file://)→ 跳过 Skeleton → Image', async () => {
+      // 模拟缓存命中:getCachedOrDownload 同步微任务内 resolve,第一帧可能还是 Skeleton
+      // 但 flushPromises 后立即是 Image
+      const r2Url = `${R2_BASE}/0251-9WTm7dq.gif`;
+      const fileUri = 'file:///cached/0251-9WTm7dq.gif';
+      mockGetCachedOrDownload.mockResolvedValueOnce(fileUri);
+
+      let tree!: TestRenderer.ReactTestRenderer;
+      act(() => {
+        tree = TestRenderer.create(<ExerciseGifImage gifUrl={r2Url} size={40} />);
+      });
+
+      await act(async () => {
+        await flushPromises();
+      });
+
+      const imgs = hostViewsByTestId(tree, 'expo-image');
+      expect(imgs).toHaveLength(1);
+      expect(imgs[0]?.props['data-source']).toBe(JSON.stringify({ uri: fileUri }));
+
+      act(() => tree.unmount());
+    });
+
+    it('R2 URL download 失败(null)→ Skeleton 持续,等待下次 retry', async () => {
+      const r2Url = `${R2_BASE}/1311-Ccm5kAE.gif`;
+      mockGetCachedOrDownload.mockResolvedValueOnce(null);
+
+      let tree!: TestRenderer.ReactTestRenderer;
+      act(() => {
+        tree = TestRenderer.create(<ExerciseGifImage gifUrl={r2Url} size={40} />);
+      });
+
+      await act(async () => {
+        await flushPromises();
+      });
+
+      // Skeleton 持续 — UI 兜底
+      expect(hostViewsByTestId(tree, 'skeleton')).toHaveLength(1);
+      expect(hostViewsByTestId(tree, 'expo-image')).toHaveLength(0);
+
+      act(() => tree.unmount());
+    });
+
+    it('asset: 前缀(bundled === true)→ 同步 Image,不调 getCachedOrDownload', () => {
+      let tree!: TestRenderer.ReactTestRenderer;
+      act(() => {
+        tree = TestRenderer.create(
+          <ExerciseGifImage gifUrl="asset:0025-EIeI8Vf.gif" size={40} />,
+        );
+      });
+
+      // 同步路径 — Skeleton 都不出现
+      expect(hostViewsByTestId(tree, 'expo-image')).toHaveLength(1);
+      expect(hostViewsByTestId(tree, 'skeleton')).toHaveLength(0);
+      expect(mockGetCachedOrDownload).not.toHaveBeenCalled();
+
+      act(() => tree.unmount());
+    });
+
+    it('R2 URL 切换 → cancelled 守卫清空 source,触发新一轮下载', async () => {
+      const r2Url1 = `${R2_BASE}/0151-7xI5MXA.gif`;
+      const r2Url2 = `${R2_BASE}/0662-I4hDWkc.gif`;
+      const fileUri1 = 'file:///cache/0151-7xI5MXA.gif';
+      const fileUri2 = 'file:///cache/0662-I4hDWkc.gif';
+
+      mockGetCachedOrDownload.mockResolvedValueOnce(fileUri1);
+
+      let tree!: TestRenderer.ReactTestRenderer;
+      act(() => {
+        tree = TestRenderer.create(<ExerciseGifImage gifUrl={r2Url1} size={40} />);
+      });
+
+      await act(async () => {
+        await flushPromises();
+      });
+      // 第一次下载成功
+      expect(hostViewsByTestId(tree, 'expo-image')).toHaveLength(1);
+      expect(mockGetCachedOrDownload).toHaveBeenCalledWith(r2Url1);
+
+      // 切到 r2Url2 — 触发新一轮 effect
+      mockGetCachedOrDownload.mockResolvedValueOnce(fileUri2);
+      act(() => {
+        tree.update(<ExerciseGifImage gifUrl={r2Url2} size={40} />);
+      });
+      // setSource(null) → Skeleton 短暂出现
+      expect(hostViewsByTestId(tree, 'skeleton')).toHaveLength(1);
+
+      await act(async () => {
+        await flushPromises();
+      });
+
+      expect(mockGetCachedOrDownload).toHaveBeenCalledWith(r2Url2);
+      const images = hostViewsByTestId(tree, 'expo-image');
+      expect(images).toHaveLength(1);
+      expect(images[0].props['data-source']).toBe(JSON.stringify({ uri: fileUri2 }));
+
+      act(() => tree.unmount());
+    });
+  });
 });
 
 // 故意保留 RNImage / Text / View imports 以避免 tsconfig 报 unused,这些是

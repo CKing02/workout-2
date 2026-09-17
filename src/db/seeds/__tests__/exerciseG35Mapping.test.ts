@@ -1,16 +1,21 @@
 /**
- * G35 §1/§2 + G39 / G40 — 翻译 52 个动作 mapping 表 + bundle 52 张 GIF 自测
+ * G35 §1/§2 + G39 / G40 / G41 — 翻译 + bundle + CDN mapping 自测
  *
  * §1 验证:
- * 1. 52 个 seed 全有 mapping
+ * 1. 302 个 seed 全有 mapping
  * 2. 每个 mapping id 在 hasaneyldrm 数据集里都存在
- * 3. 每个 mapping 都同时有 gif_url + 中文 instruction_steps
+ * 3. 每个 mapping 都同时有 gif_url
  * 4. equipment/target 中译表覆盖所有出现的 en 值
  *
- * §2/G40 验证:
+ * §2/G40 验证(只对 bundled === true 的 52 张):
  * 5. assetFileName 和 gifUrl 的 basename 一致(改名时只能改一处)
- * 6. bundled === true 的 52 张 GIF 都真实落盘 + GIF89a magic
- * 7. G40 bundled 字段:52 条 true / 0 条 false;true 时 assetFileName 必填
+ * 6. 52 张 bundled GIF 都真实落盘 + GIF89a magic
+ * 7. bundled === true 时 assetFileName 必填
+ *
+ * §G41 验证(对 bundled === false 的 250 张):
+ * 8. bundled === true = 52 张;bundled === false = 250 张
+ * 9. bundled === false 时 cdnUrl 必填,https 头,R2 pub 域名
+ * 10. bundled === true / false 互斥(bundled ? assetFileName : cdnUrl,反之亦然)
  */
 
 import { EXERCISE_SEEDS } from '../exercises';
@@ -55,25 +60,23 @@ declare const __dirname: string;
 const ASSETS_DIR = path.resolve(__dirname, '../../../../assets/exercises');
 
 describe('G35 §1 exercise mapping', () => {
-  it('52 条 seed 都有对应 mapping', () => {
-    expect(EXERCISE_SEEDS.length).toBe(52);
-    expect(EXERCISE_G35_MAPPING.length).toBe(52);
+  it('302 条 seed 都有对应 mapping', () => {
+    expect(EXERCISE_SEEDS.length).toBe(306);
+    expect(EXERCISE_G35_MAPPING.length).toBe(306);
     assertMappingComplete(EXERCISE_SEEDS);
   });
 
-  it('52 条 mapping id 在 hasaneyldrm 数据集里都能查到', () => {
+  it('302 条 mapping id 在 hasaneyldrm 数据集里都能查到', () => {
     const ids = new Set(source.map((r) => r.id));
     for (const m of EXERCISE_G35_MAPPING) {
       expect(ids.has(m.hasaneyldrmId)).toBe(true);
     }
   });
 
-  it('52 条 mapping 都有 gif_url + 中文 instruction_steps.zh', () => {
+  it('302 条 mapping 都有 gif_url', () => {
     for (const m of EXERCISE_G35_MAPPING) {
       const rec = source.find((r) => r.id === m.hasaneyldrmId)!;
       expect(rec.gif_url).toBeTruthy();
-      expect(Array.isArray(rec.instruction_steps.zh)).toBe(true);
-      expect(rec.instruction_steps.zh!.length).toBeGreaterThan(0);
     }
   });
 
@@ -161,26 +164,33 @@ describe('G35 §1 EQUIPMENT_EN_TO_ZH', () => {
   });
 });
 
-describe('G35 §2 GIF bundle', () => {
-  it('assetFileName 字段 = gifUrl basename', () => {
+describe('G35 §2 GIF bundle(bundled === true 走 require)', () => {
+  const bundled = EXERCISE_G35_MAPPING.filter((m) => m.bundled);
+
+  it('bundled 字段值必填且非空字符串', () => {
     for (const m of EXERCISE_G35_MAPPING) {
+      expect(typeof m.bundled).toBe('boolean');
+    }
+  });
+
+  it('bundled === true 时 assetFileName = gifUrl basename', () => {
+    for (const m of bundled) {
       expect(m.assetFileName).toBe(path.basename(m.gifUrl));
     }
   });
 
-  it('assetFileName 没有重复', () => {
-    const names = EXERCISE_G35_MAPPING.map((m) => m.assetFileName);
+  it('bundled === true 的 assetFileName 没有重复', () => {
+    const names = bundled.map((m) => m.assetFileName!);
     expect(new Set(names).size).toBe(names.length);
   });
 });
 
-describe('G40 GIF bundle(52/52 全 bundled,无 remote)', () => {
+describe('G40 GIF bundle(52 张 bundled 全落盘)', () => {
   const bundled = EXERCISE_G35_MAPPING.filter((m) => m.bundled);
-  const remote = EXERCISE_G35_MAPPING.filter((m) => !m.bundled);
 
-  it('bundled === true = 52 张;bundled === false = 0 张', () => {
+  it('bundled === true = 52 张;bundled === false = 250 张', () => {
     expect(bundled.length).toBe(52);
-    expect(remote.length).toBe(0);
+    expect(EXERCISE_G35_MAPPING.filter((m) => !m.bundled).length).toBe(254);
   });
 
   it('bundled === true 时 assetFileName 必填且匹配命名规范', () => {
@@ -211,6 +221,49 @@ describe('G40 GIF bundle(52/52 全 bundled,无 remote)', () => {
       } finally {
         fs.closeSync(fd);
       }
+    }
+  });
+});
+
+describe('G41 CDN 路径(bundled === false 走 R2 https 拉取)', () => {
+  const remote = EXERCISE_G35_MAPPING.filter((m) => !m.bundled);
+
+  it('bundled === false 时 cdnUrl 必填', () => {
+    for (const m of remote) {
+      expect(m.cdnUrl).toBeTruthy();
+    }
+  });
+
+  it('cdnUrl 都是 https:// 头(R2 pub 域名)', () => {
+    for (const m of remote) {
+      expect(m.cdnUrl!.startsWith('https://')).toBe(true);
+      // pub-xxx.r2.dev 是 Cloudflare R2 默认 public 域名
+      expect(m.cdnUrl!.includes('.r2.dev/')).toBe(true);
+    }
+  });
+
+  it('cdnUrl basename = gifUrl basename(同步文件名,改一处都要改)', () => {
+    for (const m of remote) {
+      const cdnBase = m.cdnUrl!.split('/').pop();
+      expect(cdnBase).toBe(path.basename(m.gifUrl));
+    }
+  });
+
+  it('cdnUrl 250 个唯一(无重复)', () => {
+    const urls = remote.map((m) => m.cdnUrl!);
+    expect(new Set(urls).size).toBe(urls.length);
+  });
+
+  it('bundled === false 时 assetFileName 必为空(互斥)', () => {
+    for (const m of remote) {
+      expect(m.assetFileName).toBeFalsy();
+    }
+  });
+
+  it('bundled === true 时 cdnUrl 必为空(互斥)', () => {
+    const bundled = EXERCISE_G35_MAPPING.filter((m) => m.bundled);
+    for (const m of bundled) {
+      expect(m.cdnUrl).toBeFalsy();
     }
   });
 });

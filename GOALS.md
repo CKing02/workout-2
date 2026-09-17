@@ -1458,6 +1458,112 @@ hotfix + 架构根治 1 commit：
 
 ---
 
+## G41. 动作库扩展到 300+（CDN 在线加载路径）🟡 设计中
+
+**优先级**：P2（内容扩展，与 G37 同级） | **依赖**：G40（52 bundled 路径稳定） | **阶段**：3
+
+### 背景
+
+G40 把全部 52 张 GIF bundled 进 APK，约 5.2MB。但 hasaneyldrm/exercises-dataset 有 **1,324 条**动作。G52/1324 ≈ 4%，动作库仍显单薄：
+
+- 用户从训练详情 → 看不到变体（杠铃划船有但 T 杠划船算不算同一个动作的变体？）
+- 训练计划调换动作的 picker 池子只有 52 项
+- 数据可视化（训练量按肌群分布）漏掉大半真实场景
+
+把全部 1,324 张塞进 APK 不可能（≈130MB），`Path E` = CDN 在线加载 + 保留 30-50 热门动作 bundled 秒开。
+
+### 现状（Path E 基础设施已就位 80%）
+
+G39 + G40 已铺好地基，无需重做：
+
+| 模块 | 文件 | 状态 |
+|---|---|---|
+| 三种格式 `gif_url` | `exercises` 表 schema（migration v6） | ✅ |
+| `classifyGifSource`（'asset' / 'remote' / 'none' 三分类） | `src/screens/exerciseGifAssets.ts:180` | ✅ |
+| `resolveGifSource`（同步 → bundled ImageSourcePropType） | `src/screens/exerciseGifAssets.ts:195` | ✅ |
+| `getCachedOrDownload`（异步 → file:// URI，LRU 200MB） | `src/screens/exerciseGifCache.ts:115` | ✅ |
+| `ExerciseGifImage`（render 三态：asset / remote / none） | `src/components/ExerciseGifImage.tsx` | ✅ |
+| LRU eviction 200MB 阈值 | `src/screens/exerciseGifCache.ts:32` | ✅ |
+| CDN URL 解析（basename 提取 + 白名单清洗） | `src/screens/exerciseGifCache.ts:44` | ✅ |
+
+### 涉及
+
+- **CDN 端**
+  - 选型：Cloudflare **R2**（Egress 免费，存储 $0.015/GB/月；1,324 GIF 估算 ≈ 130MB ≈ $0.002/月）
+  - Bucket：`workout2-gifs`，public access，`Custom Domain` 用 `pub-xxxx.r2.dev`
+  - 目录：`/workout2-gifs/exercises/{hasaneyldrm-id}-{slug}.gif`（沿用 hasaneyldrm 文件名约定，basename 一致）
+  - CORS：开 `GET` only（POST 不需要）
+- **mapping schema 扩展**
+  - `src/db/seeds/exerciseG35Mapping.ts` 新增 `cdnUrl?: string` 字段
+  - `bundled: false` 项必须有 `cdnUrl`，`bundled: true` 项必须有 `assetFileName`
+  - 已有的 52 项 bundled 保持不变
+  - 新增 ~250 项 `bundled: false` + cdnUrl（选 hasaneyldrm 数据集里"高使用频"的子集，覆盖常见变体）
+- **新增种子动作**
+  - `src/db/seeds/exercises.ts` seed 函数扩展：当前 52 个中文动作；G41 新增 ~250 个 `hasaneyldrmId` 索引的中文动作
+  - 中文翻译来源：**手动**（G35/G37 已建立流程，效率 ≈ 30 个/小时；或批量用 OpenAI gpt-4o-mini 一波 + 人工校对，预算 ≈ $5-10 / 250 条）
+  - `target` → `category` 映射沿用 `TARGET_EN_TO_CATEGORY_ZH`（G35 §1 已建）
+  - `equipment` 翻译沿用 `EQUIPMENT_EN_TO_ZH`（G35 §1 已建）
+  - `instruction_steps_zh`：抽 50 个最常用动作手写（其余暂留 null，详情页 fallback 到 GIF）
+- **UI 接入（已就位，零业务改动）**
+  - `ExerciseThumbnail` 调 `ExerciseGifImage`（已吃三态）
+  - `ExerciseDetailScreen` 调 `ExerciseGifImage`（已吃三态）
+  - **唯一改动**：`ExerciseDetailScreen` 详情屏的 GIF 区域从"同步显示"变成"Skeleton → 200ms transition 淡入"，与 G39 验收一致
+- **新增测试**
+  - `src/screens/__tests__/exerciseGifCache.test.ts` 扩展：`cdnUrl` 解析 + LRU 200MB 触发（mock `File.info().size`）
+  - `src/screens/__tests__/exerciseG35Mapping.test.ts` 扩展：bundled/CDN 互斥断言 + 250 条新项 gifUrl 全为合法 https URL
+  - `src/screens/__tests__/exerciseGifImage.test.tsx` 加 remote → Skeleton → setSource({uri}) 序列测试
+
+### 设计决策（先定版）
+
+1. **混合策略**：52 bundled（秒开）+ ~250 CDN（首次访问下载到 cache）= 302 总动作
+2. **不一次性到 1,324**：先把 CDN 链路跑通 + 内容扩展到 300；扩到 1,324 是 G42+
+3. **翻译策略**：手动 + LLM 辅助混合，首批 100 个手动核，剩下 150 个 LLM 初翻 + 抽 30% 复核
+4. **失败兜底**：CDN 下载失败 → Skeleton 持续；用户下次进入详情重试（已有 LRU 留底）
+5. **GIF 版权**：沿用 hasaneyldrm/exercises-dataset **MIT** + Gym Visual attribution（详情页底部 © Gym Visual 已展示），R2 上保留原始文件 + 不改 attribution
+6. **不写 `react-native-config` / 远程 CDN URL 切换**：MVP 只配一个 R2 bucket；多 CDN 切换留 Phase 3
+
+### 验收标准（AC）
+
+- AC-41.1 R2 bucket 已建并 public 可访问，目录 `/workout2-gifs/exercises/{id}-{slug}.gif` 有至少 250 个 GIF；HTTP `GET` 返回 200 + `image/gif` content-type
+- AC-41.2 `src/db/seeds/exerciseG35Mapping.ts` 新增 ~250 项 `bundled: false` + `cdnUrl`，每项的 cdnUrl basename 与 hasaneyldrm 文件名一致
+- AC-41.3 `exercises` 表 seed 总数 ≥ 300（52 + 250 + 用户自定义）；`gif_url` 字段混合 `asset:` 与 `https://`
+- AC-41.4 `ExerciseGifImage` 在 remote URL 下首屏渲染 Skeleton，下载完成后 200ms transition 淡入（已实现，复测）
+- AC-41.5 离线状态进入 CDN 动作详情 → Skeleton 持续不崩；联网后下次进入 → 正常渲染
+- AC-41.6 缓存命中：第二次进入同一 CDN 动作详情 → 立即显示，无网络请求
+- AC-41.7 LRU 触发：cache 总大小 > 200MB → 最旧 mtime 的 GIF 被删除直到 < 200MB
+- AC-41.8 真机：新装 APK → 冷启 → 进训练 Tab → 进 "杠铃卧推" 详情（bundled）→ GIF 秒开；返回 → 进 "坐姿腿屈伸"（CDN 新增）→ Skeleton ~1-3s → GIF 显示；杀进程重开 → 仍秒开（cache 命中）
+- AC-41.9 备份 JSON 含 `cdnUrl`；wipeAllData 后重 seed 仍能恢复
+- AC-41.10 现有 11+ suites / 261+ tests 全过 + G41 新增 ≥ 3 suites（mapping / cache remote / image remote）/ ≥ 15 tests
+
+### 自检清单
+
+- [ ] R2 bucket 已建 + CORS 已配 + 250+ GIF 已上传
+- [ ] `exerciseG35Mapping.ts` 250 项 cdnUrl 全通（HEAD 检查 200）
+- [ ] 中文翻译 250 条完成 + 抽 30% 校对
+- [ ] `instruction_steps_zh` 至少 50 个常用动作手写完成
+- [ ] 备份/清除兼容 cdnUrl 字段
+- [ ] tsc --noEmit 通过
+- [ ] 全量 jest 通过
+- [ ] 真机：bundled + CDN 混合渲染
+- [ ] 真机：离线 Skeleton / 联网恢复 / 缓存命中 / LRU 触发
+- [ ] 提交记录（拆 3-4 commit）：
+  - (a) `chore(G41): R2 bucket 配 CORS + 上传 250+ GIF + 上传脚本`
+  - (b) `feat(G41): exerciseG35Mapping 扩 250 CDN 项 + cdnUrl 字段`
+  - (c) `feat(G41): exercises seed 总数 52→302 + 翻译就位`
+  - (d) `test(G41): mapping / cache remote / image remote 3 套件 + 15+ 用例`
+
+### Why
+
+G40 暴露一个关键事实：APK bundled 不是无限容量方案。G41 把"在线加载"做出来有 3 个长期价值：(1) 动作库从 52 → 300+ 直接提升训练质量；(2) 验证 CDN + cache 链路对实际用户的体验（首次访问延迟、命中率、LRU 必要性）；(3) 为后续 G42 扩到 1,324 全量铺路，避免一次性做完大爆炸。
+
+### How to apply
+
+- 看到 G41 完成 → 想给动作库加新动作，先看 `EXERCISE_G35_MAPPING`，新加走 `bundled: false` + cdnUrl，不要再 require()
+- 看到 R2 bucket 502 / 404 → 走 `exerciseGifCache` 的 retry；用户多次失败 → Skeleton + 详情页给一个"重试"按钮（G41 范围外，留 G43）
+- 真机首次进入 CDN 动作 > 3s → 检查 R2 CORS + HTTP/2 + 区域节点；亚太用户应配 R2 亚洲 PoP
+
+---
+
 ## Phase 2 路线（P2+，待评估优先级）
 
 > 下列项目 PRD 列入但未排期，是否纳入 Phase 2 视用户偏好决定。

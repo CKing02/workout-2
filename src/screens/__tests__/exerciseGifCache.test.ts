@@ -118,7 +118,14 @@ class MockDirectory {
   }
 
   list(): unknown[] {
-    return fsEntries.filter((e) => !!e.name);
+    // G41:maybeEvict 要 instanceof File + name.endsWith('.gif') 才能算入
+    // 把 fsEntries 包成 MockFile 实例,让真实 maybeEvict 逻辑能跑通
+    return fsEntries
+      .filter((e) => !!e.name)
+      .map((e) => {
+        const f = new MockFile(this, e.name);
+        return f;
+      });
   }
 
   delete(): void {
@@ -233,6 +240,110 @@ describe('G39 exerciseGifCache', () => {
       );
 
       expect(result).toBe('file:///mock/Cache/gifs/0289-SpYC0Kp.gif');
+    });
+  });
+
+  describe('G41 R2 CDN 路径(250 个 bundled:false 走 https)', () => {
+    it('R2 pub 域名 deep path → basename 清洗正确(无 query)', async () => {
+      const r2Url = 'https://pub-PLACEHOLDER.r2.dev/workout2-gifs/exercises/0151-7xI5MXA.gif';
+      const result = await getCachedOrDownload(r2Url);
+      // 缓存未命中 → 走 download,默认 ok 落到 0308 mock uri
+      expect(result).toBe('file:///mock/Cache/gifs/0308-yz9nUhF.gif');
+      expect(fsEntries.some((e) => e.name === '0308-yz9nUhF.gif')).toBe(true);
+    });
+
+    it('R2 URL 命中缓存(已下载过)→ 直接返 file:// URI,不调 download', async () => {
+      addFile({
+        name: '0151-7xI5MXA.gif',
+        uri: 'file:///mock/Cache/gifs/0151-7xI5MXA.gif',
+        size: 95000,
+        mtime: 5000,
+      });
+      const fsSizeBefore = fsEntries.length;
+      const result = await getCachedOrDownload(
+        'https://pub-PLACEHOLDER.r2.dev/workout2-gifs/exercises/0151-7xI5MXA.gif',
+      );
+      expect(result).toBe('file:///mock/Cache/gifs/0151-7xI5MXA.gif');
+      expect(fsEntries.length).toBe(fsSizeBefore);
+    });
+
+    it('R2 URL 文件名含特殊字符(防御性清洗)→ 走安全白名单', async () => {
+      // hasaneyldrm 文件名形如 0662-I4hDWkc.gif,只含 [a-zA-Z0-9.-],无特殊字符
+      // 测试一个含 query 但不带 .gif 的 URL → 应该返 null(不命中下载)
+      const result = await getCachedOrDownload(
+        'https://pub-PLACEHOLDER.r2.dev/workout2-gifs/exercises/foo',
+      );
+      expect(result).toBeNull();
+    });
+
+    it('R2 URL download 失败 → 返 null,UI Skeleton fallback', async () => {
+      resetFs();
+      setDownloadThrow(new Error('R2 503 Service Unavailable'));
+      const result = await getCachedOrDownload(
+        'https://pub-PLACEHOLDER.r2.dev/workout2-gifs/exercises/1311-Ccm5kAE.gif',
+      );
+      expect(result).toBeNull();
+      expect(fsEntries).toHaveLength(0);
+    });
+
+    it('250 个 R2 URL 各自独立,basename 互不冲突', async () => {
+      // 模拟批量:5 个不同 R2 URL 各自有自己的 basename
+      const urls = [
+        'https://pub-PLACEHOLDER.r2.dev/workout2-gifs/exercises/0151-7xI5MXA.gif',
+        'https://pub-PLACEHOLDER.r2.dev/workout2-gifs/exercises/0171-tBWXbIT.gif',
+        'https://pub-PLACEHOLDER.r2.dev/workout2-gifs/exercises/0251-9WTm7dq.gif',
+        'https://pub-PLACEHOLDER.r2.dev/workout2-gifs/exercises/0662-I4hDWkc.gif',
+        'https://pub-PLACEHOLDER.r2.dev/workout2-gifs/exercises/1326-cP6M2x9.gif',
+      ];
+      // 全部缓存命中(预先填)
+      urls.forEach((u) => {
+        const name = u.split('/').pop()!;
+        addFile({ name, uri: `file:///mock/Cache/gifs/${name}`, size: 80000, mtime: 1000 });
+      });
+      const results = await Promise.all(urls.map((u) => getCachedOrDownload(u)));
+      expect(results.every((r) => r?.startsWith('file:///mock/Cache/gifs/'))).toBe(true);
+      expect(new Set(results).size).toBe(5);
+    });
+
+    it('LRU 阈值 200MB:缓存超阈值 → 删最旧(mtime 升序)直至 ≤ 200MB', async () => {
+      // 模拟 5 个文件,总大小 250MB,触发 LRU
+      // MAX_CACHE_BYTES = 200 * 1024 * 1024 = 209715200
+      // 总: 5 × 50MB = 250MB,超 200MB
+      // 最旧的 2 个 (50MB × 2 = 100MB) 被删 → 剩 3 × 50MB = 150MB ≤ 200MB,break
+      const t = 1000;
+      for (let i = 0; i < 5; i++) {
+        addFile({
+          name: `big-${i}.gif`,
+          uri: `file:///mock/Cache/gifs/big-${i}.gif`,
+          size: 50 * 1024 * 1024,
+          mtime: t + i, // 0..4,mtime 升序 → big-0 最旧
+        });
+      }
+      expect(fsEntries.length).toBe(5);
+      // 触发 LRU:再调一次 getCachedOrDownload(任意 URL)
+      setDownloadOk('file:///mock/Cache/gifs/trigger.gif', 1000);
+      await getCachedOrDownload('https://x/y/trigger.gif');
+      // maybeEvict → 删 big-0(50MB) → total = 200MB+1KB > 200MB → 继续
+      // 删 big-1(50MB) → total = 150MB+1KB ≤ 200MB → break
+      // 剩 big-2, big-3, big-4 + trigger
+      const remainingNames = fsEntries.map((e) => e.name).sort();
+      expect(remainingNames).toEqual(['big-2.gif', 'big-3.gif', 'big-4.gif', 'trigger.gif']);
+    });
+
+    it('LRU 阈值 200MB:刚好 < 阈值 → 不删任何文件', async () => {
+      // 1 个 50MB 文件,远低于 200MB
+      addFile({
+        name: 'small.gif',
+        uri: 'file:///mock/Cache/gifs/small.gif',
+        size: 50 * 1024 * 1024,
+        mtime: 9999,
+      });
+      setDownloadOk('file:///mock/Cache/gifs/new.gif', 1000);
+      await getCachedOrDownload('https://x/y/new.gif');
+      // 不触发 LRU → small.gif 还在
+      expect(fsEntries.some((e) => e.name === 'small.gif')).toBe(true);
+      // 新下载的 new.gif 也在
+      expect(fsEntries.some((e) => e.name === 'new.gif')).toBe(true);
     });
   });
 

@@ -40,3 +40,7 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# scratch / build artifacts
+.tmp/
+_diag/
