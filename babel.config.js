@@ -4,10 +4,10 @@ module.exports = function (api) {
     presets: ['babel-preset-expo'],
     plugins: [
       // Reanimated/Worklets plugin must be listed LAST.
-      // `bundleMode: true` 让 babel 把 worklet factory 拆成 `node_modules/react-native-worklets/.worklets/<hash>.js`
-      // 独立文件 + 让 worklets 运行时走 `bundleModeInit` (从 Metro 拉 worklets bundle),不走 legacy unpacker。
-      // 必需配套 `metro.config.js` 的 `getBundleModeMetroConfig` 让 metro 解析 `.worklets/` 路径。
-      ['react-native-worklets/plugin', { bundleMode: true }],
+      // expo SDK 57 内置 native worklets 是 0.10.1 (见 expo-modules-core peerDeps),
+      // JS 端锁 0.10.1 + bundleMode: false (legacy unpacker 模式)。
+      // 0.12 bundle mode 跟 native 0.10 mismatch 会触发 SIGSEGV (expo-sqlite async finalize race)。
+      ['react-native-worklets/plugin', { bundleMode: false }],
     ],
   };
 };
