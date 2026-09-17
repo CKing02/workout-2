@@ -12,6 +12,7 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { EXERCISE_G35_MAPPING } from './seeds/exerciseG35Mapping';
+import { upgradeExerciseSeedIfMissing } from './seeds/seedRunner';
 import { applyCreateTables, configurePragmas } from './schema';
 
 interface Migration {
@@ -162,6 +163,18 @@ export const MIGRATIONS: readonly Migration[] = [
           );
         }
       }
+    },
+  },
+  {
+    version: 10,
+    description:
+      'G41: 动作库 52 → 306 扩种。seedExercisesIfEmpty 只在空表上全量 INSERT,' +
+      '老装(已有 52 条 seed)升级路径它直接 return 0,导致新增的 254 个 bundled:false' +
+      '动作永远进不了 DB。本 migration 走 upgradeExerciseSeedIfMissing 差量 INSERT,' +
+      '幂等(空表 / 52 / 306 三态都安全)。',
+    sql: '-- placeholder; 差量 INSERT via run,逻辑在 upgradeExerciseSeedIfMissing',
+    run: async (db) => {
+      await upgradeExerciseSeedIfMissing(db);
     },
   },
 ];

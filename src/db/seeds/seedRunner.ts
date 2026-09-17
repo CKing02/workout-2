@@ -148,3 +148,91 @@ export async function backfillExerciseI18n(db: SQLiteDatabase): Promise<number> 
  * Expose the seed count for tests / debug.
  */
 export const EXPECTED_SEED_COUNT = EXERCISE_SEEDS.length;
+
+/**
+ * 纯函数:计算应该被 INSERT 的差量 seed 行。
+ *
+ * 用途:G41 扩种(52 → 306)。`seedExercisesIfEmpty` 只在空表上跑全量 INSERT,
+ * 老装(已有 52 条 seed 行)升级时它会 return 0,导致新增的 254 个 bundled:false
+ * 动作永远进不了 DB。本函数接受当前 DB 里已存在的 seed name 集合,
+ * 返回 `EXERCISE_SEEDS` 中 **不在该集合里** 的行,让
+ * `upgradeExerciseSeedIfMissing` 走差量 INSERT。
+ *
+ * 设计取舍:
+ *  - 纯函数 → 可 jest 单测(不连 SQLite,见 seedRunnerUpgrade.test.ts)。
+ *  - 不读 PDF,只比对 name(老装可能重命名过 seed 行?UI 没这入口,改名风险 0)。
+ *    若未来放开,改成比对 `id`(mapping.hasaneyldrmId)更稳。
+ *  - 返回值 timestamp 用调用方传入的 `now`,方便测试断言时间戳。
+ */
+export function filterMissingSeedRows(
+  existingNames: ReadonlySet<string>,
+  now: number,
+): Omit<ReturnType<typeof toExerciseRows>[number], 'id'>[] {
+  return toExerciseRows(now).filter((r) => !existingNames.has(r.name));
+}
+
+/**
+ * G41 升级路径:把 EXERCISE_SEEDS 里有、但 DB 里还没的 seed 行 INSERT 进去。
+ *
+ * 触发:v10 migration(老装 user_version=9 → 10 时跑一次)。
+ * 也可能在 wipeAllData 之后被 seedExercisesIfEmpty "全量路径" 取代。
+ *
+ * 幂等:三段 status:
+ *  - 新装空表 → SELECT 返回 [] → INSERT 全部 306(v10 接管"全量插入"职责)。
+ *  - 老装 52 行 → SELECT 返回 52 name → INSERT 差量 254 → DB 到 306。
+ *  - 已升级 306 行 → SELECT 返回 306 name → INSERT 0 → no-op。
+ *
+ * 不动 is_custom=1 的用户自定义行(SELECT 用 `WHERE is_custom = 0` 过滤)。
+ *
+ * 返回:实际 INSERT 行数。
+ */
+export async function upgradeExerciseSeedIfMissing(
+  db: SQLiteDatabase,
+): Promise<number> {
+  const existing = await db.getAllAsync<{ name: string }>(
+    'SELECT name FROM exercises WHERE is_custom = 0;',
+  );
+  const existingNames = new Set(existing.map((r) => r.name));
+  const missing = filterMissingSeedRows(existingNames, Date.now());
+  if (missing.length === 0) {
+    return 0;
+  }
+
+  const ids = missing.map(() => randomUUID());
+
+  await db.withTransactionAsync(async () => {
+    const stmt = await db.prepareAsync(
+      `INSERT INTO exercises
+        (id, name, muscle_group, secondary_muscles, equipment, metric_type, image_uri, is_custom, created_at,
+         description_zh, steps_zh, gif_url, target_zh, attribution)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+    );
+    try {
+      for (let i = 0; i < missing.length; i++) {
+        const row = missing[i];
+        const id = ids[i];
+        if (!row || !id) continue;
+        await stmt.executeAsync([
+          id,
+          row.name,
+          row.muscle_group,
+          row.secondary_muscles,
+          row.equipment,
+          row.metric_type,
+          row.image_uri,
+          row.is_custom,
+          row.created_at,
+          row.description_zh,
+          row.steps_zh,
+          row.gif_url,
+          row.target_zh,
+          row.attribution,
+        ]);
+      }
+    } finally {
+      await stmt.finalizeAsync();
+    }
+  });
+
+  return missing.length;
+}
