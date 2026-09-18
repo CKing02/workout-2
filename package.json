@@ -16,6 +16,7 @@
     "expo-image": "~57.0.5",
     "expo-keep-awake": "~57.0.1",
     "expo-notifications": "~57.0.17",
+    "expo-rest-timer-progress": "file:./modules/expo-rest-timer-progress",
     "expo-sharing": "~57.0.17",
     "expo-sqlite": "~57.0.2",
     "expo-status-bar": "~57.0.1",
@@ -48,7 +49,8 @@
     "typecheck": "tsc --noEmit",
     "test": "jest",
     "test:watch": "jest --watch",
-    "test:coverage": "jest --coverage"
+    "test:coverage": "jest --coverage",
+    "eas:preview": "eas build --profile preview --platform android --non-interactive"
   },
   "private": true
 }

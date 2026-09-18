@@ -1,23 +1,26 @@
 /**
- * restTimerNotification 单测(2026-09-18 极简版)
+ * restTimerNotification 单测(2026-09-18 原生 ProgressBar 版)
  *
  * 验证:
- *  1. ensureChannelAndPermissions 在 Android 上正确建 channel + 申请权限
- *  2. ensureChannelAndPermissions 只跑一次(module-level guard)
- *  3. ensureChannelAndPermissions 在 iOS 上整体跳过
- *  4. showOrUpdateRestTimerNotification 在 Android 上调 scheduleNotificationAsync,
- *     identifier 固定,title 形如 "0:42 杠铃卧推"(mm:ss + 动作名),body 是 20 段块字符进度条(纯条,无比例数字)
- *  5. showOrUpdateRestTimerNotification 在 iOS 上 noop
- *  6. dismissRestTimerNotification 在 Android 上调 dismissNotificationAsync
- *  7. dismissRestTimerNotification 在 iOS 上 noop
- *  8. showOrUpdate 防御:剩余秒数 < 0 时 clamp 到 0;totalSec < 1 时 clamp 到 1
- *  9. 块字符进度条:0% / 50% / 100% 三个边界 + 比例正确
- * 10. mm:ss 格式化:0/60/90/3600 边界
+ *  1. ensureChannelAndPermissions 在 Android 上正确调原生 ensureChannel +
+ *     expo-notifications.getPermissionsAsync(权限已 granted → 不调 request)
+ *  2. ensureChannelAndPermissions 未授权时主动 request
+ *  3. ensureChannelAndPermissions module-level guard 防止重复 init
+ *  4. ensureChannelAndPermissions 在 iOS 上整体跳过
+ *  5. showOrUpdateRestTimerNotification 在 Android 上调原生 showOrUpdate,
+ *     title 形如 "0:42 杠铃卧推"(mm:ss + 动作名);参数 4 个:rem/total/title/colorHex
+ *  6. showOrUpdateRestTimerNotification exerciseName trim / 空串处理
+ *  7. showOrUpdateRestTimerNotification mm:ss 格式化边界(0/9/60/90/3600)
+ *  8. showOrUpdateRestTimerNotification 剩余秒数 < 0 / totalSec < 1 自动 clamp
+ *  9. showOrUpdateRestTimerNotification 在 iOS 上 noop
+ * 10. dismissRestTimerNotification 在 Android 上调原生 dismiss
+ * 11. dismissRestTimerNotification 在 iOS 上 noop
  *
  * 注意:
  *  - 用 jest.isolateModules 让每个 it 重新载入模块,绕开 module-level guard
- *    (channelAndPermissionsEnsured = false 重置)
  *  - mock react-native 的 Platform.OS,默认 Android
+ *  - mock expo-rest-timer-progress 本地模块(取代 expo-notifications.scheduleNotificationAsync)
+ *  - mock expo-notifications 仅保留 getPermissionsAsync / requestPermissionsAsync / setNotificationHandler
  */
 
 let mockPlatformOS: 'android' | 'ios' = 'android';
@@ -30,46 +33,46 @@ jest.mock('react-native', () => ({
   },
 }));
 
-const mockSchedule = jest.fn();
-const mockDismiss = jest.fn();
-const mockSetChannel = jest.fn();
+/* ---- mock expo-rest-timer-progress(取代 expo-notifications.scheduleNotificationAsync) ---- */
+const mockNativeEnsureChannel = jest.fn();
+const mockNativeShow = jest.fn();
+const mockNativeDismiss = jest.fn();
+
+jest.mock('expo-rest-timer-progress', () => ({
+  ensureChannel: (...args: unknown[]) => mockNativeEnsureChannel(...args),
+  showOrUpdate: (...args: unknown[]) => mockNativeShow(...args),
+  dismiss: (...args: unknown[]) => mockNativeDismiss(...args),
+}));
+
+/* ---- mock expo-notifications(只保留权限 + handler 两个) ---- */
 const mockGetPerms = jest.fn();
 const mockRequestPerms = jest.fn();
 const mockSetHandler = jest.fn();
 
 jest.mock('expo-notifications', () => ({
-  AndroidImportance: {
-    MIN: 1,
-    LOW: 2,
-    DEFAULT: 3,
-    HIGH: 4,
-  },
-  setNotificationChannelAsync: (...args: unknown[]) => mockSetChannel(...args),
   getPermissionsAsync: (...args: unknown[]) => mockGetPerms(...args),
   requestPermissionsAsync: (...args: unknown[]) => mockRequestPerms(...args),
-  scheduleNotificationAsync: (...args: unknown[]) => mockSchedule(...args),
-  dismissNotificationAsync: (...args: unknown[]) => mockDismiss(...args),
   setNotificationHandler: (...args: unknown[]) => mockSetHandler(...args),
 }));
 
-describe('G38 restTimerNotification (Android)', () => {
+describe('G41 restTimerNotification (Android)', () => {
   beforeEach(() => {
     mockPlatformOS = 'android';
-    mockSchedule.mockReset();
-    mockDismiss.mockReset();
-    mockSetChannel.mockReset();
+    mockNativeEnsureChannel.mockReset();
+    mockNativeShow.mockReset();
+    mockNativeDismiss.mockReset();
     mockGetPerms.mockReset();
     mockRequestPerms.mockReset();
     mockSetHandler.mockReset();
     // 默认权限已 granted → 不调 request
     mockGetPerms.mockResolvedValue({ status: 'granted' });
     mockRequestPerms.mockResolvedValue({ status: 'granted' });
-    mockSetChannel.mockResolvedValue(undefined);
-    mockSchedule.mockResolvedValue('notif-id');
-    mockDismiss.mockResolvedValue(undefined);
+    mockNativeEnsureChannel.mockResolvedValue(undefined);
+    mockNativeShow.mockResolvedValue(undefined);
+    mockNativeDismiss.mockResolvedValue(undefined);
   });
 
-  it('ensureChannelAndPermissions:Android 上建 channel + 询问权限', async () => {
+  it('ensureChannelAndPermissions:Android 上调原生 ensureChannel + 询问权限', async () => {
     let mod!: typeof import('../restTimerNotification');
     jest.isolateModules(() => {
       mod = require('../restTimerNotification');
@@ -77,15 +80,7 @@ describe('G38 restTimerNotification (Android)', () => {
 
     await mod.ensureChannelAndPermissions();
 
-    expect(mockSetChannel).toHaveBeenCalledTimes(1);
-    const [channelId, channelConfig] = mockSetChannel.mock.calls[0];
-    expect(channelId).toBe('rest_timer');
-    expect(channelConfig).toMatchObject({
-      name: '训练休息',
-      importance: 4, // HIGH
-      sound: null,
-      showBadge: false,
-    });
+    expect(mockNativeEnsureChannel).toHaveBeenCalledTimes(1);
     expect(mockGetPerms).toHaveBeenCalledTimes(1);
     // 已 granted → 不再 request
     expect(mockRequestPerms).not.toHaveBeenCalled();
@@ -100,6 +95,7 @@ describe('G38 restTimerNotification (Android)', () => {
 
     await mod.ensureChannelAndPermissions();
 
+    expect(mockNativeEnsureChannel).toHaveBeenCalledTimes(1);
     expect(mockGetPerms).toHaveBeenCalledTimes(1);
     expect(mockRequestPerms).toHaveBeenCalledTimes(1);
     expect(mockRequestPerms).toHaveBeenCalledWith({ android: {} });
@@ -115,51 +111,32 @@ describe('G38 restTimerNotification (Android)', () => {
     await mod.ensureChannelAndPermissions();
     await mod.ensureChannelAndPermissions();
 
-    // 3 次调用,channel 只建 1 次
-    expect(mockSetChannel).toHaveBeenCalledTimes(1);
+    // 3 次调用,ensureChannel + getPerms 都只跑 1 次
+    expect(mockNativeEnsureChannel).toHaveBeenCalledTimes(1);
     expect(mockGetPerms).toHaveBeenCalledTimes(1);
   });
 
-  it('showOrUpdate:调 scheduleNotificationAsync,identifier 固定,极简两行布局', async () => {
+  it('showOrUpdate:调原生 showOrUpdate,4 个参数(rem/total/title/colorHex)', async () => {
     let mod!: typeof import('../restTimerNotification');
     jest.isolateModules(() => {
       mod = require('../restTimerNotification');
     });
 
-    await mod.showOrUpdateRestTimerNotification(45, 90);
+    await mod.showOrUpdateRestTimerNotification(45, 90, '杠铃卧推', '#FF6B35');
 
-    expect(mockSchedule).toHaveBeenCalledTimes(1);
-    const call = mockSchedule.mock.calls[0][0];
-    expect(call.identifier).toBe('rest_timer_notification');
-    expect(call.trigger).toBeNull();
-    // 极简版:title 只剩 mm:ss,无动作名时不追加
-    expect(call.content.title).toBe('0:45');
-    // body 是 20 段块字符进度条(纯条,无比例数字)
-    // 45/90 = 50% → 10 filled,10 empty
-    expect(call.content.body).toBe('██████████░░░░░░░░░░');
-    expect(call.content.autoDismiss).toBe(false);
-    expect(call.content.data).toMatchObject({
-      kind: 'restTimer',
-      remainingSec: 45,
-      totalSec: 90,
-    });
+    expect(mockNativeShow).toHaveBeenCalledTimes(1);
+    expect(mockNativeShow).toHaveBeenCalledWith(45, 90, '0:45 杠铃卧推', '#FF6B35');
   });
 
-  it('showOrUpdate:传 exerciseName → title 拼接"0:45 杠铃卧推",data 也带上', async () => {
+  it('showOrUpdate:不传 exerciseName → title 只剩 mm:ss', async () => {
     let mod!: typeof import('../restTimerNotification');
     jest.isolateModules(() => {
       mod = require('../restTimerNotification');
     });
 
-    await mod.showOrUpdateRestTimerNotification(45, 90, '杠铃卧推');
+    await mod.showOrUpdateRestTimerNotification(45, 90, null, '#FF6B35');
 
-    const call = mockSchedule.mock.calls[0][0];
-    // title 是 mm:ss + 半角空格 + 动作名(单行紧凑)
-    expect(call.content.title).toBe('0:45 杠铃卧推');
-    // body 进度条不变
-    expect(call.content.body).toBe('██████████░░░░░░░░░░');
-    // data 里也带上,后续接 Live Activity / tap 跳转能用到
-    expect(call.content.data.exerciseName).toBe('杠铃卧推');
+    expect(mockNativeShow).toHaveBeenCalledWith(45, 90, '0:45', '#FF6B35');
   });
 
   it('showOrUpdate:exerciseName 前后空白自动 trim', async () => {
@@ -168,11 +145,9 @@ describe('G38 restTimerNotification (Android)', () => {
       mod = require('../restTimerNotification');
     });
 
-    await mod.showOrUpdateRestTimerNotification(45, 90, '  哑铃划船  ');
+    await mod.showOrUpdateRestTimerNotification(45, 90, '  哑铃划船  ', '#FF6B35');
 
-    const call = mockSchedule.mock.calls[0][0];
-    expect(call.content.title).toBe('0:45 哑铃划船');
-    expect(call.content.data.exerciseName).toBe('哑铃划船');
+    expect(mockNativeShow).toHaveBeenCalledWith(45, 90, '0:45 哑铃划船', '#FF6B35');
   });
 
   it('showOrUpdate:空串 / 全空白 exerciseName → 当匿名处理,不追加', async () => {
@@ -181,11 +156,20 @@ describe('G38 restTimerNotification (Android)', () => {
       mod = require('../restTimerNotification');
     });
 
-    await mod.showOrUpdateRestTimerNotification(45, 90, '');
+    await mod.showOrUpdateRestTimerNotification(45, 90, '', '#FF6B35');
 
-    const call = mockSchedule.mock.calls[0][0];
-    expect(call.content.title).toBe('0:45');
-    expect(call.content.data.exerciseName).toBeNull();
+    expect(mockNativeShow).toHaveBeenCalledWith(45, 90, '0:45', '#FF6B35');
+  });
+
+  it('showOrUpdate:不传 colorHex → 第四参为 null(走 native 默认)', async () => {
+    let mod!: typeof import('../restTimerNotification');
+    jest.isolateModules(() => {
+      mod = require('../restTimerNotification');
+    });
+
+    await mod.showOrUpdateRestTimerNotification(30, 60, '杠铃');
+
+    expect(mockNativeShow).toHaveBeenCalledWith(30, 60, '0:30 杠铃', null);
   });
 
   it('showOrUpdate:mm:ss 格式化边界(0 / 9 / 60 / 90 / 3600)', async () => {
@@ -194,20 +178,20 @@ describe('G38 restTimerNotification (Android)', () => {
       mod = require('../restTimerNotification');
     });
 
-    await mod.showOrUpdateRestTimerNotification(0, 60, '杠铃');
-    expect(mockSchedule.mock.calls[0][0].content.title).toBe('0:00 杠铃');
+    await mod.showOrUpdateRestTimerNotification(0, 60, '杠铃', '#FF6B35');
+    expect(mockNativeShow.mock.calls[0]).toEqual([0, 60, '0:00 杠铃', '#FF6B35']);
 
-    await mod.showOrUpdateRestTimerNotification(9, 60, '杠铃');
-    expect(mockSchedule.mock.calls[1][0].content.title).toBe('0:09 杠铃');
+    await mod.showOrUpdateRestTimerNotification(9, 60, '杠铃', '#FF6B35');
+    expect(mockNativeShow.mock.calls[1]).toEqual([9, 60, '0:09 杠铃', '#FF6B35']);
 
-    await mod.showOrUpdateRestTimerNotification(60, 60, '杠铃');
-    expect(mockSchedule.mock.calls[2][0].content.title).toBe('1:00 杠铃');
+    await mod.showOrUpdateRestTimerNotification(60, 60, '杠铃', '#FF6B35');
+    expect(mockNativeShow.mock.calls[2]).toEqual([60, 60, '1:00 杠铃', '#FF6B35']);
 
-    await mod.showOrUpdateRestTimerNotification(90, 90, '杠铃');
-    expect(mockSchedule.mock.calls[3][0].content.title).toBe('1:30 杠铃');
+    await mod.showOrUpdateRestTimerNotification(90, 90, '杠铃', '#FF6B35');
+    expect(mockNativeShow.mock.calls[3]).toEqual([90, 90, '1:30 杠铃', '#FF6B35']);
 
-    await mod.showOrUpdateRestTimerNotification(3600, 3600, '杠铃');
-    expect(mockSchedule.mock.calls[4][0].content.title).toBe('60:00 杠铃');
+    await mod.showOrUpdateRestTimerNotification(3600, 3600, '杠铃', '#FF6B35');
+    expect(mockNativeShow.mock.calls[4]).toEqual([3600, 3600, '60:00 杠铃', '#FF6B35']);
   });
 
   it('showOrUpdate:剩余秒数 < 0 自动 clamp 到 0', async () => {
@@ -216,25 +200,9 @@ describe('G38 restTimerNotification (Android)', () => {
       mod = require('../restTimerNotification');
     });
 
-    await mod.showOrUpdateRestTimerNotification(-10, 90);
+    await mod.showOrUpdateRestTimerNotification(-10, 90, null, '#FF6B35');
 
-    const call = mockSchedule.mock.calls[0][0];
-    // 0% 进度 → 20 empty
-    expect(call.content.title).toBe('0:00');
-    expect(call.content.body).toBe('░░░░░░░░░░░░░░░░░░░░');
-    expect(call.content.data.remainingSec).toBe(0);
-  });
-
-  it('showOrUpdate:块字符进度条 100% 全填', async () => {
-    let mod!: typeof import('../restTimerNotification');
-    jest.isolateModules(() => {
-      mod = require('../restTimerNotification');
-    });
-
-    await mod.showOrUpdateRestTimerNotification(60, 60);
-
-    const call = mockSchedule.mock.calls[0][0];
-    expect(call.content.body).toBe('████████████████████');
+    expect(mockNativeShow).toHaveBeenCalledWith(0, 90, '0:00', '#FF6B35');
   });
 
   it('showOrUpdate:totalSec < 1 自动 clamp 到 1', async () => {
@@ -243,30 +211,12 @@ describe('G38 restTimerNotification (Android)', () => {
       mod = require('../restTimerNotification');
     });
 
-    await mod.showOrUpdateRestTimerNotification(30, 0);
+    await mod.showOrUpdateRestTimerNotification(30, 0, null, '#FF6B35');
 
-    const call = mockSchedule.mock.calls[0][0];
-    expect(call.content.data.totalSec).toBe(1);
+    expect(mockNativeShow).toHaveBeenCalledWith(30, 1, '0:30', '#FF6B35');
   });
 
-  it('showOrUpdate:同一 identifier 重复调用 = 覆盖式', async () => {
-    let mod!: typeof import('../restTimerNotification');
-    jest.isolateModules(() => {
-      mod = require('../restTimerNotification');
-    });
-
-    await mod.showOrUpdateRestTimerNotification(89, 90);
-    await mod.showOrUpdateRestTimerNotification(88, 90);
-    await mod.showOrUpdateRestTimerNotification(87, 90);
-
-    expect(mockSchedule).toHaveBeenCalledTimes(3);
-    // 每次都传同一 identifier,让 OS 覆盖而非新增
-    for (const call of mockSchedule.mock.calls) {
-      expect(call[0].identifier).toBe('rest_timer_notification');
-    }
-  });
-
-  it('dismiss:调 dismissNotificationAsync + 固定 identifier', async () => {
+  it('dismiss:调原生 dismiss(无参数)', async () => {
     let mod!: typeof import('../restTimerNotification');
     jest.isolateModules(() => {
       mod = require('../restTimerNotification');
@@ -274,12 +224,12 @@ describe('G38 restTimerNotification (Android)', () => {
 
     await mod.dismissRestTimerNotification();
 
-    expect(mockDismiss).toHaveBeenCalledTimes(1);
-    expect(mockDismiss).toHaveBeenCalledWith('rest_timer_notification');
+    expect(mockNativeDismiss).toHaveBeenCalledTimes(1);
+    expect(mockNativeDismiss).toHaveBeenCalledWith();
   });
 
-  it('ensureChannel:channel 抛错时静默吞掉 + 标记为 ensured(不无限重试)', async () => {
-    mockSetChannel.mockRejectedValue(new Error('channel exists with different importance'));
+  it('ensureChannel:原生 ensureChannel 抛错时静默吞掉 + 标记为 ensured', async () => {
+    mockNativeEnsureChannel.mockRejectedValue(new Error('native channel failed'));
     let mod!: typeof import('../restTimerNotification');
     jest.isolateModules(() => {
       mod = require('../restTimerNotification');
@@ -288,23 +238,23 @@ describe('G38 restTimerNotification (Android)', () => {
     // 不应 throw
     await expect(mod.ensureChannelAndPermissions()).resolves.toBeUndefined();
 
-    // 再次调用:channelAndPermissionsEnsured 应已 true,不再 setChannel
+    // 再次调用:channelAndPermissionsEnsured 应已 true,不再 nativeEnsureChannel
     await mod.ensureChannelAndPermissions();
-    expect(mockSetChannel).toHaveBeenCalledTimes(1);
+    expect(mockNativeEnsureChannel).toHaveBeenCalledTimes(1);
   });
 });
 
-describe('G38 restTimerNotification (iOS — 本期不实现)', () => {
+describe('G41 restTimerNotification (iOS — 本期不实现)', () => {
   beforeEach(() => {
     mockPlatformOS = 'ios';
-    mockSchedule.mockReset();
-    mockDismiss.mockReset();
-    mockSetChannel.mockReset();
+    mockNativeEnsureChannel.mockReset();
+    mockNativeShow.mockReset();
+    mockNativeDismiss.mockReset();
     mockGetPerms.mockReset();
     mockRequestPerms.mockReset();
   });
 
-  it('ensureChannel: iOS 上整体跳过(channel / 权限都不调)', async () => {
+  it('ensureChannel: iOS 上整体跳过', async () => {
     let mod!: typeof import('../restTimerNotification');
     jest.isolateModules(() => {
       mod = require('../restTimerNotification');
@@ -312,7 +262,7 @@ describe('G38 restTimerNotification (iOS — 本期不实现)', () => {
 
     await mod.ensureChannelAndPermissions();
 
-    expect(mockSetChannel).not.toHaveBeenCalled();
+    expect(mockNativeEnsureChannel).not.toHaveBeenCalled();
     expect(mockGetPerms).not.toHaveBeenCalled();
     expect(mockRequestPerms).not.toHaveBeenCalled();
   });
@@ -323,9 +273,9 @@ describe('G38 restTimerNotification (iOS — 本期不实现)', () => {
       mod = require('../restTimerNotification');
     });
 
-    await mod.showOrUpdateRestTimerNotification(30, 90);
+    await mod.showOrUpdateRestTimerNotification(30, 90, 'x', '#FF6B35');
 
-    expect(mockSchedule).not.toHaveBeenCalled();
+    expect(mockNativeShow).not.toHaveBeenCalled();
   });
 
   it('dismiss: iOS 上 noop', async () => {
@@ -336,6 +286,6 @@ describe('G38 restTimerNotification (iOS — 本期不实现)', () => {
 
     await mod.dismissRestTimerNotification();
 
-    expect(mockDismiss).not.toHaveBeenCalled();
+    expect(mockNativeDismiss).not.toHaveBeenCalled();
   });
 });

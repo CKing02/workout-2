@@ -18,7 +18,13 @@
 
 module.exports = {
   preset: 'jest-expo',
-  testMatch: ['<rootDir>/src/**/__tests__/**/*.test.ts', '<rootDir>/src/**/__tests__/**/*.test.tsx'],
+  // src/** + modules/** 都跑。modules/ 下面是本地 expo-module(2026-09-18 新增
+  // expo-rest-timer-progress),其 JS 端 wrapper 走 jest mock 不依赖 native runtime。
+  testMatch: [
+    '<rootDir>/src/**/__tests__/**/*.test.ts',
+    '<rootDir>/src/**/__tests__/**/*.test.tsx',
+    '<rootDir>/modules/**/__tests__/**/*.test.ts',
+  ],
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/$1',
   },

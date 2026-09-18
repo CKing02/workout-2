@@ -1,0 +1,8 @@
+{
+  "name": "expo-rest-timer-progress",
+  "version": "1.0.0",
+  "description": "本地 expo-module:Android 训练休息间歇通知栏原生 ProgressBar(NotificationCompat.Builder.setProgress)。",
+  "main": "src/index.ts",
+  "private": true,
+  "license": "UNLICENSED"
+}

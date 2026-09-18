@@ -2,7 +2,7 @@
  * G38 §3 — RestTimer 通知栏同步 Bridge(无 UI 副作用组件)
  *
  * 挂载位置:`ActiveTrainingScreen` 内,`<RestTimerOverlay />` 同级。
- * 职责:订阅 restTimerStore + AppState,把当前倒计时秒数推到通知栏。
+ * 职责:订阅 restTimerStore + AppState + theme,把当前倒计时秒数推到通知栏。
  *
  * 关键设计:
  *   - **复用 store 状态,不重复维护 timer**:startedAt/durationMs/completedAt 都来自 store
@@ -14,16 +14,24 @@
  *     (managed workflow 无法绕过),切回前台时立刻 push 一次当前真值,通知秒数跳到正确位置
  *   - **前台不弹横幅**:setNotificationHandler 返回 shouldShowBanner:false,避免遮训练 UI
  *     训练中浮窗由 in-app RestTimerOverlay 承担
+ *   - **主题色**:从 useTheme().colors.primary 取,跟随 light/dark 切换自动重渲染
  *
  * 不做的事:
  *   - 不维护独立 interval/setTimeout 来计算秒数 — 全交给 store + Date.now()
  *   - 不订阅 completedAt 的 `!= null` 翻转来 dismiss — useEffect 依赖完备,自然处理
+ *
+ * 2026-09-18 重构(原生 ProgressBar):
+ *   - 桥接从 `expo-notifications.scheduleNotificationAsync` 切到本地 expo-module
+ *     `expo-rest-timer-progress`(NotificationCompat.Builder.setProgress)
+ *   - showOrUpdateRestTimerNotification 多了一个 colorHex 参数:从 theme.primary 读
+ *   - 主题变化(scheme 翻转)时 effect 重跑 → show 一次带新颜色,setProgress 后续沿用
  */
 
 import { useEffect } from 'react';
 import { AppState, type AppStateStatus, Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
 
+import { useTheme } from '@/theme';
 import { useRestTimerStore } from './restTimerStore';
 import {
   ensureChannelAndPermissions,
@@ -39,6 +47,9 @@ export function RestTimerNotificationBridge(): null {
   const runId = useRestTimerStore((s) => s.runId);
   // 设计优化 #1: 通知栏 title 要展示"刚做完的动作名"
   const exerciseName = useRestTimerStore((s) => s.exerciseName);
+  // 主题色:原生 ProgressBar 用 .color 字段,跟主题 primary 走;scheme 翻转时 effect 重跑
+  const { scheme, colors } = useTheme();
+  const progressColorHex = colors.primary;
 
   /* ---------------------- 1. mount:channel + 前台 handler -------------------- */
   useEffect(() => {
@@ -72,7 +83,12 @@ export function RestTimerNotificationBridge(): null {
       const ms = durationMs - (Date.now() - startedAt);
       const remaining = Math.max(0, Math.ceil(ms / 1000));
       // 设计优化 #1: 动作名也带进通知栏,用户在系统抽屉能看清"刚做完什么动作"
-      showOrUpdateRestTimerNotification(remaining, totalSec, exerciseName);
+      showOrUpdateRestTimerNotification(
+        remaining,
+        totalSec,
+        exerciseName,
+        progressColorHex,
+      );
       if (remaining <= 0) {
         // 自然到 0:切到 completedAt 分支后下一次 render 会 dismiss;
         // 这里主动 dismiss 兜底,避免最后一秒通知在抽屉多停 1s
@@ -84,7 +100,7 @@ export function RestTimerNotificationBridge(): null {
     tick();
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
-  }, [startedAt, durationMs, completedAt, runId, exerciseName]);
+  }, [startedAt, durationMs, completedAt, runId, exerciseName, progressColorHex, scheme]);
 
   /* --------------- 3. AppState 监听:active 时立刻校准秒数 ----------------- */
   useEffect(() => {
@@ -100,12 +116,17 @@ export function RestTimerNotificationBridge(): null {
       const ms = sDurationMs - (Date.now() - sStartedAt);
       const remaining = Math.max(0, Math.ceil(ms / 1000));
       const totalSec = Math.ceil(sDurationMs / 1000);
-      showOrUpdateRestTimerNotification(remaining, totalSec, sExerciseName);
+      showOrUpdateRestTimerNotification(
+        remaining,
+        totalSec,
+        sExerciseName,
+        progressColorHex,
+      );
     };
 
     const sub = AppState.addEventListener('change', onChange);
     return () => sub.remove();
-  }, []);
+  }, [progressColorHex, scheme]);
 
   // 平台分流 — iOS 路径整体 noop,但保留 hook 框架给未来 G 任务挂 Live Activity
   if (Platform.OS !== 'android') return null;
