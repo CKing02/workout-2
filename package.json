@@ -2,6 +2,7 @@
   "name": "workout-2",
   "version": "1.0.0",
   "main": "index.ts",
+  "packageManager": "pnpm@10.33.0",
   "dependencies": {
     "@react-navigation/bottom-tabs": "^7.18.18",
     "@react-navigation/native": "^7.3.18",
