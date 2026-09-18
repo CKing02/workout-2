@@ -1,17 +1,18 @@
 /**
- * G38 §5 + G38.1 — restTimerNotification 单测
+ * restTimerNotification 单测(2026-09-18 极简版)
  *
  * 验证:
  *  1. ensureChannelAndPermissions 在 Android 上正确建 channel + 申请权限
  *  2. ensureChannelAndPermissions 只跑一次(module-level guard)
  *  3. ensureChannelAndPermissions 在 iOS 上整体跳过
  *  4. showOrUpdateRestTimerNotification 在 Android 上调 scheduleNotificationAsync,
- *     identifier 固定,title="休息中　剩 N 秒",body 是 20 段块字符进度条
+ *     identifier 固定,title 形如 "0:42 杠铃卧推"(mm:ss + 动作名),body 是 20 段块字符进度条(纯条,无比例数字)
  *  5. showOrUpdateRestTimerNotification 在 iOS 上 noop
  *  6. dismissRestTimerNotification 在 Android 上调 dismissNotificationAsync
  *  7. dismissRestTimerNotification 在 iOS 上 noop
- *  8. showOrUpdate 防御:剩余秒数 < 0 时 clamp 到 0
- *  9. G38.1 块字符进度条:比例正确(0%/50%/100% 三个边界)
+ *  8. showOrUpdate 防御:剩余秒数 < 0 时 clamp 到 0;totalSec < 1 时 clamp 到 1
+ *  9. 块字符进度条:0% / 50% / 100% 三个边界 + 比例正确
+ * 10. mm:ss 格式化:0/60/90/3600 边界
  *
  * 注意:
  *  - 用 jest.isolateModules 让每个 it 重新载入模块,绕开 module-level guard
@@ -119,7 +120,7 @@ describe('G38 restTimerNotification (Android)', () => {
     expect(mockGetPerms).toHaveBeenCalledTimes(1);
   });
 
-  it('showOrUpdate:调 scheduleNotificationAsync,identifier 固定,两行布局', async () => {
+  it('showOrUpdate:调 scheduleNotificationAsync,identifier 固定,极简两行布局', async () => {
     let mod!: typeof import('../restTimerNotification');
     jest.isolateModules(() => {
       mod = require('../restTimerNotification');
@@ -131,11 +132,11 @@ describe('G38 restTimerNotification (Android)', () => {
     const call = mockSchedule.mock.calls[0][0];
     expect(call.identifier).toBe('rest_timer_notification');
     expect(call.trigger).toBeNull();
-    // G38.1: title 合并"休息中"+"　"+"剩 N 秒"
-    expect(call.content.title).toBe('休息中　剩 45 秒');
-    // G38.1: body 是 20 段块字符进度条 + 数字比例
+    // 极简版:title 只剩 mm:ss,无动作名时不追加
+    expect(call.content.title).toBe('0:45');
+    // body 是 20 段块字符进度条(纯条,无比例数字)
     // 45/90 = 50% → 10 filled,10 empty
-    expect(call.content.body).toBe('██████████░░░░░░░░░░ 45/90');
+    expect(call.content.body).toBe('██████████░░░░░░░░░░');
     expect(call.content.autoDismiss).toBe(false);
     expect(call.content.data).toMatchObject({
       kind: 'restTimer',
@@ -144,7 +145,7 @@ describe('G38 restTimerNotification (Android)', () => {
     });
   });
 
-  it('设计优化 #1:showOrUpdate 传 exerciseName → title 追加"· <动作名>",data 也带上', async () => {
+  it('showOrUpdate:传 exerciseName → title 拼接"0:45 杠铃卧推",data 也带上', async () => {
     let mod!: typeof import('../restTimerNotification');
     jest.isolateModules(() => {
       mod = require('../restTimerNotification');
@@ -153,15 +154,15 @@ describe('G38 restTimerNotification (Android)', () => {
     await mod.showOrUpdateRestTimerNotification(45, 90, '杠铃卧推');
 
     const call = mockSchedule.mock.calls[0][0];
-    // title 在原 G38.1 基础上追加"　· 杠铃卧推"(全角空格+中点+空格)
-    expect(call.content.title).toBe('休息中　剩 45 秒　· 杠铃卧推');
+    // title 是 mm:ss + 半角空格 + 动作名(单行紧凑)
+    expect(call.content.title).toBe('0:45 杠铃卧推');
     // body 进度条不变
-    expect(call.content.body).toBe('██████████░░░░░░░░░░ 45/90');
+    expect(call.content.body).toBe('██████████░░░░░░░░░░');
     // data 里也带上,后续接 Live Activity / tap 跳转能用到
     expect(call.content.data.exerciseName).toBe('杠铃卧推');
   });
 
-  it('设计优化 #1:exerciseName 前后空白自动 trim', async () => {
+  it('showOrUpdate:exerciseName 前后空白自动 trim', async () => {
     let mod!: typeof import('../restTimerNotification');
     jest.isolateModules(() => {
       mod = require('../restTimerNotification');
@@ -170,11 +171,11 @@ describe('G38 restTimerNotification (Android)', () => {
     await mod.showOrUpdateRestTimerNotification(45, 90, '  哑铃划船  ');
 
     const call = mockSchedule.mock.calls[0][0];
-    expect(call.content.title).toBe('休息中　剩 45 秒　· 哑铃划船');
+    expect(call.content.title).toBe('0:45 哑铃划船');
     expect(call.content.data.exerciseName).toBe('哑铃划船');
   });
 
-  it('设计优化 #1:空串 / 全空白 exerciseName → 当匿名处理,不追加', async () => {
+  it('showOrUpdate:空串 / 全空白 exerciseName → 当匿名处理,不追加', async () => {
     let mod!: typeof import('../restTimerNotification');
     jest.isolateModules(() => {
       mod = require('../restTimerNotification');
@@ -183,8 +184,30 @@ describe('G38 restTimerNotification (Android)', () => {
     await mod.showOrUpdateRestTimerNotification(45, 90, '');
 
     const call = mockSchedule.mock.calls[0][0];
-    expect(call.content.title).toBe('休息中　剩 45 秒');
+    expect(call.content.title).toBe('0:45');
     expect(call.content.data.exerciseName).toBeNull();
+  });
+
+  it('showOrUpdate:mm:ss 格式化边界(0 / 9 / 60 / 90 / 3600)', async () => {
+    let mod!: typeof import('../restTimerNotification');
+    jest.isolateModules(() => {
+      mod = require('../restTimerNotification');
+    });
+
+    await mod.showOrUpdateRestTimerNotification(0, 60, '杠铃');
+    expect(mockSchedule.mock.calls[0][0].content.title).toBe('0:00 杠铃');
+
+    await mod.showOrUpdateRestTimerNotification(9, 60, '杠铃');
+    expect(mockSchedule.mock.calls[1][0].content.title).toBe('0:09 杠铃');
+
+    await mod.showOrUpdateRestTimerNotification(60, 60, '杠铃');
+    expect(mockSchedule.mock.calls[2][0].content.title).toBe('1:00 杠铃');
+
+    await mod.showOrUpdateRestTimerNotification(90, 90, '杠铃');
+    expect(mockSchedule.mock.calls[3][0].content.title).toBe('1:30 杠铃');
+
+    await mod.showOrUpdateRestTimerNotification(3600, 3600, '杠铃');
+    expect(mockSchedule.mock.calls[4][0].content.title).toBe('60:00 杠铃');
   });
 
   it('showOrUpdate:剩余秒数 < 0 自动 clamp 到 0', async () => {
@@ -196,13 +219,13 @@ describe('G38 restTimerNotification (Android)', () => {
     await mod.showOrUpdateRestTimerNotification(-10, 90);
 
     const call = mockSchedule.mock.calls[0][0];
-    // G38.1: 0% 进度 → 20 empty
-    expect(call.content.title).toBe('休息中　剩 0 秒');
-    expect(call.content.body).toBe('░░░░░░░░░░░░░░░░░░░░ 0/90');
+    // 0% 进度 → 20 empty
+    expect(call.content.title).toBe('0:00');
+    expect(call.content.body).toBe('░░░░░░░░░░░░░░░░░░░░');
     expect(call.content.data.remainingSec).toBe(0);
   });
 
-  it('G38.1:块字符进度条 100% 全填', async () => {
+  it('showOrUpdate:块字符进度条 100% 全填', async () => {
     let mod!: typeof import('../restTimerNotification');
     jest.isolateModules(() => {
       mod = require('../restTimerNotification');
@@ -211,7 +234,7 @@ describe('G38 restTimerNotification (Android)', () => {
     await mod.showOrUpdateRestTimerNotification(60, 60);
 
     const call = mockSchedule.mock.calls[0][0];
-    expect(call.content.body).toBe('████████████████████ 60/60');
+    expect(call.content.body).toBe('████████████████████');
   });
 
   it('showOrUpdate:totalSec < 1 自动 clamp 到 1', async () => {

@@ -1,13 +1,13 @@
 /**
- * G38 §2 + G38.1 + 设计优化 #1 — RestTimer 通知栏同步模块
+ * RestTimer 通知栏同步模块 — 极简版
  *
  * 责任:
  *   1. ensureChannelAndPermissions:建 Android notification channel + 请求 POST_NOTIFICATIONS 权限(Android 13+)
- *   2. showOrUpdateRestTimerNotification:用同一 identifier 覆盖式更新通知,
- *      G38.1 改为"两行布局"——title 显"休息中   剩 N 秒",body 是 unicode
- *      块字符进度条(20 段)+ 数字比例;每秒 tick 时 body 同步重画
- *      设计优化 #1: 传入 exerciseName 时,title 第二行追加"· 杠铃卧推"让用户
- *      在系统抽屉就知道"刚做完哪个动作"
+ *   2. showOrUpdateRestTimerNotification:固定 ID 覆盖式更新通知。
+ *      排版极简(用户拍板):
+ *        title :  mm:ss 倒计时 + 动作名(单行)
+ *        body  :  unicode 块字符进度条(20 段,纯条无比例数字)
+ *      App 图标走 Android manifest 自动渲染,不需要塞 largeIcon。
  *   3. dismissRestTimerNotification:隐藏通知
  *
  * 设计选择:
@@ -20,6 +20,7 @@
  *     `as any` 强行传 NotificationCompat.Builder.setProgress 风险大,可能
  *     SDK 升级失效)。改用 unicode 块字符(█/░,20 段)在 body 字符串里手画
  *     进度条 — 跨平台稳定,视觉上是真进度条,无 native 依赖
+ *   - 头像:用户明确要求只走 App 图标(系统 manifest 自动),不做 emoji/GIF
  *
  * 限制(必须在调用方 bridge 内消化):
  *   - App 进 background 后 Android 会挂起 JS 线程,通知停在最后一次刷新的值
@@ -90,28 +91,35 @@ export async function ensureChannelAndPermissions(): Promise<void> {
 /* -------------------------------------------------------------------------- */
 
 /**
- * G38.1: 用 unicode 块字符画"剩余比例"进度条,共 20 段。
+ * mm:ss 格式化。例: 0 → "0:00", 42 → "0:42", 90 → "1:30", 3600 → "60:00"。
+ * rest 倒计时上限 3600s(1 小时),不再向 h:mm:ss 升级,避免标题过长。
+ */
+function formatMmss(totalSeconds: number): string {
+  const s = Math.max(0, Math.floor(totalSeconds));
+  const mm = Math.floor(s / 60);
+  const ss = s % 60;
+  return `${mm}:${String(ss).padStart(2, '0')}`;
+}
+
+/**
+ * unicode 块字符进度条,20 段,纯条不带比例数字。
  * 返回示例(remaining=30, total=60):
- *   "██████████████░░░░░░░░ 30/60"
- *
- * 选 20 段是因为 Android 通知 body 字号偏小,20 段全角 40 字符 + 数字
- * 比例约 50 字符,在 1-2 行的通知 body 里可读性最好;再多会换行,反而
- * 干扰标题对齐。
+ *   "██████████████░░░░░░░░"
  */
 function formatBlockBar(remaining: number, total: number): string {
   const SEGMENTS = 20;
   const ratio = total <= 0 ? 0 : Math.max(0, Math.min(1, remaining / total));
   const filled = Math.round(SEGMENTS * ratio);
   const empty = SEGMENTS - filled;
-  return `${'█'.repeat(filled)}${'░'.repeat(empty)} ${remaining}/${total}`;
+  return `${'█'.repeat(filled)}${'░'.repeat(empty)}`;
 }
 
 /**
  * 发或更新"休息中"通知(固定 ID 覆盖式)。
  *
- * @param remainingSec 当前剩余秒数(向上取整)— 显示在通知 title 和 body
- * @param totalSec 本轮总秒数 — 用于 body 块字符进度条 + 数字比例
- * @param exerciseName 触发本轮休息的动作名(可选);有则 title 追加"· <动作名>"
+ * @param remainingSec 当前剩余秒数(向上取整)— 显示在通知 title
+ * @param totalSec 本轮总秒数 — 用于 body 块字符进度条
+ * @param exerciseName 触发本轮休息的动作名(可选);有则 title 拼接"动作名"
  */
 export async function showOrUpdateRestTimerNotification(
   remainingSec: number,
@@ -124,21 +132,20 @@ export async function showOrUpdateRestTimerNotification(
   const safeRemaining = Math.max(0, remainingSec);
   const safeTotal = Math.max(1, totalSec);
 
-  // 设计优化 #1: title 拼接"休息中　剩 N 秒"+"· <动作名>"
-  // 没传或空串 → 不拼接(老行为,兼容匿名触发场景)
+  // 极简排版:
+  //   title : "0:42 杠铃卧推"  (mm:ss + 可选动作名,空动作名时退化为 "0:42")
+  //   body  : "██████████░░░░░░░░"  (纯进度条,无比例数字)
   const trimmedName =
     typeof exerciseName === 'string' ? exerciseName.trim() : '';
   const title = trimmedName
-    ? `休息中　剩 ${safeRemaining} 秒　· ${trimmedName}`
-    : `休息中　剩 ${safeRemaining} 秒`;
+    ? `${formatMmss(safeRemaining)} ${trimmedName}`
+    : formatMmss(safeRemaining);
 
   try {
     await Notifications.scheduleNotificationAsync({
       identifier: REST_TIMER_NOTIFICATION_IDENTIFIER,
       content: {
-        // G38.1 + 设计优化 #1: 第一行 — 基础文案 + 可选动作名
         title,
-        // 第二行 — 块字符进度条 + 数字比例
         body: formatBlockBar(safeRemaining, safeTotal),
         // sticky: Android only,iOS 自动忽略(SDK 57 行为)
         // (类型上 expo-notifications 公开 API 没暴露 sticky/ongoing 字段,
