@@ -40,6 +40,8 @@
     "@types/react": "~19.2.2",
     "jest": "^29.7.0",
     "jest-expo": "^57.0.5",
+    "patch-package": "^8.0.1",
+    "postinstall-postinstall": "^2.1.0",
     "typescript": "~6.0.3"
   },
   "scripts": {
@@ -51,7 +53,9 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
-    "eas:preview": "eas build --profile preview --platform android --non-interactive"
+    "postinstall": "patch-package",
+    "eas:preview": "eas build --profile preview --platform android --non-interactive",
+    "eas:development": "eas build --profile development --platform android --non-interactive"
   },
   "private": true
 }

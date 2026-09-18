@@ -1,0 +1,39 @@
+diff --git a/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreensModule.kt b/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreensModule.kt
+index 5a6245c..82e7de0 100644
+--- a/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreensModule.kt
++++ b/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreensModule.kt
+@@ -54,14 +54,31 @@ class ScreensModule(
+         setupFabric()
+     }
+ 
++    private var fabricListenerAttached = false
++
+     private fun setupFabric() {
++        // Patch (DL-2 G42.5): RN 0.86 dev-client 启动时 Fabric 可能还没就绪,
++        // `as FabricUIManager` 在 null 上抛 NPE → 整 app 起不来。
++        // 改为 `as?` + null guard:返回 null 时只 warn,不挂掉 app
++        // (后续 host resume 时再尝试,见 onHostResume)
++        if (fabricListenerAttached) return
+         val fabricUIManager =
+-            UIManagerHelper.getUIManager(reactContext, UIManagerType.FABRIC) as FabricUIManager
+-        proxy?.apply {
+-            nativeAddMutationsListener(fabricUIManager)
++            UIManagerHelper.getUIManager(reactContext, UIManagerType.FABRIC) as? FabricUIManager
++        if (fabricUIManager != null) {
++            proxy?.apply {
++                nativeAddMutationsListener(fabricUIManager)
++            }
++            fabricListenerAttached = true
++        } else {
++            Log.w("[RNScreens]", "FabricUIManager not ready at initialize(); deferring setupFabric")
+         }
+     }
+ 
++    override fun onHostResume() {
++        // Patch (DL-2 G42.5): initialize 阶段 Fabric 没就绪时,host resume 时再尝试一次
++        setupFabric()
++    }
++
+     override fun getName(): String = NAME
+ 
+     @DoNotStrip
