@@ -184,6 +184,14 @@ export function filterMissingSeedRows(
  *
  * 不动 is_custom=1 的用户自定义行(SELECT 用 `WHERE is_custom = 0` 过滤)。
  *
+ * ⚠️ 不要在本函数内再开 `withTransactionAsync`!
+ * expo-sqlite 14 的 `withTransactionAsync` 实现是裸 `BEGIN`(不是 SAVEPOINT,
+ * 见 node_modules/expo-sqlite/build/SQLiteDatabase.js:120)。本函数从
+ * `runMigrations` 调用时,**外层 v10 migration 已经在事务里**;再开嵌套事务
+ * 会触发 SQLite "cannot start a transaction within a transaction",且内层
+ * catch 的 ROLLBACK 会把外层也回滚掉,导致整条 migration 抛错 → handleDbInit
+ * 没 catch → unhandled rejection → 进程崩溃(G41 闪退根因)。
+ *
  * 返回:实际 INSERT 行数。
  */
 export async function upgradeExerciseSeedIfMissing(
@@ -200,39 +208,39 @@ export async function upgradeExerciseSeedIfMissing(
 
   const ids = missing.map(() => randomUUID());
 
-  await db.withTransactionAsync(async () => {
-    const stmt = await db.prepareAsync(
-      `INSERT INTO exercises
-        (id, name, muscle_group, secondary_muscles, equipment, metric_type, image_uri, is_custom, created_at,
-         description_zh, steps_zh, gif_url, target_zh, attribution)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
-    );
-    try {
-      for (let i = 0; i < missing.length; i++) {
-        const row = missing[i];
-        const id = ids[i];
-        if (!row || !id) continue;
-        await stmt.executeAsync([
-          id,
-          row.name,
-          row.muscle_group,
-          row.secondary_muscles,
-          row.equipment,
-          row.metric_type,
-          row.image_uri,
-          row.is_custom,
-          row.created_at,
-          row.description_zh,
-          row.steps_zh,
-          row.gif_url,
-          row.target_zh,
-          row.attribution,
-        ]);
-      }
-    } finally {
-      await stmt.finalizeAsync();
+  // 外层(运行 Migrations 的 caller)已开事务。这里**绝对不要再 withTransactionAsync**。
+  // v9 run() 用 db.runAsync 直接跑就是同款模式。
+  const stmt = await db.prepareAsync(
+    `INSERT INTO exercises
+      (id, name, muscle_group, secondary_muscles, equipment, metric_type, image_uri, is_custom, created_at,
+       description_zh, steps_zh, gif_url, target_zh, attribution)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+  );
+  try {
+    for (let i = 0; i < missing.length; i++) {
+      const row = missing[i];
+      const id = ids[i];
+      if (!row || !id) continue;
+      await stmt.executeAsync([
+        id,
+        row.name,
+        row.muscle_group,
+        row.secondary_muscles,
+        row.equipment,
+        row.metric_type,
+        row.image_uri,
+        row.is_custom,
+        row.created_at,
+        row.description_zh,
+        row.steps_zh,
+        row.gif_url,
+        row.target_zh,
+        row.attribution,
+      ]);
     }
-  });
+  } finally {
+    await stmt.finalizeAsync();
+  }
 
   return missing.length;
 }
