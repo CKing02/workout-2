@@ -1,30 +1,39 @@
 /**
- * TrainingCompleteScreen — G8 训练完成总结页
+ * TrainingCompleteScreen — G8 训练完成总结页(显式保存版)
  *
- * 布局（自上而下）：
- *   1. 大尺寸动画 ✓ 图标（CSS 动画；Lottie 是 P2 占位）
+ * 布局(自上而下):
+ *   1. 大尺寸动画 ✓ 图标(CSS 动画;Lottie 是 P2 占位)
  *   2. 标题"训练完成" + 副标题(计划名)
- *   3. 2x2 统计卡：时长 / 训练量 / 动作数 / 完成组数
- *   4. 底部"完成"大按钮 → navigation.popToTop()
+ *   3. 2x2 统计卡:时长 / 训练量 / 动作数 / 完成组数
+ *   4. 底部双按钮:
+ *      - 主:保存训练记录(primary, full-width) — 三态 idle / saving / saved
+ *      - 副:不保存(ghost, 紧凑) — Dialog 二次确认后丢内存态
  *
- * 交互约束：
+ * 交互约束:
  *   - 全屏沉浸 (RootNavigator `headerShown: false` + `gestureEnabled: false`)
- *   - 用户必须点底部"完成"按钮离开 —— 没有左上"返回"
+ *   - 用户必须显式选一条路径才能离开 —— 没有左上"返回"
  *
- * 设计：
- *   - 居中 ✓ 图标: Reanimated scale 1.0 → 1.15 → 1.0 循环；颜色循环
- *     primary ↔ success，营造"完成"庆祝感
- *   - 4 个统计卡用 Card 组件组合：图标（emoji）+ label + value
- *   - theme-aware：浅深色自动切换
+ * 设计:
+ *   - 居中 ✓ 图标: Reanimated scale 1.0 → 1.15 → 1.0 循环;颜色循环
+ *     primary ↔ success,营造"完成"庆祝感
+ *   - 4 个统计卡用 Card 组件组合:图标(emoji)+ label + value
+ *   - 保存成功后:spring 弹簧(380/0.7,"Expressive" 弹簧)scale 1.0→1.08→1.0
+ *     庆祝 overshoot + 背景 primary → success + 文案 "✓ 已保存",保持 900ms
+ *     让用户看到落库成功的视觉锚点,然后 popToTop() 回首页
+ *   - theme-aware:浅深色自动切换
  *
- * 数据：
- *   - 通过 `route.params` 接收训练总结 stats（G8 已写入 DB，本页不再读取 DB）。
- *   - 数值/单位显示格式化为本地习惯（中文千分位、kg 保留 0 位小数）。
+ * 数据:
+ *   - 通过 `route.params` 接收训练总结 stats(activeTraining 在内存中,DB 写
+ *     尚未发生;`trainingId` 是 `activeTraining.id` 的快照,startTraining 已
+ *     写过 orphan 行,等用户点保存才真正落库,点不保存则 cancelTraining 删)。
+ *   - 数值/单位显示格式化为本地习惯(中文千分位、kg 保留 0 位小数)。
  */
 
-import React, { useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
+  Alert,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -44,13 +53,16 @@ import Animated, {
   useSharedValue,
   withRepeat,
   withSequence,
+  withSpring,
   withTiming,
 } from 'react-native-reanimated';
 import { haptic } from '@/utils/haptics';
 
 import { Button } from '@/components/Button';
 import { Card } from '@/components/Card';
+import { Dialog } from '@/components/Dialog';
 import { useTheme } from '@/theme';
+import { useTrainingStore } from '@/store/trainingStore';
 import type { RootStackParamList } from '@/navigation/types';
 
 type Navigation = NativeStackNavigationProp<
@@ -58,6 +70,8 @@ type Navigation = NativeStackNavigationProp<
   'TrainingComplete'
 >;
 type Route = RouteProp<RootStackParamList, 'TrainingComplete'>;
+
+type SaveState = 'idle' | 'saving' | 'saved';
 
 export function TrainingCompleteScreen() {
   const navigation = useNavigation<Navigation>();
@@ -74,12 +88,53 @@ export function TrainingCompleteScreen() {
     planNameSnapshot,
   } = route.params;
 
+  const completeTraining = useTrainingStore((s) => s.completeTraining);
+  const cancelTraining = useTrainingStore((s) => s.cancelTraining);
+
   // ----------------------------------------------------------------
   // Entry haptic — celebration when the screen opens.
   // ----------------------------------------------------------------
   useEffect(() => {
     haptic.success();
   }, []);
+
+  // ----------------------------------------------------------------
+  // Save state machine: idle → saving → saved
+  // saved 后 900ms 自动 popToTop() 回首页(让用户看到成功视觉锚点)
+  // ----------------------------------------------------------------
+  const [saveState, setSaveState] = useState<SaveState>('idle');
+
+  const handleSave = useCallback(async () => {
+    if (saveState !== 'idle') return;
+    setSaveState('saving');
+    try {
+      const result = await completeTraining();
+      if (!result) {
+        setSaveState('idle');
+        Alert.alert('保存失败', '找不到当前训练。');
+        return;
+      }
+      setSaveState('saved');
+      haptic.success();
+      // 给 saved 微动效播完 + 用户看清「✓ 已保存」的时间,然后自动回首页。
+      setTimeout(() => {
+        navigation.popToTop();
+      }, 900);
+    } catch (err) {
+      setSaveState('idle');
+      const msg = err instanceof Error ? err.message : String(err);
+      Alert.alert('保存失败', msg);
+    }
+  }, [saveState, completeTraining, navigation]);
+
+  // 不保存 — Dialog 二次确认后丢内存态 + orphan 行
+  const [pendingDiscard, setPendingDiscard] = useState(false);
+
+  const handleConfirmDiscard = useCallback(() => {
+    setPendingDiscard(false);
+    cancelTraining();
+    navigation.popToTop();
+  }, [cancelTraining, navigation]);
 
   // ----------------------------------------------------------------
   // Animation: ✓ icon does a soft scale + color cycle to evoke "celebration"
@@ -125,13 +180,6 @@ export function TrainingCompleteScreen() {
   // ----------------------------------------------------------------
   const formattedDuration = formatDuration(durationSeconds);
   const formattedVolume = formatKg(totalVolume);
-
-  const handleDone = () => {
-    haptic.selection();
-    // popToTop sends the user back to the Tabs root (锻炼 tab). From there
-    // Home is the initial route of Tabs — so this lands on Home.
-    navigation.popToTop();
-  };
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
@@ -232,19 +280,9 @@ export function TrainingCompleteScreen() {
             accessibilityHint={`共完成 ${setCount} 组`}
           />
         </View>
-
-        <Text
-          style={[
-            typography.caption,
-            { color: colors.textTertiary, textAlign: 'center', marginBottom: spacing.lg },
-          ]}
-          accessibilityLabel={`训练记录 id ${trainingId}`}
-        >
-          已写入训练历史 · #{trainingId.slice(0, 8)}
-        </Text>
       </ScrollView>
 
-      {/* ====== Bottom "完成" CTA ====== */}
+      {/* ====== Bottom CTA: 双按钮(主:保存 / 副:不保存) ====== */}
       <View
         style={[
           styles.bottomBar,
@@ -257,18 +295,177 @@ export function TrainingCompleteScreen() {
           },
         ]}
       >
+        <SaveButton
+          state={saveState}
+          onPress={handleSave}
+          primaryColor={colors.primary}
+          successColor={colors.success}
+          onPrimaryColor={colors.onPrimary}
+          radius={radius.md}
+          label="保存训练记录"
+        />
+        <View style={{ height: spacing.sm }} />
         <Button
-          variant="primary"
-          size="lg"
-          onPress={handleDone}
-          accessibilityLabel="完成，回到首页"
-          accessibilityHint="结束本总结页，返回应用首页"
+          variant="ghost"
+          size="md"
+          disabled={saveState !== 'idle'}
+          onPress={() => setPendingDiscard(true)}
+          accessibilityLabel="不保存训练记录"
+          accessibilityHint="放弃本次训练,不写入训练历史"
           style={{ alignSelf: 'stretch' }}
         >
-          完成
+          不保存
         </Button>
       </View>
+
+      {/* ====== 不保存二次确认 ====== */}
+      <Dialog
+        visible={pendingDiscard}
+        variant="danger"
+        title="放弃训练记录？"
+        message="放弃后本次训练不会写入训练历史,已完成的组数据也会丢失。"
+        confirmText="放弃"
+        cancelText="继续查看"
+        onCancel={() => setPendingDiscard(false)}
+        onConfirm={handleConfirmDiscard}
+      />
     </View>
+  );
+}
+
+/* ============================================================================
+ * SaveButton — 三态主 CTA(idle / saving / saved)
+ *
+ * idle / saving 复用通用 Button(saved 终态需要自定义 spring + color 切换,
+ * 包一层会拦截 Button 内部 Pressable 的 pressed 反馈,故独立实现)。
+ *
+ * spring 参数(M3 Expressive 弹簧规范):
+ *   stiffness = 380, damping ratio ≈ 0.7 → 轻微 overshoot,贴合庆祝感
+ *   mass = 1
+ * ========================================================================== */
+
+interface SaveButtonProps {
+  state: SaveState;
+  onPress: () => void;
+  primaryColor: string;
+  successColor: string;
+  onPrimaryColor: string;
+  radius: number;
+  label: string;
+}
+
+function SaveButton({
+  state,
+  onPress,
+  primaryColor,
+  successColor,
+  onPrimaryColor,
+  radius,
+  label,
+}: SaveButtonProps) {
+  const { typography } = useTheme();
+  // saved 态微动效:背景色 primary → success + scale 1.0 → 1.08 → 1.0 spring
+  const scale = useSharedValue(1);
+  const bgProgress = useSharedValue(0);
+
+  useEffect(() => {
+    if (state === 'saved') {
+      // 颜色:280ms ease-in-out 从 primary 过渡到 success
+      bgProgress.value = withTiming(1, {
+        duration: 280,
+        easing: Easing.inOut(Easing.cubic),
+      });
+      // 弹簧庆祝:1.0 → 1.08 → 1.0,stiffness=380 / damping=17 (≈0.7 阻尼比) / mass=1
+      scale.value = withSequence(
+        withSpring(1.08, { stiffness: 380, damping: 17, mass: 1 }),
+        withSpring(1.0, { stiffness: 380, damping: 17, mass: 1 }),
+      );
+    } else if (state === 'saving') {
+      // 重置到 idle 视觉(防御性):防止 saved → idle 闪烁
+      bgProgress.value = withTiming(0, { duration: 200 });
+      scale.value = withTiming(1, { duration: 200 });
+    } else {
+      bgProgress.value = 0;
+      scale.value = 1;
+    }
+  }, [state, bgProgress, scale]);
+
+  const animatedStyle = useAnimatedStyle(() => {
+    const bg = interpolateColor(
+      bgProgress.value,
+      [0, 1],
+      [primaryColor, successColor],
+    );
+    return {
+      backgroundColor: bg,
+      transform: [{ scale: scale.value }],
+    };
+  });
+
+  const isInert = state !== 'idle';
+
+  return (
+    <Animated.View style={[styles.saveBtn, { borderRadius: radius }, animatedStyle]}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={
+          state === 'saved'
+            ? '已保存训练记录'
+            : state === 'saving'
+            ? '正在保存训练记录'
+            : label
+        }
+        accessibilityState={{ disabled: isInert, busy: state === 'saving' }}
+        accessibilityHint={
+          state === 'idle'
+            ? '保存后本次训练会写入训练历史'
+            : state === 'saving'
+            ? '写入本地数据库'
+            : undefined
+        }
+        disabled={isInert}
+        onPress={onPress}
+        android_ripple={{ color: 'rgba(255,255,255,0.18)', borderless: false }}
+        style={({ pressed }) => [
+          styles.saveBtnPressable,
+          {
+            opacity: pressed && state === 'idle' ? 0.92 : 1,
+          },
+        ]}
+      >
+        {state === 'saving' ? (
+          <Text
+            style={[
+              typography.label,
+              { color: onPrimaryColor, fontSize: 16, lineHeight: 22 },
+            ]}
+            numberOfLines={1}
+          >
+            保存中…
+          </Text>
+        ) : state === 'saved' ? (
+          <Text
+            style={[
+              typography.label,
+              { color: onPrimaryColor, fontSize: 16, lineHeight: 22 },
+            ]}
+            numberOfLines={1}
+          >
+            ✓ 已保存
+          </Text>
+        ) : (
+          <Text
+            style={[
+              typography.label,
+              { color: onPrimaryColor, fontSize: 16, lineHeight: 22 },
+            ]}
+            numberOfLines={1}
+          >
+            {label}
+          </Text>
+        )}
+      </Pressable>
+    </Animated.View>
   );
 }
 
@@ -352,7 +549,7 @@ function formatDuration(totalSeconds: number): string {
 function formatKg(kg: number): string {
   if (!Number.isFinite(kg)) return '0';
   const rounded = Math.round(kg * 10) / 10;
-  // 整数不显示小数；非整数保留 1 位
+  // 整数不显示小数;非整数保留 1 位
   if (Math.abs(rounded - Math.floor(rounded)) < 0.05) {
     return String(Math.floor(rounded));
   }
@@ -411,5 +608,18 @@ const styles = StyleSheet.create({
   },
   bottomBar: {
     borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  saveBtn: {
+    alignSelf: 'stretch',
+    minHeight: 52,
+    overflow: 'hidden',
+  },
+  saveBtnPressable: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    flexDirection: 'row',
   },
 });

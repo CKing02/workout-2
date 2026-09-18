@@ -69,11 +69,12 @@ import { RestTimerOverlay } from '@/features/training/RestTimerOverlay';
 import { RestTimerNotificationBridge } from '@/features/training/RestTimerNotificationBridge';
 import { triggerRestTimer } from '@/features/training/restTimerTrigger';
 import { useRestTimerStore } from '@/features/training/restTimerStore';
+import { dismissRestTimerNotification } from '@/features/training/restTimerNotification';
 import { formatElapsed, useElapsedSeconds } from '@/hooks/useElapsedSeconds';
 import { toast } from '@/hooks/useToast';
 import { usePlanStore, type PlanSetDraft } from '@/store/planStore';
 import { useSettingsStore } from '@/store/settingsStore';
-import { useTrainingStore, type ActiveSet } from '@/store/trainingStore';
+import { useTrainingStore, type ActiveSet, type ActiveTraining } from '@/store/trainingStore';
 import { useTheme } from '@/theme';
 import { haptic } from '@/utils/haptics';
 import { formatWeight } from '@/utils/units';
@@ -448,6 +449,13 @@ export function ActiveTrainingScreen() {
   const handleRequestCancel = useCallback(() => setPendingCancel(true), []);
   const handleConfirmCancel = useCallback(() => {
     setPendingCancel(false);
+    // 强制收尾通知栏 + rest timer —— 用户中途点 × 放弃时,overlay 可能还
+    // 显示折叠条或通知栏刚被点亮。这步必须在 cancelTraining() 之前同步
+    // 执行,否则 bridge 跟着 ActiveTrainingScreen unmount,通知会卡住。
+    // dismissRestTimerNotification 直调一道兜底 —— bridge 的 useEffect 在
+    // unmount 时只跑 cleanup 不重跑 body,跳 idle 后再 unmount 会漏 dismiss。
+    useRestTimerStore.getState().skip();
+    void dismissRestTimerNotification();
     cancelTraining();
     // G12: 取消训练轻量提示，告知用户已放弃的数据。
     toast.show('已放弃本次训练', 'info');
@@ -457,8 +465,8 @@ export function ActiveTrainingScreen() {
   }, [cancelTraining, navigation]);
 
   // -----------------------------------------------------------------
-  // G8: Finish handlers — call completeTraining() (atomic DB write), then
-  // navigate (replace) to the TrainingComplete summary screen.
+  // G8: Finish handlers — navigate (replace) to TrainingComplete summary.
+  // DB write is deferred to that screen (user explicitly taps "保存训练记录").
   // -----------------------------------------------------------------
   const handleRequestFinish = useCallback(
     () => setPendingFinish(true),
@@ -466,46 +474,57 @@ export function ActiveTrainingScreen() {
   );
 
   /**
-   * Run completeTraining() once. If it succeeds, navigate to the summary
-   * page via `replace` so the ActiveTraining screen is no longer on the
-   * back stack — preventing accidental back-swipes returning to a possibly
-   * stale training-in-progress UI.
+   * Compute stats in-memory and navigate to the summary screen.
+   * DB write is intentionally NOT done here — `completeTraining()` lives
+   * on the TrainingCompleteScreen so the user has the final say.
    *
    * Safe to call multiple times via the `finishing` mutex.
+   *
+   * 必须先 `useRestTimerStore.getState().skip()` 收尾通知栏再 navigation:
+   * 否则 bridge 随 ActiveTrainingScreen unmount,通知卡在最后帧。
    */
   const completeAndNavigate = useCallback(async () => {
     if (finishing) return;
     setFinishing(true);
     try {
-      const result = await completeTraining();
-      if (!result) {
-        // No active training — bail out without navigating.
-        setPendingFinish(false);
+      // 1) 强制收尾通知栏 + rest timer(必须在 navigation 之前同步执行)
+      // dismissRestTimerNotification 直调一道兜底 —— bridge 的 useEffect 在
+      // unmount 时只跑 cleanup 不重跑 body,跳 idle 后再 unmount 会漏 dismiss。
+      useRestTimerStore.getState().skip();
+      void dismissRestTimerNotification();
+
+      // 2) 同步算 stats —— 公式与 trainingStore.computeStats 一致,
+      //    这里复制一份避免循环依赖 + 让本屏不必 import 私有函数。
+      const at = useTrainingStore.getState().activeTraining;
+      if (!at) {
         setFinishing(false);
         return;
       }
+      const stats = computeStatsFromActive(at);
+
+      // 3) 跳转。activeTraining 仍驻留内存,等用户在 TrainingComplete
+      //    显式 tap「保存训练记录」(→ completeTraining) 或「不保存」
+      //    (→ cancelTraining) 才落库 / 丢弃。
       navigation.replace('TrainingComplete', {
-        trainingId: result.id,
-        durationSeconds: result.durationSeconds ?? result.stats.durationSeconds,
-        totalVolume: result.totalVolume ?? result.stats.totalVolume,
-        exerciseCount:
-          result.exerciseCount ?? result.stats.exerciseCount,
-        setCount: result.setCount ?? result.stats.setCount,
-        planNameSnapshot: result.planNameSnapshot,
+        trainingId: at.id,
+        durationSeconds: stats.durationSeconds,
+        totalVolume: stats.totalVolume,
+        exerciseCount: stats.exerciseCount,
+        setCount: stats.setCount,
+        planNameSnapshot: at.planNameSnapshot,
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      Alert.alert('完成训练失败', msg, [
+      Alert.alert('进入总结页失败', msg, [
         {
           text: '好的',
           onPress: () => {
-            setPendingFinish(false);
             setFinishing(false);
           },
         },
       ]);
     }
-  }, [completeTraining, finishing, navigation]);
+  }, [finishing, navigation]);
 
   const handleConfirmFinish = useCallback(() => {
     setPendingFinish(false);
@@ -1803,6 +1822,37 @@ function formatActiveSetSummary(
 }
 
 /* ---------- G29: legacy SetChip removed — replaced by SetRow ---------- */
+
+/* ---------- stats 计算 ----------
+ * 与 trainingStore.computeStats 完全一致的公式,放在本屏避免循环依赖
+ * (trainingStore 不该 import screens/)。任何公式变动两边必须同步。
+ */
+function computeStatsFromActive(active: ActiveTraining): {
+  durationSeconds: number;
+  totalVolume: number;
+  exerciseCount: number;
+  setCount: number;
+} {
+  let totalVolume = 0;
+  let setCount = 0;
+  for (const ex of active.exercises) {
+    for (const s of ex.sets) {
+      if (s.completed) {
+        setCount += 1;
+        if (s.weight && s.reps) totalVolume += s.weight * s.reps;
+      }
+    }
+  }
+  return {
+    durationSeconds: Math.max(
+      0,
+      Math.floor((Date.now() - active.startedAt) / 1000),
+    ),
+    totalVolume,
+    exerciseCount: active.exercises.length,
+    setCount,
+  };
+}
 
 
 /* ============================================================================
