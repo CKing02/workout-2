@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  休息倒计时通知的内容区(自绘)。
+
+  配合 DecoratedCustomViewStyle 使用:
+    - 系统头部(应用图标 / 应用名 / 时间 / 圆角卡片)由 SystemUI 绘制
+    - 本布局只画内容区:一行「动作名 mm:ss」+ 进度条
+
+  show() 与 setProgress() 共用同一份 RemoteViews,
+  收起态和展开态传的是同一个对象 —— 展开后没有任何新内容可显示。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:paddingTop="2dp"
+    android:paddingBottom="2dp">
+
+  <!-- 动作名 + 倒计时。动作名过长时截断,不换行 —— 通知栏只有一行的高度预算 -->
+  <TextView
+      android:id="@+id/rest_timer_title"
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:maxLines="1"
+      android:ellipsize="end"
+      android:textColor="?android:attr/textColorPrimary"
+      android:textSize="14sp" />
+
+  <!-- 进度条着色由 Kotlin 侧 setProgressTintList 注入(主题 primary),不在这里写死 -->
+  <ProgressBar
+      android:id="@+id/rest_timer_progress"
+      style="?android:attr/progressBarStyleHorizontal"
+      android:layout_width="match_parent"
+      android:layout_height="4dp"
+      android:layout_marginTop="6dp"
+      android:max="100" />
+
+</LinearLayout>

@@ -4,9 +4,10 @@
  * 责任:
  *   1. ensureChannelAndPermissions : 建 channel + 申请 POST_NOTIFICATIONS 权限
  *   2. showOrUpdateRestTimerNotification : 固定 ID 覆盖式更新通知。
- *      排版极简(用户拍板):
+ *      排版极简(用户拍板,2026-09-20 起内容区自绘 RemoteViews):
  *        title :  动作名 + mm:ss 倒计时(单行)—— 动作名在前,时间在后
- *        body  :  "倒计时中"(系统默认,主视觉交给原生 ProgressBar)
+ *        进度条 :  主题色着色,收起态与展开态是同一份 RemoteViews
+ *                 (展开不会多出内容,原来的 "倒计时中" body 行已删)
  *   3. dismissRestTimerNotification : 隐藏通知
  *
  * 设计选择(2026-09-18 重构):

@@ -1,8 +1,13 @@
 package expo.modules.resttimerprogress
 
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.content.Context
+import android.content.res.ColorStateList
+import android.graphics.Color
 import android.os.Build
+import android.widget.RemoteViews
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import expo.modules.kotlin.Promise
@@ -12,14 +17,21 @@ import expo.modules.kotlin.modules.ModuleDefinition
 /**
  * RestTimerProgress — 本地 expo-module
  *
- * 用 NotificationCompat.Builder.setProgress() 让 Android 系统用自带 ProgressBar
- * 渲染通知栏进度条,而不是在 body 字符串里手画 unicode 块字符。
+ * 用 NotificationCompat.Builder.setProgress() 让系统渲染通知栏进度条,
+ * 而不是在 body 字符串里手画 unicode 块字符。
  *
- * 三个 JS 调用:
+ * 四个 JS 调用:
  *   - ensureChannel() : 建/复用 "rest_timer" channel (HIGH importance, silent, vibrate)
  *   - show(rem, total, title, colorHex) : 首次发通知(全量:title + color + progress)
- *   - setProgress(rem, total) : 增量更新进度(每秒 1 次,从 activeNotifications 读旧 title)
+ *   - setProgress(rem, total) : 增量更新进度(从 activeNotifications 读旧 title)
  *   - dismiss() : cancel notification
+ *
+ * 渲染方式(2026-09-20 改):内容区自绘 RemoteViews + DecoratedCustomViewStyle。
+ *   - 系统头部(图标 / 应用名 / 时间 / 圆角卡片)保留,观感与其他通知一致
+ *   - 内容区只有一行「动作名 mm:ss」+ 进度条 —— 原来的 "倒计时中" body 行删掉
+ *   - 收起态与展开态**传同一个 RemoteViews**:点开箭头不会多出任何内容
+ *   - 进度条用主题色着色(setProgressTintList):系统模板的进度条固定吃
+ *     Material You 强调色,`.color` 只影响图标底色,所以必须自绘才跟得上主题
  *
  * 跟现有 expo-notifications 的 channel("rest_timer")同 id — 创建幂等,无冲突。
  */
@@ -27,10 +39,73 @@ class RestTimerProgressModule : Module() {
   companion object {
     const val CHANNEL_ID = "rest_timer"
     const val NOTIFICATION_ID = 1001
-    const val PROGRESS_BODY = "倒计时中"
 
     /** show() 第一次设置的颜色,setProgress() 不再传 color —— 沿用首次。 */
     @Volatile var cachedColorHex: String? = null
+
+    /**
+     * 内容区 RemoteViews:一行「动作名 mm:ss」+ 主题色进度条。
+     *
+     * 收起态和展开态都返回这一份 —— 两者的视觉必须完全一致,
+     * 展开后没有新内容可显示,这正是「不需要展开状态」的实现方式。
+     */
+    private fun contentView(
+      ctx: Context,
+      title: String,
+      totalSec: Int,
+      remainingSec: Int,
+      colorHex: String?,
+    ): RemoteViews {
+      val rv = RemoteViews(ctx.packageName, R.layout.notification_rest_timer)
+      rv.setTextViewText(R.id.rest_timer_title, title)
+      rv.setProgressBar(R.id.rest_timer_progress, totalSec, remainingSec, false)
+
+      val argb = colorHex?.let {
+        try {
+          Color.parseColor(it)
+        } catch (_: IllegalArgumentException) {
+          null // 颜色格式错就跳过,不让 JS 错破通知
+        }
+      }
+      // setProgressTintList 收 ColorStateList(不是 int),RemoteViews 需要用
+      // setColorStateList 走反射 —— 该重载 API 31 才有。更低版本退化为系统强调色。
+      if (argb != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        rv.setColorStateList(
+          R.id.rest_timer_progress,
+          "setProgressTintList",
+          ColorStateList.valueOf(argb),
+        )
+      }
+      return rv
+    }
+
+    /** 组装通知。show() 和 setProgress() 只有 title / 进度来源不同,其余完全一致。 */
+    private fun build(
+      ctx: Context,
+      title: String,
+      totalSec: Int,
+      remainingSec: Int,
+      colorHex: String?,
+    ): Notification {
+      val content = contentView(ctx, title, totalSec, remainingSec, colorHex)
+      val builder = NotificationCompat.Builder(ctx, CHANNEL_ID)
+        .setSmallIcon(android.R.drawable.ic_menu_recent_history)
+        .setContentTitle(title) // 无障碍朗读 + 非装饰退化路径用;不再设 contentText
+        .setOngoing(true)
+        .setSilent(true)
+        .setPriority(NotificationCompat.PRIORITY_HIGH)
+        .setStyle(NotificationCompat.DecoratedCustomViewStyle())
+        .setCustomContentView(content)
+        .setCustomBigContentView(content) // 与收起态同一份 → 展开无新内容
+      if (colorHex != null && colorHex.isNotBlank()) {
+        try {
+          builder.color = Color.parseColor(colorHex)
+        } catch (_: IllegalArgumentException) {
+          // 颜色格式错就跳过,不让 JS 错破通知
+        }
+      }
+      return builder.build()
+    }
   }
 
   override fun definition() = ModuleDefinition {
@@ -66,26 +141,13 @@ class RestTimerProgressModule : Module() {
       try {
         val ctx = appContext.reactContext
           ?: throw IllegalStateException("ReactContext lost")
-        val nm = NotificationManagerCompat.from(ctx)
         val safeTotal = totalSec.coerceAtLeast(1)
         val safeRemaining = remainingSec.coerceIn(0, safeTotal)
-        val builder = NotificationCompat.Builder(ctx, CHANNEL_ID)
-          .setSmallIcon(android.R.drawable.ic_menu_recent_history)
-          .setContentTitle(title)
-          .setContentText(PROGRESS_BODY)
-          .setOngoing(true)
-          .setSilent(true)
-          .setPriority(NotificationCompat.PRIORITY_HIGH)
-          .setProgress(safeTotal, safeRemaining, false)
-        if (!colorHex.isNullOrBlank()) {
-          try {
-            builder.color = android.graphics.Color.parseColor(colorHex)
-            cachedColorHex = colorHex
-          } catch (_: IllegalArgumentException) {
-            // 颜色格式错就跳过,不让 JS 错破通知
-          }
+        if (colorHex != null && colorHex.isNotBlank()) {
+          cachedColorHex = colorHex
         }
-        nm.notify(NOTIFICATION_ID, builder.build())
+        NotificationManagerCompat.from(ctx)
+          .notify(NOTIFICATION_ID, build(ctx, title, safeTotal, safeRemaining, colorHex))
         promise.resolve(null)
       } catch (e: Throwable) {
         promise.reject("ERR_SHOW", e.message ?: "show failed", e)
@@ -93,9 +155,9 @@ class RestTimerProgressModule : Module() {
     }
 
     /**
-     * 增量更新进度 —— 每秒 1 次。
-     * 必须重建 builder(NotificationCompat.Builder 不支持 mutate),
-     * 但从 activeNotifications 读旧 title 避免 JS 端每次重传。
+     * 增量更新进度。
+     * 必须重建整个通知(NotificationCompat.Builder 不支持 mutate),
+     * 但 title / 颜色沿用上一次 show() 的,避免 JS 端每帧重复传。
      */
     AsyncFunction("setProgress") { remainingSec: Int, totalSec: Int ->
       val ctx = appContext.reactContext ?: return@AsyncFunction
@@ -108,20 +170,10 @@ class RestTimerProgressModule : Module() {
         .getCharSequence(NotificationCompat.EXTRA_TITLE)
         ?.toString()
         ?: ""
-      val builder = NotificationCompat.Builder(ctx, CHANNEL_ID)
-        .setSmallIcon(android.R.drawable.ic_menu_recent_history)
-        .setContentTitle(oldTitle)
-        .setContentText(PROGRESS_BODY)
-        .setOngoing(true)
-        .setSilent(true)
-        .setPriority(NotificationCompat.PRIORITY_HIGH)
-        .setProgress(safeTotal, safeRemaining, false)
-      cachedColorHex?.let {
-        try {
-          builder.color = android.graphics.Color.parseColor(it)
-        } catch (_: IllegalArgumentException) { /* skip */ }
-      }
-      nm.notify(NOTIFICATION_ID, builder.build())
+      nm.notify(
+        NOTIFICATION_ID,
+        build(ctx, oldTitle, safeTotal, safeRemaining, cachedColorHex),
+      )
     }
 
     AsyncFunction("dismiss") { promise: Promise ->
