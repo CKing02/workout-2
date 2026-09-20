@@ -8,7 +8,7 @@
  *  3. ensureChannelAndPermissions module-level guard 防止重复 init
  *  4. ensureChannelAndPermissions 在 iOS 上整体跳过
  *  5. showOrUpdateRestTimerNotification 在 Android 上调原生 showOrUpdate,
- *     title 形如 "0:42 杠铃卧推"(mm:ss + 动作名);参数 4 个:rem/total/title/colorHex
+ *     title 形如 "杠铃卧推 0:42"(动作名 + mm:ss);参数 4 个:rem/total/title/colorHex
  *  6. showOrUpdateRestTimerNotification exerciseName trim / 空串处理
  *  7. showOrUpdateRestTimerNotification mm:ss 格式化边界(0/9/60/90/3600)
  *  8. showOrUpdateRestTimerNotification 剩余秒数 < 0 / totalSec < 1 自动 clamp
@@ -125,7 +125,7 @@ describe('G41 restTimerNotification (Android)', () => {
     await mod.showOrUpdateRestTimerNotification(45, 90, '杠铃卧推', '#FF6B35');
 
     expect(mockNativeShow).toHaveBeenCalledTimes(1);
-    expect(mockNativeShow).toHaveBeenCalledWith(45, 90, '0:45 杠铃卧推', '#FF6B35');
+    expect(mockNativeShow).toHaveBeenCalledWith(45, 90, '杠铃卧推 0:45', '#FF6B35');
   });
 
   it('showOrUpdate:不传 exerciseName → title 只剩 mm:ss', async () => {
@@ -147,7 +147,7 @@ describe('G41 restTimerNotification (Android)', () => {
 
     await mod.showOrUpdateRestTimerNotification(45, 90, '  哑铃划船  ', '#FF6B35');
 
-    expect(mockNativeShow).toHaveBeenCalledWith(45, 90, '0:45 哑铃划船', '#FF6B35');
+    expect(mockNativeShow).toHaveBeenCalledWith(45, 90, '哑铃划船 0:45', '#FF6B35');
   });
 
   it('showOrUpdate:空串 / 全空白 exerciseName → 当匿名处理,不追加', async () => {
@@ -169,7 +169,7 @@ describe('G41 restTimerNotification (Android)', () => {
 
     await mod.showOrUpdateRestTimerNotification(30, 60, '杠铃');
 
-    expect(mockNativeShow).toHaveBeenCalledWith(30, 60, '0:30 杠铃', null);
+    expect(mockNativeShow).toHaveBeenCalledWith(30, 60, '杠铃 0:30', null);
   });
 
   it('showOrUpdate:mm:ss 格式化边界(0 / 9 / 60 / 90 / 3600)', async () => {
@@ -179,19 +179,19 @@ describe('G41 restTimerNotification (Android)', () => {
     });
 
     await mod.showOrUpdateRestTimerNotification(0, 60, '杠铃', '#FF6B35');
-    expect(mockNativeShow.mock.calls[0]).toEqual([0, 60, '0:00 杠铃', '#FF6B35']);
+    expect(mockNativeShow.mock.calls[0]).toEqual([0, 60, '杠铃 0:00', '#FF6B35']);
 
     await mod.showOrUpdateRestTimerNotification(9, 60, '杠铃', '#FF6B35');
-    expect(mockNativeShow.mock.calls[1]).toEqual([9, 60, '0:09 杠铃', '#FF6B35']);
+    expect(mockNativeShow.mock.calls[1]).toEqual([9, 60, '杠铃 0:09', '#FF6B35']);
 
     await mod.showOrUpdateRestTimerNotification(60, 60, '杠铃', '#FF6B35');
-    expect(mockNativeShow.mock.calls[2]).toEqual([60, 60, '1:00 杠铃', '#FF6B35']);
+    expect(mockNativeShow.mock.calls[2]).toEqual([60, 60, '杠铃 1:00', '#FF6B35']);
 
     await mod.showOrUpdateRestTimerNotification(90, 90, '杠铃', '#FF6B35');
-    expect(mockNativeShow.mock.calls[3]).toEqual([90, 90, '1:30 杠铃', '#FF6B35']);
+    expect(mockNativeShow.mock.calls[3]).toEqual([90, 90, '杠铃 1:30', '#FF6B35']);
 
     await mod.showOrUpdateRestTimerNotification(3600, 3600, '杠铃', '#FF6B35');
-    expect(mockNativeShow.mock.calls[4]).toEqual([3600, 3600, '60:00 杠铃', '#FF6B35']);
+    expect(mockNativeShow.mock.calls[4]).toEqual([3600, 3600, '杠铃 60:00', '#FF6B35']);
   });
 
   it('showOrUpdate:剩余秒数 < 0 自动 clamp 到 0', async () => {

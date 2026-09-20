@@ -57,9 +57,9 @@ describe('expo-rest-timer-progress', () => {
     jest.isolateModules(() => {
       mod = require('../index');
     });
-    await mod.showOrUpdate(45, 90, '0:45 杠铃卧推', '#FF6B35');
+    await mod.showOrUpdate(45, 90, '杠铃卧推 0:45', '#FF6B35');
     expect(mockShow).toHaveBeenCalledTimes(1);
-    expect(mockShow).toHaveBeenCalledWith(45, 90, '0:45 杠铃卧推', '#FF6B35');
+    expect(mockShow).toHaveBeenCalledWith(45, 90, '杠铃卧推 0:45', '#FF6B35');
   });
 
   it('Android: showOrUpdate 支持 colorHex=null', async () => {

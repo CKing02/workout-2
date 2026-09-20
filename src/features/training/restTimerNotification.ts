@@ -5,7 +5,7 @@
  *   1. ensureChannelAndPermissions : 建 channel + 申请 POST_NOTIFICATIONS 权限
  *   2. showOrUpdateRestTimerNotification : 固定 ID 覆盖式更新通知。
  *      排版极简(用户拍板):
- *        title :  mm:ss 倒计时 + 动作名(单行)
+ *        title :  动作名 + mm:ss 倒计时(单行)—— 动作名在前,时间在后
  *        body  :  "倒计时中"(系统默认,主视觉交给原生 ProgressBar)
  *   3. dismissRestTimerNotification : 隐藏通知
  *
@@ -101,7 +101,7 @@ function formatMmss(totalSeconds: number): string {
  *
  * @param remainingSec 当前剩余秒数(向上取整)—— 显示在通知 title
  * @param totalSec 本轮总秒数 —— 用于原生 ProgressBar 的 max
- * @param exerciseName 触发本轮休息的动作名(可选);有则 title 拼接"动作名"
+ * @param exerciseName 触发本轮休息的动作名(可选);有则作为 title 前缀
  * @param colorHex 主题 primary 色 hex,例 "#FF6B35"(light)/ "#FF7A4D"(dark)
  */
 export async function showOrUpdateRestTimerNotification(
@@ -116,13 +116,13 @@ export async function showOrUpdateRestTimerNotification(
   const safeRemaining = Math.max(0, remainingSec);
   const safeTotal = Math.max(1, totalSec);
 
-  // 极简排版:
-  //   title : "0:42 杠铃卧推"  (mm:ss + 可选动作名,空动作名时退化为 "0:42")
+  // 极简排版(2026-09-20:动作名在前,倒计时在后):
+  //   title : "杠铃卧推 0:42"  (可选动作名 + mm:ss,空动作名时退化为 "0:42")
   //   body  : "倒计时中"(原生模块内置,主视觉是 ProgressBar)
   const trimmedName =
     typeof exerciseName === 'string' ? exerciseName.trim() : '';
   const title = trimmedName
-    ? `${formatMmss(safeRemaining)} ${trimmedName}`
+    ? `${trimmedName} ${formatMmss(safeRemaining)}`
     : formatMmss(safeRemaining);
 
   try {
