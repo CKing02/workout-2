@@ -44,3 +44,8 @@ yarn-error.*
 # scratch / build artifacts
 .tmp/
 _diag/
+
+# 本地 expo-module 的 gradle 产物
+# (modules/*/android 是源码要跟踪,只有 build/ 和 .gradle 是产物)
+modules/*/android/build/
+modules/*/android/.gradle/
