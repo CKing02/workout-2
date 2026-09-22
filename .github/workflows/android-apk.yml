@@ -1,0 +1,100 @@
+name: Build Android APK
+
+# 用途：替代 EAS 云端打包（免费额度每月 15 次，用完即阻塞）。
+# 在 Actions 页面手动触发 → 构建完成后在 Artifacts 里下载 APK。
+#
+# 注意：仓库里 android/ 是 prebuild 产物且被 .gitignore 忽略，
+# 所以 CI 必须自己跑一次 `expo prebuild` 再交给 gradle。
+#
+# 本 workflow 产出的是 **dev-client debug APK**（:app:assembleDebug），
+# 与 eas.json 里 development profile 等价：装上后用 Metro 连 exp://<IP>:8081，
+# 之后改 JS 走 fast refresh，只有改 Kotlin/res 才需要重跑本 workflow。
+
+on:
+  workflow_dispatch:
+    inputs:
+      abi:
+        description: '目标 ABI（真机 BVL-AN00 是 arm64-v8a，AVD dl2_test 是 x86_64）'
+        required: true
+        default: 'arm64-v8a,x86_64'
+        type: choice
+        options:
+          - 'arm64-v8a,x86_64'
+          - 'arm64-v8a'
+          - 'x86_64'
+
+# 同一分支同时只跑一个，避免重复排队烧分钟
+concurrency:
+  group: android-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 标准 runner 只有 14GB SSD，RN 原生构建（reanimated/worklets 的 CMake 产物）
+      # 会撑爆。这里删掉镜像里用不到的大件腾出 ~20GB。
+      # 刻意不动 $ANDROID_HOME 与 toolcache —— NDK 27.1 删了要重新下载，得不偿失。
+      - name: 腾磁盘空间
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost \
+                      /usr/share/swift /opt/hostedtoolcache/CodeQL || true
+          df -h /
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      # Gradle 缓存：首次构建 ~20-40min，命中后能砍掉一大半
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('package-lock.json', 'modules/**/android/build.gradle', 'patches/*.patch') }}
+          restore-keys: gradle-${{ runner.os }}-
+
+      # 与 EAS 云端行为对齐：package-lock.json 是唯一被 CI 消费的 lockfile
+      # （EAS 实测跑的是 npm ci，pnpm-lock.yaml 会被忽略）
+      - name: 安装依赖
+        run: npm ci --include=dev
+
+      - name: 生成 android/ 工程
+        run: npx expo prebuild --platform android --no-install
+
+      - name: 构建 debug APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:assembleDebug \
+            -PreactNativeArchitectures=${{ inputs.abi }} \
+            --no-daemon
+
+      - name: 收集产物信息
+        run: |
+          ls -lh android/app/build/outputs/apk/debug/
+          sha256sum android/app/build/outputs/apk/debug/*.apk | tee apk-sha256.txt
+
+      - name: 上传 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk-debug-${{ inputs.abi }}-${{ github.sha }}
+          path: |
+            android/app/build/outputs/apk/debug/*.apk
+            apk-sha256.txt
+          if-no-files-found: error
+          retention-days: 30
