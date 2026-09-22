@@ -1,6 +1,7 @@
 name: Build Android APK
 
 # 用途：替代 EAS 云端打包（免费额度每月 15 次，用完即阻塞）。
+# 修订：2026-09-22 首次推送时未注册（仓库刚创建），重新推送触发扫描。
 # 在 Actions 页面手动触发 → 构建完成后在 Artifacts 里下载 APK。
 #
 # 注意：仓库里 android/ 是 prebuild 产物且被 .gitignore 忽略，
