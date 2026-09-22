@@ -4,10 +4,20 @@
 
   配合 DecoratedCustomViewStyle 使用:
     - 系统头部(应用图标 / 应用名 / 时间 / 圆角卡片)由 SystemUI 绘制
-    - 本布局只画内容区:一行「动作名 mm:ss」+ 进度条
+    - 本布局只画内容区:一行「动作名 + 倒计时」+ 进度条
 
   show() 与 setProgress() 共用同一份 RemoteViews,
   收起态和展开态传的是同一个对象 —— 展开后没有任何新内容可显示。
+
+  2026-09-22 后台冻结修复:
+    倒计时从 TextView 换成 <Chronometer>。TextView 的内容只能由 App 进程写,
+    而退后台后 RN 的 JS 定时器会被暂停(Android cached-apps freezer 也会冻结进程),
+    tick 停摆 → 通知定格在最后一帧,用户看到的是个假的剩余时间。
+    Chronometer 是**由 SystemUI 自己每秒刷新**的,App 进程冻不冻结都照走 ——
+    系统时钟 App 的计时通知用的就是这个机制。
+
+    代价:进度条仍会冻结(它靠 App 侧的 setProgressBar 更新)。数字活过来即可,
+    要让进度条也在后台动,得上前台服务 + 原生 ticker,成本不成比例。
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
@@ -16,15 +26,39 @@
     android:paddingTop="2dp"
     android:paddingBottom="2dp">
 
-  <!-- 动作名 + 倒计时。动作名过长时截断,不换行 —— 通知栏只有一行的高度预算 -->
-  <TextView
-      android:id="@+id/rest_timer_title"
+  <!-- 动作名(左,占满剩余宽度) + 倒计时(右,固定最小宽度) -->
+  <LinearLayout
       android:layout_width="match_parent"
       android:layout_height="wrap_content"
-      android:maxLines="1"
-      android:ellipsize="end"
-      android:textColor="?android:attr/textColorPrimary"
-      android:textSize="14sp" />
+      android:orientation="horizontal">
+
+    <!-- 动作名过长时截断,不换行 —— 通知栏只有一行的高度预算 -->
+    <TextView
+        android:id="@+id/rest_timer_title"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:maxLines="1"
+        android:ellipsize="end"
+        android:textColor="?android:attr/textColorPrimary"
+        android:textSize="14sp" />
+
+    <!--
+      minWidth + 右对齐:数字每秒变化时宽度会变,不给最小宽度的话
+      左边动作名会跟着左右抖动。
+    -->
+    <Chronometer
+        android:id="@+id/rest_timer_chrono"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="8dp"
+        android:minWidth="44dp"
+        android:gravity="end"
+        android:countDown="true"
+        android:textColor="?android:attr/textColorPrimary"
+        android:textSize="14sp" />
+
+  </LinearLayout>
 
   <!-- 进度条着色由 Kotlin 侧 setProgressTintList 注入(主题 primary),不在这里写死 -->
   <ProgressBar

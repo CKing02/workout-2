@@ -1,2 +1,23 @@
-<manifest>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+  <!--
+    休息到点提醒要准点响,走的是 setExactAndAllowWhileIdle。
+    Android 12+ 起精确闹钟需要这个权限;targetSdk 33+ 时**默认不授予**,
+    用户得去「系统设置 → 应用 → 特殊权限 → 闹钟和提醒」里手动开。
+    拿不到时 RestTimerProgressModule.scheduleAlarm 会自动降级到非精确闹钟,
+    所以缺了它最坏只是"提醒可能迟到",不会崩也不会没有提醒。
+  -->
+  <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+
+  <application>
+    <!--
+      exported=false —— 这个 receiver 只应该被我们自己排的 PendingIntent 唤起。
+      没有 intent-filter,靠显式 component 匹配。
+    -->
+    <receiver
+        android:name="expo.modules.resttimerprogress.RestTimerAlarmReceiver"
+        android:enabled="true"
+        android:exported="false" />
+  </application>
+
 </manifest>

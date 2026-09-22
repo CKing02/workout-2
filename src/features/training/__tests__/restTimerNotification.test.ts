@@ -125,10 +125,11 @@ describe('G41 restTimerNotification (Android)', () => {
     await mod.showOrUpdateRestTimerNotification(45, 90, '杠铃卧推', '#FF6B35');
 
     expect(mockNativeShow).toHaveBeenCalledTimes(1);
-    expect(mockNativeShow).toHaveBeenCalledWith(45, 90, '杠铃卧推 0:45', '#FF6B35');
+    // 2026-09-22 起 title 只放动作名 —— mm:ss 由原生 <Chronometer> 画,不再是 title 的一部分
+    expect(mockNativeShow).toHaveBeenCalledWith(45, 90, '杠铃卧推', '#FF6B35');
   });
 
-  it('showOrUpdate:不传 exerciseName → title 只剩 mm:ss', async () => {
+  it('showOrUpdate:不传 exerciseName → title 兜底 "休息中"', async () => {
     let mod!: typeof import('../restTimerNotification');
     jest.isolateModules(() => {
       mod = require('../restTimerNotification');
@@ -136,7 +137,7 @@ describe('G41 restTimerNotification (Android)', () => {
 
     await mod.showOrUpdateRestTimerNotification(45, 90, null, '#FF6B35');
 
-    expect(mockNativeShow).toHaveBeenCalledWith(45, 90, '0:45', '#FF6B35');
+    expect(mockNativeShow).toHaveBeenCalledWith(45, 90, '休息中', '#FF6B35');
   });
 
   it('showOrUpdate:exerciseName 前后空白自动 trim', async () => {
@@ -147,10 +148,10 @@ describe('G41 restTimerNotification (Android)', () => {
 
     await mod.showOrUpdateRestTimerNotification(45, 90, '  哑铃划船  ', '#FF6B35');
 
-    expect(mockNativeShow).toHaveBeenCalledWith(45, 90, '哑铃划船 0:45', '#FF6B35');
+    expect(mockNativeShow).toHaveBeenCalledWith(45, 90, '哑铃划船', '#FF6B35');
   });
 
-  it('showOrUpdate:空串 / 全空白 exerciseName → 当匿名处理,不追加', async () => {
+  it('showOrUpdate:空串 / 全空白 exerciseName → 当匿名处理,兜底 "休息中"', async () => {
     let mod!: typeof import('../restTimerNotification');
     jest.isolateModules(() => {
       mod = require('../restTimerNotification');
@@ -158,7 +159,7 @@ describe('G41 restTimerNotification (Android)', () => {
 
     await mod.showOrUpdateRestTimerNotification(45, 90, '', '#FF6B35');
 
-    expect(mockNativeShow).toHaveBeenCalledWith(45, 90, '0:45', '#FF6B35');
+    expect(mockNativeShow).toHaveBeenCalledWith(45, 90, '休息中', '#FF6B35');
   });
 
   it('showOrUpdate:不传 colorHex → 第四参为 null(走 native 默认)', async () => {
@@ -169,29 +170,32 @@ describe('G41 restTimerNotification (Android)', () => {
 
     await mod.showOrUpdateRestTimerNotification(30, 60, '杠铃');
 
-    expect(mockNativeShow).toHaveBeenCalledWith(30, 60, '杠铃 0:30', null);
+    expect(mockNativeShow).toHaveBeenCalledWith(30, 60, '杠铃', null);
   });
 
-  it('showOrUpdate:mm:ss 格式化边界(0 / 9 / 60 / 90 / 3600)', async () => {
+  it('showOrUpdate:秒数原样透传(原生 Chronometer 的 base 由它推导),不进 title', async () => {
     let mod!: typeof import('../restTimerNotification');
     jest.isolateModules(() => {
       mod = require('../restTimerNotification');
     });
 
+    // mm:ss 的格式化 2026-09-22 起移到原生 <Chronometer>,JS 只负责把秒数原样传下去。
+    // 边界值照旧要覆盖:原生按 elapsedRealtime() + remainingSec*1000 算起点,
+    // 传错一个数量级就是倒计时差 1000 倍。
     await mod.showOrUpdateRestTimerNotification(0, 60, '杠铃', '#FF6B35');
-    expect(mockNativeShow.mock.calls[0]).toEqual([0, 60, '杠铃 0:00', '#FF6B35']);
+    expect(mockNativeShow.mock.calls[0]).toEqual([0, 60, '杠铃', '#FF6B35']);
 
     await mod.showOrUpdateRestTimerNotification(9, 60, '杠铃', '#FF6B35');
-    expect(mockNativeShow.mock.calls[1]).toEqual([9, 60, '杠铃 0:09', '#FF6B35']);
+    expect(mockNativeShow.mock.calls[1]).toEqual([9, 60, '杠铃', '#FF6B35']);
 
     await mod.showOrUpdateRestTimerNotification(60, 60, '杠铃', '#FF6B35');
-    expect(mockNativeShow.mock.calls[2]).toEqual([60, 60, '杠铃 1:00', '#FF6B35']);
+    expect(mockNativeShow.mock.calls[2]).toEqual([60, 60, '杠铃', '#FF6B35']);
 
     await mod.showOrUpdateRestTimerNotification(90, 90, '杠铃', '#FF6B35');
-    expect(mockNativeShow.mock.calls[3]).toEqual([90, 90, '杠铃 1:30', '#FF6B35']);
+    expect(mockNativeShow.mock.calls[3]).toEqual([90, 90, '杠铃', '#FF6B35']);
 
     await mod.showOrUpdateRestTimerNotification(3600, 3600, '杠铃', '#FF6B35');
-    expect(mockNativeShow.mock.calls[4]).toEqual([3600, 3600, '杠铃 60:00', '#FF6B35']);
+    expect(mockNativeShow.mock.calls[4]).toEqual([3600, 3600, '杠铃', '#FF6B35']);
   });
 
   it('showOrUpdate:剩余秒数 < 0 自动 clamp 到 0', async () => {
@@ -202,7 +206,7 @@ describe('G41 restTimerNotification (Android)', () => {
 
     await mod.showOrUpdateRestTimerNotification(-10, 90, null, '#FF6B35');
 
-    expect(mockNativeShow).toHaveBeenCalledWith(0, 90, '0:00', '#FF6B35');
+    expect(mockNativeShow).toHaveBeenCalledWith(0, 90, '休息中', '#FF6B35');
   });
 
   it('showOrUpdate:totalSec < 1 自动 clamp 到 1', async () => {
@@ -213,7 +217,7 @@ describe('G41 restTimerNotification (Android)', () => {
 
     await mod.showOrUpdateRestTimerNotification(30, 0, null, '#FF6B35');
 
-    expect(mockNativeShow).toHaveBeenCalledWith(30, 1, '0:30', '#FF6B35');
+    expect(mockNativeShow).toHaveBeenCalledWith(30, 1, '休息中', '#FF6B35');
   });
 
   it('dismiss:调原生 dismiss(无参数)', async () => {

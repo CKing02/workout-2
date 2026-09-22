@@ -5,7 +5,11 @@
  *   1. ensureChannelAndPermissions : 建 channel + 申请 POST_NOTIFICATIONS 权限
  *   2. showOrUpdateRestTimerNotification : 固定 ID 覆盖式更新通知。
  *      排版极简(用户拍板,2026-09-20 起内容区自绘 RemoteViews):
- *        title :  动作名 + mm:ss 倒计时(单行)—— 动作名在前,时间在后
+ *        title :  动作名(单行;无动作名时兜底 "休息中")
+ *        倒计时 :  <Chronometer> —— **注意不是 title 的一部分**。SystemUI 自己
+ *                 每秒刷新它,所以 App 进程被冻结时数字照样在走。2026-09-22 之前的
+ *                 实现把 mm:ss 拼进 title 由 App 每秒重写,退后台 JS 一停摆
+ *                 那个数字就成了假的
  *        进度条 :  主题色着色,收起态与展开态是同一份 RemoteViews
  *                 (展开不会多出内容,原来的 "倒计时中" body 行已删)
  *   3. dismissRestTimerNotification : 隐藏通知
@@ -23,8 +27,14 @@
  *   - iOS 路径本期直接 return —— 用户已确认 Android 优先
  *
  * 限制(必须在调用方 bridge 内消化):
- *   - App 进 background 后 Android 会挂起 JS 线程,通知停在最后一次刷新的值
+ *   - App 进 background 后 Android 会挂起 JS 线程,**进度条**会停在最后一次刷新的值
+ *     (倒计时数字与"到点提醒"已由原生兜底,见 2026-09-22 注)
  *   - 用户切回前台时 bridge 监听 AppState='active' 立刻再调一次 showOrUpdate 自动校准
+ *
+ * 2026-09-22 后台可见性修复(两处都在原生侧,本文件只是配合):
+ *   - mm:ss 从 title 拆出 → 原生 <Chronometer>,SystemUI 自绘自走
+ *   - 到点提醒 → 原生 AlarmManager + RestTimerAlarmReceiver,不依赖 JS 存活。
+ *     原因是休息计时器的主场景就是"人不在看屏幕",靠 JS 存活等于没有提醒
  *
  * 调用方约定:
  *   - showOrUpdateRestTimerNotification 的 colorHex 参数:bridge 必须传
@@ -87,17 +97,6 @@ export async function ensureChannelAndPermissions(): Promise<void> {
 /* -------------------------------------------------------------------------- */
 
 /**
- * mm:ss 格式化。例: 0 → "0:00", 42 → "0:42", 90 → "1:30", 3600 → "60:00"。
- * rest 倒计时上限 3600s(1 小时),不再向 h:mm:ss 升级,避免标题过长。
- */
-function formatMmss(totalSeconds: number): string {
-  const s = Math.max(0, Math.floor(totalSeconds));
-  const mm = Math.floor(s / 60);
-  const ss = s % 60;
-  return `${mm}:${String(ss).padStart(2, '0')}`;
-}
-
-/**
  * 发或更新"休息中"通知(原生 ProgressBar,固定 ID 覆盖式)。
  *
  * @param remainingSec 当前剩余秒数(向上取整)—— 显示在通知 title
@@ -117,14 +116,11 @@ export async function showOrUpdateRestTimerNotification(
   const safeRemaining = Math.max(0, remainingSec);
   const safeTotal = Math.max(1, totalSec);
 
-  // 极简排版(2026-09-20:动作名在前,倒计时在后):
-  //   title : "杠铃卧推 0:42"  (可选动作名 + mm:ss,空动作名时退化为 "0:42")
-  //   body  : "倒计时中"(原生模块内置,主视觉是 ProgressBar)
+  // 极简排版(2026-09-22 起):title 只承载动作名,mm:ss 由原生 <Chronometer> 画。
+  // 空动作名时兜底 "休息中" —— 否则左侧留空,右边孤零零一个倒计时很难看懂。
   const trimmedName =
     typeof exerciseName === 'string' ? exerciseName.trim() : '';
-  const title = trimmedName
-    ? `${trimmedName} ${formatMmss(safeRemaining)}`
-    : formatMmss(safeRemaining);
+  const title = trimmedName || '休息中';
 
   try {
     await nativeShowOrUpdate(safeRemaining, safeTotal, title, colorHex ?? null);
