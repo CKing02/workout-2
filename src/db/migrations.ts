@@ -12,7 +12,7 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { EXERCISE_G35_MAPPING } from './seeds/exerciseG35Mapping';
-import { upgradeExerciseSeedIfMissing } from './seeds/seedRunner';
+import { upgradeExerciseCdnUrls, upgradeExerciseSeedIfMissing } from './seeds/seedRunner';
 import { applyCreateTables, configurePragmas } from './schema';
 
 interface Migration {
@@ -175,6 +175,19 @@ export const MIGRATIONS: readonly Migration[] = [
     sql: '-- placeholder; 差量 INSERT via run,逻辑在 upgradeExerciseSeedIfMissing',
     run: async (db) => {
       await upgradeExerciseSeedIfMissing(db);
+    },
+  },
+  {
+    version: 11,
+    description:
+      'G44: 254 张 CDN GIF URL 从 R2 placeholder (`pub-PLACEHOLDER.r2.dev/workout2-gifs/...`)' +
+      '更新到腾讯云 COS URL。G44 commit `1d8de95` 改了 `EXERCISE_G35_MAPPING[i].cdnUrl`,但老装' +
+      '走 v10 时已 INSERT 254 行,DB 里 `gif_url` 仍是 R2 placeholder → `getCachedOrDownload` 永远 401' +
+      '→ 通知栏 / 详情页都 Skeleton。本 migration 走 `upgradeExerciseCdnUrls` 按 `name` UPDATE' +
+      '这 254 行的 `gif_url`,WHERE 子句 `gif_url LIKE %r2.dev%` 模式匹配 R2 域名,保证幂等(已升级的行不再匹配)。',
+    sql: '-- placeholder; UPDATE via run,逻辑在 upgradeExerciseCdnUrls',
+    run: async (db) => {
+      await upgradeExerciseCdnUrls(db);
     },
   },
 ];

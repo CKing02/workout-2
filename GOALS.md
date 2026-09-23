@@ -1785,7 +1785,7 @@ modules/expo-rest-timer-progress/
 ## G43. dev-client 工程链路修复（跨 G39–G42）🟡 进行中
 
 **优先级**：P1（**阻塞全部真机验收**）  |  **依赖**：G39（首次引入 dev-client）  |  **阶段**：3
-**状态**：**🟡 大部分已修；⚠️ HEAD 的最新一次修复尚未进 APK**
+**状态**：**🟢 全部 6 commit 已合入 HEAD（`1d8de95`），GH Actions run `35866541012` 已 in_progress；APK 出后真机一次性验 G42 + G43 + G44**
 
 ### 为什么单开一节
 
@@ -1858,16 +1858,23 @@ npm error Missing: expo-rest-timer-progress@1.0.0 from lock file
 > **未决**：仓库里同时存在 `pnpm-lock.yaml` 和 `package-lock.json`（两个都未跟踪/半跟踪），
 > 属于结构性隐患，值得单独决策要不要删掉其中一个。
 
-### G43 当前进度（2026-09-20 盘点）
+### G43 当前进度（2026-09-23 核实）
 
 | 项 | 值 |
 |---|---|
-| **最后一次成功的 EAS Build** | `b3043661`（development profile，commit `1e06421`，2026-09-18 09:18 UTC） |
-| **HEAD** | `948efa5`（2026-09-19） |
-| **差距** | ⚠️ HEAD 的依赖锁版修复**尚未进任何 APK** |
+| **HEAD** | `1d8de95`（2026-09-23，G44 顶 commit） |
+| **G43 全部 6 commit 是否在 HEAD 栈** | ✅ 全部：`4a80a43` + `c1f8785` + `8b75202` + `2d0e3eb` + `1e06421` + `948efa5` |
+| **patches/react-native-screens+4.26.2.patch** | ✅ 文件存在（1730 bytes, 9-18） |
+| **GH Actions run** | `35866541012`（ABI: arm64-v8a,x86_64，in_progress） |
+| **触发时间** | 2026-09-23T13:21:50Z |
+| **上次成功的 build** | `b3043661`（2026-09-18 09:18 UTC，commit `1e06421`）— 这次跑出来后会覆盖它 |
 
-**下一步**：先直接用现有 APK + `pnpm start` 启 Metro 试连（锁版修复理论上 JS 侧装完依赖即生效）；
-若仍红屏（native 版本错配），跑 `pnpm eas:development` 重打 dev APK —— 必须用 **development** profile，preview 不带 dev-client。
+**下一步**：等 run `35866541012` completed → 下载 Artifacts → 真机一次验三件事：
+- **G43**：装 APK + 启 Metro 连 exp:// 输入 URL → 不红屏（rnscreens patch 生效）+ 不 SIGSEGV（worklets 锁版生效）
+- **G42**：训练中锁屏 30s → 通知栏 RemoteViews 自绘进度条 + 到点震动
+- **G44**：动作库 254 张 GIF cache miss 路径渲染
+
+> 若 G43 真机仍红屏带 `ScreensModule.setupFabric` 栈 → `patches/` 目录在 CI 没生效（postinstall 没跑或 lockfile 没装 `patch-package`），查 GH Actions 日志 `npm run postinstall` 步骤。
 
 ### 提交记录
 

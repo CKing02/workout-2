@@ -11,6 +11,7 @@ import android.os.Process
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 
@@ -40,6 +41,9 @@ class RestTimerAlarmReceiver : BroadcastReceiver() {
 
     /** 与 builder.setVibrate 同样的 pattern — 双路径走通才稳。 */
     private val VIBRATION_PATTERN = longArrayOf(0, 400, 200, 400)
+
+    /** logcat tag — 与 RestTimerProgressModule 一致,方便 filter。 */
+    private const val TAG = "RestTimerProgress"
 
     /**
      * 自己这个进程是否处于前台。
@@ -85,15 +89,20 @@ class RestTimerAlarmReceiver : BroadcastReceiver() {
           @Suppress("DEPRECATION")
           ctx.getSystemService(Vibrator::class.java)
         }
-        if (vibrator == null) return
+        if (vibrator == null) {
+          Log.w(TAG, "vibrator service unavailable")
+          return
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
           vibrator.vibrate(VibrationEffect.createWaveform(VIBRATION_PATTERN, -1))
         } else {
           @Suppress("DEPRECATION")
           vibrator.vibrate(VIBRATION_PATTERN, -1)
         }
-      } catch (_: Throwable) {
-        // 设备没 vibrator / 系统禁了震动 —— 不影响通知本身
+      } catch (t: Throwable) {
+        // [G42 hotfix] 不再静默吞,让下次真机复现时能 logcat 抓到根因
+        // (OPPO 锁屏拦截 / SecurityException / 系统禁震动 等)。
+        Log.w(TAG, "vibration failed", t)
       }
     }
   }
@@ -103,6 +112,18 @@ class RestTimerAlarmReceiver : BroadcastReceiver() {
 
     // 闹钟已兑现,清掉去抖记录 —— 否则下次 show() 会以为还排着旧闹钟
     RestTimerProgressModule.scheduledEndElapsedMs = null
+
+    // [G42 hotfix] 无条件取消旧 Chronometer 通知。
+    // 旧实现只在 `isAppForeground()` 为 false 时发新通知,前台早返路径下
+    // 旧通知挂着 → Chronometer 的 base 已过 → SystemUI 显示 -0:01, -0:02 ...
+    // 真实复现(2026-09-23 OPPO PBEM00):训练进入休息 → Home 键 → 锁屏 → 倒计时跑负数。
+    // 修法:进 receiver 第一件事就是 cancel(NOTIFICATION_ID),无论前后台都先把
+    // 这条通知清掉。后果:
+    //   - 前台:通知消失,JS 侧 RestTimerOverlay 接管(本地 haptic + overlay 消失)
+    //   - 后台:通知消失,然后下方重建为"休息结束"通知
+    // 副作用:进度条"后台冻结"的视觉矛盾(数字动 + 进度条不动)也一并消失 —
+    // 通知整体取消,不再显示冻结界面。
+    NotificationManagerCompat.from(context).cancel(RestTimerProgressModule.NOTIFICATION_ID)
 
     // **强制震动路径**(绕过 channel,OEM 锁屏拦截不了)。即便 App 在前台也走:
     // isAppForeground() 早返后会清掉 channel 通知,所以这里先震一下"已覆盖"。

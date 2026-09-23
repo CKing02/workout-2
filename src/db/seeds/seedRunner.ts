@@ -11,6 +11,7 @@
 
 import type { SQLiteDatabase } from 'expo-sqlite';
 
+import { EXERCISE_G35_MAPPING } from './exerciseG35Mapping';
 import { EXERCISE_SEEDS, toExerciseRows } from './exercises';
 
 /**
@@ -148,6 +149,73 @@ export async function backfillExerciseI18n(db: SQLiteDatabase): Promise<number> 
  * Expose the seed count for tests / debug.
  */
 export const EXPECTED_SEED_COUNT = EXERCISE_SEEDS.length;
+
+/**
+ * G44 升级路径:把 254 个 `bundled === false` seed 行的 `gif_url`
+ * 从 R2 placeholder(`pub-PLACEHOLDER.r2.dev/workout2-gifs/exercises/...`)
+ * 更新到腾讯云 COS URL。
+ *
+ * 触发:v11 migration,老装 `user_version = 10 → 11` 时跑一次。
+ *
+ * ## 根因(2026-09-23 真机验收发现)
+ * - `exerciseG35Mapping.ts` 的 `cdnUrl` 字段在 commit `1d8de95` 已从 R2 placeholder
+ *   改为 COS URL,但**老装走 v10 时已经 INSERT 254 行,DB 里 `gif_url` 是 R2 placeholder**。
+ * - `EXERCISE_SEEDS` 没改(只改 mapping),所以 `seedExercisesIfEmpty` /
+ *   `upgradeExerciseSeedIfMissing` 不会再动这些行的 `gif_url`。
+ * - 结果:R2 URL 永远挂着 → `getCachedOrDownload` 永远 401 → 通知栏 / 详情页都 Skeleton。
+ *
+ * ## 修法
+ * - 按 `mapping.seedName`(= `exercises.name`)匹配,UPDATE 每一行 `bundled === false`
+ *   seed 的 `gif_url`。
+ * - WHERE 加 `gif_url LIKE '%r2.dev%'` 幂等 — 已升级过的行(COS URL)不再 LIKE,不动。
+ * - 只动 `is_custom = 0` 的 seed 行,**不动用户自定义动作**。
+ * - `bundled === true` 的 `asset:` 前缀**不**被 UPDATE(不 LIKE r2.dev)。
+ *
+ * ## 设计取舍
+ * - **不硬编码 URL pattern 进 SQL**(`REPLACE` 子串)。改 CDN 时只需改 mapping,
+ *   migration 不用动。
+ * - mapping 有 254 项,循环 254 次 prepared statement 比单条 `CASE WHEN` 更易读;
+ *   且 prepared statement 复用避免重复解析 SQL。
+ *
+ * ## 幂等
+ * - 老装 R2 URL → UPDATE 254 行 → DB 全 COS URL
+ * - 再跑一次 → LIKE r2.dev 不匹配 → 0 行变更 → no-op
+ * - 新装走 `EXERCISE_SEEDS` 全量 INSERT(走 v10,mapping.cdnUrl 已是 COS)→ 不进 v11
+ *   → no-op
+ *
+ * ⚠️ 同 `upgradeExerciseSeedIfMissing`,**不要在本函数内 `withTransactionAsync`**!
+ * 外层 v11 migration run 已在事务里,嵌套会触发 G41 同款闪退
+ * (expo-sqlite 14 裸 `BEGIN`,`handleDbInit` 无 catch → 进程崩)。
+ *
+ * 返回:实际 UPDATE 行数。
+ */
+export async function upgradeExerciseCdnUrls(
+  db: SQLiteDatabase,
+): Promise<number> {
+  const prepared = await db.prepareAsync(
+    `UPDATE exercises
+       SET gif_url = ?
+     WHERE name = ?
+       AND is_custom = 0
+       AND gif_url LIKE '%r2.dev%';`,
+  );
+  let updated = 0;
+  try {
+    for (const mapping of EXERCISE_G35_MAPPING) {
+      // bundled === true 的 gif_url 是 `asset:{assetFileName}`,跳过 —
+      // 不该把 asset: 前缀覆盖成 https URL。
+      if (mapping.bundled) continue;
+      // cdnUrl undefined 防御:bundled=false 但 cdnUrl 缺失的 mapping
+      // (理论上 mapping 数据已校验过,运行时兜底)。
+      if (!mapping.cdnUrl) continue;
+      const result = await prepared.executeAsync([mapping.cdnUrl, mapping.seedName]);
+      updated += result.changes;
+    }
+  } finally {
+    await prepared.finalizeAsync();
+  }
+  return updated;
+}
 
 /**
  * 纯函数:计算应该被 INSERT 的差量 seed 行。
