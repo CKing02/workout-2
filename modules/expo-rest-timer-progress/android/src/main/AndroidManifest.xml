@@ -9,6 +9,14 @@
   -->
   <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 
+  <!--
+    AlarmReceiver 到点时直接调 Vibrator service 强制震动,绕过通知 channel 路径。
+    channel vibrate 在锁屏下会被 OPPO ColorOS / 小米 MIUI 等 OEM 拦截(标准 Android 不拦),
+    但 Vibrator 是 system service 不会被拦截。普通权限,系统默认授予,无需运行时请求。
+    "宁可多震一次也不要漏掉提醒"的取舍见 receiver 注释。
+  -->
+  <uses-permission android:name="android.permission.VIBRATE" />
+
   <application>
     <!--
       exported=false —— 这个 receiver 只应该被我们自己排的 PendingIntent 唤起。

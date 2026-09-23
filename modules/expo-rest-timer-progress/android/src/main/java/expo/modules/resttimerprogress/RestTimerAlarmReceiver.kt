@@ -8,6 +8,9 @@ import android.content.Intent
 import android.graphics.Color
 import android.os.Build
 import android.os.Process
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 
@@ -35,6 +38,9 @@ class RestTimerAlarmReceiver : BroadcastReceiver() {
     const val EXTRA_TITLE = "title"
     const val EXTRA_COLOR_HEX = "color_hex"
 
+    /** 与 builder.setVibrate 同样的 pattern — 双路径走通才稳。 */
+    private val VIBRATION_PATTERN = longArrayOf(0, 400, 200, 400)
+
     /**
      * 自己这个进程是否处于前台。
      *
@@ -55,6 +61,41 @@ class RestTimerAlarmReceiver : BroadcastReceiver() {
         false
       }
     }
+
+    /**
+     * 直接调 Vibrator service 强制震动,绕过通知 channel 路径。
+     *
+     * 必要性:channel vibrate 在锁屏下会被 OPPO ColorOS / 小米 MIUI 等 OEM 拦截
+     * (标准 Android 不拦),但 Vibrator 是 system service,**OEM 不能拦截**(系统级 API)。
+     * 后台场景下 channel 路径已生效,会"多震一次"—— 是 G42 receiver 注释里
+     * "宁可多震一次,也不要漏掉提醒"的明确取舍。
+     *
+     * 兼容性:覆盖 minSdk 24 到 ~35。
+     *   - API 31+:`VibratorManager.getDefaultVibrator()`
+     *   - API 26-30:`getSystemService(Vibrator::class.java)` + `VibrationEffect.createWaveform`
+     *   - API 24-25:`getSystemService(Vibrator::class.java)` + `vibrate(longArrayOf, -1)`(deprecated 但 work)
+     *
+     * 失败兜底:try/catch 所有 Throwable —— 震动不是关键功能,失败不能影响通知本身。
+     */
+    private fun triggerVibration(ctx: Context) {
+      try {
+        val vibrator: Vibrator? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+          ctx.getSystemService(VibratorManager::class.java)?.defaultVibrator
+        } else {
+          @Suppress("DEPRECATION")
+          ctx.getSystemService(Vibrator::class.java)
+        }
+        if (vibrator == null) return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+          vibrator.vibrate(VibrationEffect.createWaveform(VIBRATION_PATTERN, -1))
+        } else {
+          @Suppress("DEPRECATION")
+          vibrator.vibrate(VIBRATION_PATTERN, -1)
+        }
+      } catch (_: Throwable) {
+        // 设备没 vibrator / 系统禁了震动 —— 不影响通知本身
+      }
+    }
   }
 
   override fun onReceive(context: Context, intent: Intent) {
@@ -62,6 +103,11 @@ class RestTimerAlarmReceiver : BroadcastReceiver() {
 
     // 闹钟已兑现,清掉去抖记录 —— 否则下次 show() 会以为还排着旧闹钟
     RestTimerProgressModule.scheduledEndElapsedMs = null
+
+    // **强制震动路径**(绕过 channel,OEM 锁屏拦截不了)。即便 App 在前台也走:
+    // isAppForeground() 早返后会清掉 channel 通知,所以这里先震一下"已覆盖"。
+    // 在前台时 JS 侧 RestTimerOverlay 已经 haptic 过了,这次多震一次是可接受打扰。
+    triggerVibration(context)
 
     if (isAppForeground(context)) return
 
