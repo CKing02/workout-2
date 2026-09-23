@@ -1458,11 +1458,170 @@ hotfix + 架构根治 1 commit：
 
 ---
 
-## G41. 动作库扩展到 300+（CDN 在线加载路径）🟡 设计中
+## G39. GIF 资源三态 + asset: 前缀 + v9 migration ✅
 
-**优先级**：P2（内容扩展，与 G37 同级） | **依赖**：G40（52 bundled 路径稳定） | **阶段**：3
+**优先级**：P2（资源工程）  |  **依赖**：G35 / G36  |  **阶段**：3  |  **状态**：✅ **2026-09-15 commit（真机验证中途被新会话打断，由 G40/G41 覆盖）**
 
 ### 背景
+
+G35 把 1,324 个动作的 GIF 全指向 `github.com/.../raw/...` remote URL —— 冷启首屏缩略图大面积空白，每次都要联网拉。G39 建立「本地优先 + 远程兜底」的三态资源层，是 G40/G41 的地基。
+
+### 涉及
+
+- `exercises.gif_url` **三态约定**（列为 migration v6 所加，v9 做前缀规范化）：
+
+  | 取值 | 语义 | 路径 |
+  |---|---|---|
+  | `'asset:{file}'` | bundled 静态资源 | `require()` → 秒开 |
+  | `'https://...'` | 远程 | 下载 + 本地缓存 → `file://` |
+  | `null` | 无图 | 名称首字占位 |
+
+- `src/screens/exerciseGifAssets.ts` — `classifyGifSource()`（三分类）+ `resolveGifSource()`（同步 → `ImageSourcePropType`）
+- `src/screens/exerciseGifCache.ts` — `getCachedOrDownload()`（异步 → `file://` URI）+ LRU 200MB 阈值 + CDN URL 解析（basename 提取 + 白名单清洗）
+- `src/components/ExerciseGifImage.tsx` — 三态渲染（Skeleton → 200ms transition 淡入）
+- `src/components/Skeleton.tsx` + `expo-image` 接入
+- 30 张热门 GIF 落盘 `assets/exercises/`
+- migration **v9** — 老路径 `assets/exercises/xxx.gif` → `asset:xxx.gif` 前缀规范化
+
+### 踩坑（G41 直接复用，别再踩）
+
+- migration 的 `run()` 内**不能嵌套 `withTransactionAsync`** —— `71a0ce1` 为 v9 修过一次，G41 的 v10 又踩了同一个坑（见 G41 Bug 3）
+- `jest.mock` factory 闭包里的变量名必须以 `mock` 开头，否则报 `Invalid variable access`
+- `findAllByProps({ testID })` 会同时匹配函数组件实例 + host child，要用 `findAllByType(View)` 过滤
+
+### 提交记录
+
+- `cf67d02` refactor(G39): 30 张 bundle + asset: 前缀 + migration v9
+- `b18c811` chore(G39): expo-image 接入 + Skeleton 组件
+- `69ddbac` feat(G39): ExerciseGifImage + CDN GIF 本地缓存(单测覆盖)
+- `71a0ce1` fix(G39): migration v9 嵌套事务导致 cannot rollback
+
+---
+
+## G40. 52 张 GIF 全 bundled + 动作库多选行改版 ✅
+
+**优先级**：P2（性能 / 视觉）  |  **依赖**：G39  |  **阶段**：3  |  **状态**：✅ **2026-09-15 commit（真机视觉验证被 AVD ANR 阻塞，由后续 APK 覆盖验收）**
+
+### 背景
+
+G39 还有 22 张走 remote。G40 把这 22 张下载落盘 —— 动作库达到 **52 张全 bundled**，列表彻底不依赖网络；同时把动作库多选行从「24×24 checkbox」升级成「40×40 圆形 GIF 首帧 + 右上角勾选徽章」。
+
+### 涉及
+
+- 22 张 GIF 从 `hasaneyldrm/exercises-dataset` 下载 → `assets/exercises/`（22/22 通过 GIF89a magic 校验）
+- `src/db/seeds/exerciseG35Mapping.ts` — 22 项 `bundled: false` → `bundled: true`
+- `src/screens/exerciseGifAssets.ts` — 顶部 `require()` 列表扩到 52 项，`G35_GIF_ASSETS` map 52 项
+- `ExerciseLibraryScreen` 多选行改版：
+  - 左侧 checkbox → `ExerciseThumbnail` 40×40 圆形 GIF 首帧
+  - 右上角绝对定位 22×22 ✓ 徽章（`primary` / `onPrimary` / `shadows.sm`）
+  - selected 行：`bg=primaryMuted` + `border=primary 1.5px`，徽章 `border=surfaceElevated` 形成层次
+- 5 个测试断言从「30 bundled + 22 remote」改为「52 bundled + 0 remote」
+
+### 遗留
+
+动作库总数停在 **52**，相对数据集 1,324 条覆盖率仅 4% → 触发 G41。
+
+### 提交记录
+
+- `c03c29c` feat(G40): ExerciseLibrary avatar+badge + 22 GIF 全 bundled
+
+---
+
+## G41. 动作库 52 → 306（CDN 混合加载路径）✅ 代码完成 / ⚠️ Bug 2 推迟
+
+**优先级**：P2（内容扩展，与 G37 同级） | **依赖**：G40（52 bundled 路径稳定） | **阶段**：3
+**状态**：**✅ 代码已完成并真机验证（2026-09-17，含闪退修复）；⚠️ Bug 2（R2 未部署）用户拍板推迟**
+
+### 实际落地（2026-09-17）
+
+设计期目标是「~250 CDN = 302 总动作」。落地后的**真实数字**（后续文档一律以此为准）：
+
+| 项 | 设计期文档 | **实际** |
+|---|---|---|
+| bundled | 52 | **52** |
+| CDN (`bundled: false`) | ~250 | **254** |
+| **总动作数** | 302 | **306** |
+| migration 版本 | v9 | **v10** |
+
+数据库实测（AVD，`PRAGMA user_version`）：`user_version=10`、`is_custom=0` 行数 = **306**、`gif_url LIKE '%PLACEHOLDER%'` = **254**。
+
+### 三个 Bug（两个已修，一个推迟）
+
+#### Bug 1 — 老装走升级路径时 254 个 CDN 行不 INSERT ✅ 已修
+
+- **症状**：用户从 G40 的 APK 升级到 G41，动作库仍只有原 52 个
+- **根因**：`seedExercisesIfEmpty` 检查 `existingCount > 0` 就直接 `return 0`；`backfillExerciseI18n` 只按 name UPDATE 已有行，**从不新增**
+- **修复**：`cde3c69` — 加 migration v10 + `upgradeExerciseSeedIfMissing(db)` 差量 INSERT，纯函数 `filterMissingSeedRows` 单测覆盖三态幂等。老装下次启动 52 → 306
+
+#### Bug 2 — `cdnUrl` 是字面占位符，R2 bucket 没部署 ⚠️ 用户拍板推迟
+
+- **症状**：254 个新动作会出现，但缩略图**一直是 skeleton**
+- **根因**：`scripts/upload-g41-r2.js` 写好了但没跑（env 凭证没填），`pub-PLACEHOLDER.r2.dev` 没被 find-replace
+- **当前状态**：`src/db/seeds/exerciseG35Mapping.ts` 中 **254 条**仍是 `https://pub-PLACEHOLDER.r2.dev/...`（+ `exerciseGifImage.test.tsx:329` 测试常量 1 处）
+- **决策**：用户 2026-09-17 选**选项 C — 接受 skeleton 占位**，留后续处理
+
+#### Bug 3 — v10 migration 嵌套事务导致真机启动闪退 ✅ 已修
+
+完整链路见「G41 闪退根因」小节。
+
+### G41 闪退根因（2026-09-18 闭合）
+
+这条链路值得存档，因为它推翻了一次误诊：
+
+1. 用户报 APK 启动闪退
+2. AVD（x86_64）装 `cde3c69` 的 APK —— **正常跑**，`user_version=10`、306 条 seed 全入库
+3. 「AVD 通过 = 真机通过」的误判 → commit `1427b0e`（代码是对的，但**不是真凶**）
+4. ARM 真机（HONOR BVL-AN00 / Android 16）装同一个 APK → 闪退
+5. logcat 抓到真错误：`FATAL EXCEPTION mqt_v_native / Cannot rollback - no transaction is active`
+6. 真根因：v10 的 `run()` 内部又开了 `withTransactionAsync` —— 外层 `runMigrations` 已经 BEGIN 过，expo-sqlite 14 的 `withTransactionAsync` 是**裸 BEGIN 不是 SAVEPOINT**，嵌套 BEGIN 抛错 → 内层 catch 的 ROLLBACK 把**外层事务一起回滚** → `runMigrations` 抛 → `handleDbInit` 没有 catch → unhandled rejection → **定制 ROM 的 RN ExceptionsManager 把 JS 异常升级为 native FATAL 杀进程**。AVD 上同代码路径 SQL 也报错，但 RN 不杀进程，所以看起来"没事"
+
+**修复**：`1427b0e`（移除嵌套事务 + 加 mock DB 防回归测试）。**EAS Build `ea61b522` 已发 + ARM 真机验证闪退彻底修复**。
+
+**经验**：AVD 不能 100% 替代真机做 crash 验证；expo-sqlite + ExceptionsManager 在 x86_64 模拟器与 ARM 真机行为不一致。migration 的 `run()` 内**永远不要**自己包事务。
+
+### Bug 2 修复路线（用户改主意时直接用）
+
+```bash
+# 1. 准备 R2 凭证(参考 docs/setup/cloudflare-r2.md)
+export R2_ACCOUNT_ID="..." R2_ACCESS_KEY_ID="..." R2_SECRET_ACCESS_KEY="..."
+export R2_BUCKET="workout2-gifs" R2_PUBLIC_URL="https://pub-xxx.r2.dev"
+
+# 2. 上传 254 张 GIF
+node scripts/upload-g41-r2.js
+
+# 3. find-replace 占位符(映射表 + 测试常量)
+sed -i 's/pub-PLACEHOLDER/pub-xxx/g' src/db/seeds/exerciseG35Mapping.ts
+sed -i 's/pub-PLACEHOLDER/pub-xxx/g' src/components/__tests__/exerciseGifImage.test.tsx
+
+# 4. jest 全绿 → 触发新 EAS Build
+```
+
+### 提交记录
+
+- `3c358b3` feat(G41): 动作库 52→306(其中 250 走 CDN) + ProfileScreen 清理 dev 入口
+- `cde3c69` fix(G41): v10 migration 差量 INSERT 老装缺的 254 个 CDN 动作 ← Bug 1
+- `1427b0e` fix(G41): 移除 v10 migration 嵌套 withTransactionAsync 修复启动崩溃 ← Bug 3
+- `350edc1` refactor(exerciseGifAssets): 删 52 行冗余模板字符串 require
+
+### 基础设施（G39 + G40 + G41 累计，已全部就位）
+
+| 模块 | 位置 | 状态 |
+|---|---|---|
+| 三种格式 `gif_url` | `exercises` 表（migration v6 + v9） | ✅ |
+| `classifyGifSource`（asset / remote / none） | `src/screens/exerciseGifAssets.ts:180` | ✅ |
+| `resolveGifSource`（同步 → bundled） | `src/screens/exerciseGifAssets.ts:195` | ✅ |
+| `getCachedOrDownload`（异步 → file://，LRU 200MB） | `src/screens/exerciseGifCache.ts:115` | ✅ |
+| `ExerciseGifImage`（三态渲染） | `src/components/ExerciseGifImage.tsx` | ✅ |
+| v9 / v10 migration | `src/db/migrations.ts` | ✅ |
+
+---
+
+## 📎 G41 设计期原始方案（保留备查，不再维护）
+
+> 以下为 2026-09 落笔时的设计稿。**实际落地结果以上方「实际落地」为准**（数字全部有出入：
+> 250→254 CDN、302→306 总数）。保留是为了记录设计推理过程，不要再按这里的数字对账。
+
+#### 背景
 
 G40 把全部 52 张 GIF bundled 进 APK，约 5.2MB。但 hasaneyldrm/exercises-dataset 有 **1,324 条**动作。G52/1324 ≈ 4%，动作库仍显单薄：
 
@@ -1472,21 +1631,7 @@ G40 把全部 52 张 GIF bundled 进 APK，约 5.2MB。但 hasaneyldrm/exercises
 
 把全部 1,324 张塞进 APK 不可能（≈130MB），`Path E` = CDN 在线加载 + 保留 30-50 热门动作 bundled 秒开。
 
-### 现状（Path E 基础设施已就位 80%）
-
-G39 + G40 已铺好地基，无需重做：
-
-| 模块 | 文件 | 状态 |
-|---|---|---|
-| 三种格式 `gif_url` | `exercises` 表 schema（migration v6） | ✅ |
-| `classifyGifSource`（'asset' / 'remote' / 'none' 三分类） | `src/screens/exerciseGifAssets.ts:180` | ✅ |
-| `resolveGifSource`（同步 → bundled ImageSourcePropType） | `src/screens/exerciseGifAssets.ts:195` | ✅ |
-| `getCachedOrDownload`（异步 → file:// URI，LRU 200MB） | `src/screens/exerciseGifCache.ts:115` | ✅ |
-| `ExerciseGifImage`（render 三态：asset / remote / none） | `src/components/ExerciseGifImage.tsx` | ✅ |
-| LRU eviction 200MB 阈值 | `src/screens/exerciseGifCache.ts:32` | ✅ |
-| CDN URL 解析（basename 提取 + 白名单清洗） | `src/screens/exerciseGifCache.ts:44` | ✅ |
-
-### 涉及
+#### 涉及
 
 - **CDN 端**
   - 选型：Cloudflare **R2**（Egress 免费，存储 $0.015/GB/月；1,324 GIF 估算 ≈ 130MB ≈ $0.002/月）
@@ -1513,54 +1658,238 @@ G39 + G40 已铺好地基，无需重做：
   - `src/screens/__tests__/exerciseG35Mapping.test.ts` 扩展：bundled/CDN 互斥断言 + 250 条新项 gifUrl 全为合法 https URL
   - `src/screens/__tests__/exerciseGifImage.test.tsx` 加 remote → Skeleton → setSource({uri}) 序列测试
 
-### 设计决策（先定版）
+#### 设计决策（先定版）
 
 1. **混合策略**：52 bundled（秒开）+ ~250 CDN（首次访问下载到 cache）= 302 总动作
-2. **不一次性到 1,324**：先把 CDN 链路跑通 + 内容扩展到 300；扩到 1,324 是 G42+
+2. **不一次性到 1,324**：先把 CDN 链路跑通 + 内容扩展到 300；扩到 1,324 是 G44+
 3. **翻译策略**：手动 + LLM 辅助混合，首批 100 个手动核，剩下 150 个 LLM 初翻 + 抽 30% 复核
 4. **失败兜底**：CDN 下载失败 → Skeleton 持续；用户下次进入详情重试（已有 LRU 留底）
 5. **GIF 版权**：沿用 hasaneyldrm/exercises-dataset **MIT** + Gym Visual attribution（详情页底部 © Gym Visual 已展示），R2 上保留原始文件 + 不改 attribution
 6. **不写 `react-native-config` / 远程 CDN URL 切换**：MVP 只配一个 R2 bucket；多 CDN 切换留 Phase 3
 
-### 验收标准（AC）
+#### 设计期 AC（实际结果见上方「三个 Bug」+「实际落地」）
 
-- AC-41.1 R2 bucket 已建并 public 可访问，目录 `/workout2-gifs/exercises/{id}-{slug}.gif` 有至少 250 个 GIF；HTTP `GET` 返回 200 + `image/gif` content-type
-- AC-41.2 `src/db/seeds/exerciseG35Mapping.ts` 新增 ~250 项 `bundled: false` + `cdnUrl`，每项的 cdnUrl basename 与 hasaneyldrm 文件名一致
-- AC-41.3 `exercises` 表 seed 总数 ≥ 300（52 + 250 + 用户自定义）；`gif_url` 字段混合 `asset:` 与 `https://`
-- AC-41.4 `ExerciseGifImage` 在 remote URL 下首屏渲染 Skeleton，下载完成后 200ms transition 淡入（已实现，复测）
-- AC-41.5 离线状态进入 CDN 动作详情 → Skeleton 持续不崩；联网后下次进入 → 正常渲染
-- AC-41.6 缓存命中：第二次进入同一 CDN 动作详情 → 立即显示，无网络请求
-- AC-41.7 LRU 触发：cache 总大小 > 200MB → 最旧 mtime 的 GIF 被删除直到 < 200MB
-- AC-41.8 真机：新装 APK → 冷启 → 进训练 Tab → 进 "杠铃卧推" 详情（bundled）→ GIF 秒开；返回 → 进 "坐姿腿屈伸"（CDN 新增）→ Skeleton ~1-3s → GIF 显示；杀进程重开 → 仍秒开（cache 命中）
-- AC-41.9 备份 JSON 含 `cdnUrl`；wipeAllData 后重 seed 仍能恢复
-- AC-41.10 现有 11+ suites / 261+ tests 全过 + G41 新增 ≥ 3 suites（mapping / cache remote / image remote）/ ≥ 15 tests
+- AC-41.1 R2 bucket 已建并 public 可访问，目录 `/workout2-gifs/exercises/{id}-{slug}.gif` 有至少 250 个 GIF；HTTP `GET` 返回 200 + `image/gif` content-type → **❌ Bug 2 未做**
+- AC-41.2 `src/db/seeds/exerciseG35Mapping.ts` 新增 ~250 项 `bundled: false` + `cdnUrl`，每项的 cdnUrl basename 与 hasaneyldrm 文件名一致 → **✅ 254 项，basename 一致（域名仍是占位符）**
+- AC-41.3 `exercises` 表 seed 总数 ≥ 300（52 + 250 + 用户自定义）；`gif_url` 字段混合 `asset:` 与 `https://` → **✅ 306**
+- AC-41.4 `ExerciseGifImage` 在 remote URL 下首屏渲染 Skeleton，下载完成后 200ms transition 淡入 → **✅**
+- AC-41.5 离线状态进入 CDN 动作详情 → Skeleton 持续不崩；联网后下次进入 → 正常渲染 → **⚠️ 无法验证（R2 未部署，永远走不到"联网正常"分支）**
+- AC-41.6 缓存命中：第二次进入同一 CDN 动作详情 → 立即显示，无网络请求 → **⚠️ 同上**
+- AC-41.7 LRU 触发：cache 总大小 > 200MB → 最旧 mtime 的 GIF 被删除直到 < 200MB → **✅ 单测覆盖**
+- AC-41.8 真机：新装 APK → 冷启 → "杠铃卧推"（bundled）GIF 秒开；"坐姿腿屈伸"（CDN）Skeleton → GIF → **⚠️ 前半 ✅，后半被 Bug 2 阻塞**
+- AC-41.9 备份 JSON 含 `cdnUrl`；wipeAllData 后重 seed 仍能恢复 → **✅**
+- AC-41.10 现有 suites 全过 + G41 新增 ≥ 3 suites / ≥ 15 tests → **✅**
 
-### 自检清单
+#### 设计期自检清单（已被上方提交记录取代）
 
-- [ ] R2 bucket 已建 + CORS 已配 + 250+ GIF 已上传
-- [ ] `exerciseG35Mapping.ts` 250 项 cdnUrl 全通（HEAD 检查 200）
-- [ ] 中文翻译 250 条完成 + 抽 30% 校对
-- [ ] `instruction_steps_zh` 至少 50 个常用动作手写完成
-- [ ] 备份/清除兼容 cdnUrl 字段
-- [ ] tsc --noEmit 通过
-- [ ] 全量 jest 通过
-- [ ] 真机：bundled + CDN 混合渲染
-- [ ] 真机：离线 Skeleton / 联网恢复 / 缓存命中 / LRU 触发
-- [ ] 提交记录（拆 3-4 commit）：
-  - (a) `chore(G41): R2 bucket 配 CORS + 上传 250+ GIF + 上传脚本`
-  - (b) `feat(G41): exerciseG35Mapping 扩 250 CDN 项 + cdnUrl 字段`
-  - (c) `feat(G41): exercises seed 总数 52→302 + 翻译就位`
-  - (d) `test(G41): mapping / cache remote / image remote 3 套件 + 15+ 用例`
+- [x] `exerciseG35Mapping.ts` 254 项 cdnUrl 就位（basename 与 hasaneyldrm 一致）
+- [x] 中文翻译 254 条完成
+- [x] 备份/清除兼容 cdnUrl 字段
+- [x] tsc --noEmit 通过
+- [x] 全量 jest 通过（28 suites / 304 tests）
+- [x] 真机：bundled 渲染正常 + 老装 52→306 升级路径打通
+- [ ] **R2 bucket 已建 + CORS 已配 + 254 GIF 已上传** ← Bug 2，用户拍板推迟
+- [ ] 真机：CDN 首次加载 / 离线 Skeleton / 缓存命中 / LRU 触发 ← 被 Bug 2 阻塞
 
-### Why
+#### Why
 
-G40 暴露一个关键事实：APK bundled 不是无限容量方案。G41 把"在线加载"做出来有 3 个长期价值：(1) 动作库从 52 → 300+ 直接提升训练质量；(2) 验证 CDN + cache 链路对实际用户的体验（首次访问延迟、命中率、LRU 必要性）；(3) 为后续 G42 扩到 1,324 全量铺路，避免一次性做完大爆炸。
+G40 暴露一个关键事实：APK bundled 不是无限容量方案。G41 把"在线加载"做出来有 3 个长期价值：(1) 动作库从 52 → 300+ 直接提升训练质量；(2) 验证 CDN + cache 链路对实际用户的体验（首次访问延迟、命中率、LRU 必要性）；(3) 为后续扩到 1,324 全量铺路，避免一次性做完大爆炸。
 
-### How to apply
+#### How to apply
 
 - 看到 G41 完成 → 想给动作库加新动作，先看 `EXERCISE_G35_MAPPING`，新加走 `bundled: false` + cdnUrl，不要再 require()
-- 看到 R2 bucket 502 / 404 → 走 `exerciseGifCache` 的 retry；用户多次失败 → Skeleton + 详情页给一个"重试"按钮（G41 范围外，留 G43）
+- 看到 R2 bucket 502 / 404 → 走 `exerciseGifCache` 的 retry；用户多次失败 → Skeleton + 详情页给一个"重试"按钮（G41 范围外，留 G44+）
 - 真机首次进入 CDN 动作 > 3s → 检查 R2 CORS + HTTP/2 + 区域节点；亚太用户应配 R2 亚洲 PoP
+
+---
+
+## G42. 休息通知收口 + 通知栏原生 ProgressBar ✅ 代码完成 / ⏳ 真机验收待做
+
+**优先级**：P2（体验收口）  |  **依赖**：G38 / G38.1  |  **阶段**：3
+**状态**：**✅ 代码 + 单测完成（pnpm test 304/304）；⏳ 通知栏进度条的视觉验收从未在真机跑过**
+
+本目标由三块拼成，按落地顺序排列。
+
+### G42a — 训练完成 save flow 重构（`7c69b36`）
+
+**要修的 bug**：`ActiveTrainingScreen.completeAndNavigate()` 在导航前先点亮通知栏 timer，紧接着父屏 unmount → bridge 的 useEffect 只跑 cleanup 不重跑 body → **通知永远卡在最后一组剩余秒数**。同样的 bug 在「主动结束训练且正处于休息间歇」时复现。
+
+**新行为**：
+
+- `completeAndNavigate()` **不再 await DB 写入**，只算 stats + `navigation.replace('TrainingComplete')`
+- 完成页改成**双按钮**：「保存训练记录」（三态 `idle / saving / saved`）+「不保存」（ghost + Dialog 二次确认）
+- 删掉「已写入训练历史 · #xxx」整行
+- 两条 end 路径（自然完成 / 主动结束）都在 navigation **之前**同步做两件事：
+  1. `useRestTimerStore.getState().skip()` —— store 翻 idle
+  2. `dismissRestTimerNotification()` **直调** —— 这是关键兜底
+
+> **可复用的通用规律**：`screen A unmount → screen B mount` 的路径上，只要 A 持有通知 / 定时器 / 订阅这类副作用，
+> **绝不能让它依赖 unmount cleanup 自动收尾**，必须在 unmount 之前同步直调。同样适用于 Live Activity、媒体播放、传感器订阅。
+
+### G42b — 通知排版简化（`7378dd8` → `3afb785`）
+
+先在通知 body 里显示当前动作名，并用 unicode 块字符（`█`/`░` 20 段）手画「帧级平滑」进度条。
+**结果不满意**：块字符字宽不一、每秒整段跳，不像视频播放器 → 直接引出 G42c。
+
+### G42c — 通知栏原生 ProgressBar（`8798e50` + `8bd8142` + `f44d979`）
+
+**方案选择**：用户在三个方案里挑了「native 模块」—— 自己 wrap `NotificationCompat.Builder.setProgress(max, current, indeterminate)`，交回 Android 系统自带 ProgressBar 渲染。
+
+**首个本地 expo-module**：`modules/expo-rest-timer-progress/`
+
+```
+modules/expo-rest-timer-progress/
+├── package.json                     # name=expo-rest-timer-progress, main=src/index.ts
+├── expo-module.config.json          # {"platforms":["android"]}，无 publication 块（本地不走 Maven）
+├── android/
+│   ├── build.gradle                 # expo-module-gradle-plugin + androidx.core:core:1.17.0
+│   └── src/main/java/expo/modules/resttimerprogress/
+│       ├── RestTimerProgressModule.kt   # ModuleDefinition { Name("RestTimerProgress");
+│       │                                #   AsyncFunction("ensureChannel"/"show"/"setProgress"/"dismiss") }
+│       └── RestTimerProgressPackage.kt  # : BasePackage()  ← autolinking 静态扫描锚点
+└── src/
+    ├── index.ts                     # requireNativeModule("RestTimerProgress")；iOS 路径 null noop
+    └── __tests__/index.test.ts      # 6 用例
+```
+
+**关键设计点**：
+
+| 点 | 说明 |
+|---|---|
+| `BasePackage` 是 autolinking 必要 anchor | `expo-modules-autolinking` 静态扫 `sourceDir` 需要至少一个 `BasePackage` 子类，否则 `packages: []` → 模块不被 bundle 进 `:app` |
+| channel id 复用 `"rest_timer"` | 与 `expo-notifications` 旧路径同 id；Android `createNotificationChannel` 幂等 |
+| `NOTIFICATION_ID = 1001` | 原生模块用固定 int id（`NotificationManagerCompat` 要求） |
+| `setProgress` 增量更新要 rebuild builder | `NotificationCompat.Builder` 不支持 mutate；从 `activeNotifications` 读旧 `EXTRA_TITLE`，避免 JS 每秒重传 title |
+| `cachedColorHex @Volatile` | 颜色只在 `show` 时设一次，`setProgress` 沿用 |
+| JS API 表面零改动 | `showOrUpdateRestTimerNotification(rem, total, name?, colorHex?)` 只多一个可选参；bridge 传 `useTheme().colors.primary` |
+| 1 Hz 而非 60 fps | 沿用 bridge 现有 `setInterval(1000)`；60 fps 对 1 Hz 倒计时无意义 |
+
+**改动文件**：`modules/expo-rest-timer-progress/*`（7 新文件）、`package.json`（加 `file:` 依赖）、`jest.config.js`（testMatch 收 `modules/**`）、`restTimerNotification.ts`（主体换调原生模块，export 签名全保留）、`RestTimerNotificationBridge.tsx`（`useTheme()` 读 color，effect 依赖加 scheme）、`restTimerNotification.test.ts`（mock 原生模块，删 4 个 unicode 断言）。
+
+### 验收状态
+
+- [x] `pnpm typecheck` 干净
+- [x] `pnpm test` 304/304（原 299 − 4 删 + 16 新 restTimerNotification + 6 新模块 wrapper）
+- [x] `npx expo-modules-autolinking resolve --platform android` 显示 `packages: ['expo.modules.resttimerprogress.RestTimerProgressPackage']`
+- [x] 训练完成三条路径（自然完成 / 主动结束空闲 / 主动结束间歇中）通知栏正确消失 + 双按钮工作 — 2026-09-18 用户确认「测试正常」
+- [ ] **真机**：light 模式进度条颜色 = `#FF6B35`
+- [ ] **真机**：dark 模式进度条颜色 = `#FF7A4D`
+- [ ] **真机**：切主题 → 通知栏进度条颜色跟随切换
+- [ ] **真机**：退后台通知停留，切回前台 ProgressBar 立刻校准
+
+### 已知风险
+
+- 通知小图标当前用系统占位 `android.R.drawable.ic_menu_recent_history`（灰白时钟），**不是 App adaptive icon**，待后续目标换 `app_icon` resource
+- iOS 路径仍是 noop（`Platform.OS !== 'android'` 直接 return），**Live Activity 未做**
+- `NotificationCompat.Builder.color` 影响 accent / ProgressBar 填充，各 OEM 渲染略有差异（三星 One UI 通常一致，小米 MIUI 偶有 accent 优先级问题）
+- 1 Hz 是 `NotificationManager` 的安全更新频率；想要真 60 fps 需要 RemoteViews + ProgressBar widget 局部更新
+
+### 提交记录
+
+- `7c69b36` feat(training-complete): 通知栏 timer 收尾 + 完成页显式保存按钮 ← G42a
+- `7378dd8` feat(rest timer): notification 显示当前动作名 + 进度条 60fps 帧级平滑 ← G42b
+- `3afb785` feat(rest-timer-notification): 极简化通知排版(mm:ss + 动作名 + 纯进度条) ← G42b
+- `8798e50` feat(G42): 通知栏原生 ProgressBar — 本地 expo-module expo-rest-timer-progress ← G42c
+- `8bd8142` chore(G42): add packageManager pnpm@10.33.0（试 pnpm 强制，**没用**）
+- `f44d979` fix(G42): 同步 package-lock.json 加入 expo-rest-timer-progress（**真修复**）
+
+---
+
+## G43. dev-client 工程链路修复（跨 G39–G42）🟡 进行中
+
+**优先级**：P1（**阻塞全部真机验收**）  |  **依赖**：G39（首次引入 dev-client）  |  **阶段**：3
+**状态**：**🟡 大部分已修；⚠️ HEAD 的最新一次修复尚未进 APK**
+
+### 为什么单开一节
+
+G39 起项目从 Expo Go 转向 **dev-client + EAS Build**（worklets 必须走 dev-client）。
+这条链路上的坑全是「代码没问题但装不上 / 起不来」，与业务功能无关，却**阻塞了所有后续真机验收**。按 G30「工程收口」的先例单列。
+
+### G43a — dev-client 接入（`4a80a43`）
+
+- `eas.json` 加 `development` profile：`developmentClient: true` + `:app:assembleDebug` + APK + `distribution: internal`
+- 加 `eas:development` / `eas:preview` 脚本
+- `patch-package` + `postinstall` hook（为 G43c 的 patch 服务）
+
+### G43b — worklets / reanimated 版本锁定（`c1f8785` + `948efa5`）
+
+| 版本 | 结果 |
+|---|---|
+| worklets **0.12.x** bundle mode | ❌ `expo-modules-core` peer dep 上限是 `^0.10.0`，跑 expo-dev-client → **SIGSEGV** |
+| reanimated **4.6.0** + worklets 0.10.4 | ❌ 4.6.0 带硬运行时检查，拒绝 worklets < 0.12.x → **每次 bundle 加载红屏** |
+| **reanimated 4.5.1 + worklets 0.10.1** | ✅ **canonical 配置** |
+
+- `c1f8785` 锁回 0.10.1 + 4.5.1，`bundleMode: false`
+- `948efa5` 把 `^4.5.1` / `^0.10.1` 的 **`^` 去掉**：lockfile 漂移会让 `pnpm install` 解析到 4.6.0 + 0.10.4，重新触发红屏。精确锁版后不可能再漂
+
+> 这条配置是**硬约束**——升 reanimated / worklets 前先读本节。
+
+### G43c — rnscreens setupFabric NPE patch（`8b75202` + `1e06421`）
+
+**症状**：dev-client 输入 `exp://` URL 后红屏：
+
+```
+[runtime not ready]: Error: Exception in HostObject::get for prop 'RNSModule':
+java.lang.NullPointerException: null cannot be cast to non-null type
+  com.facebook.react.fabric.FabricUIManager
+    at com.swmansion.rnscreens.ScreensModule.setupFabric(ScreensModule.kt:59)
+    at com.swmansion.rnscreens.ScreensModule.initialize(ScreensModule.kt:54)
+```
+
+**根因**：RN 0.86 + dev-client 启动时是 Fabric 启动顺序 race —— `UIManagerHelper.getUIManager(ctx, FABRIC)` 在 `ScreensModule.initialize()` 阶段返回 null，而 screens 4.x 直接 `as FabricUIManager` 强转 → NPE → 进程挂。
+
+**上游确认未修**：4.26.2（本机装的）/ 4.28.0 / 5.0.0-alpha.3 三版的 `setupFabric` 都是同一个强转。→ 只能本地 patch。
+
+**Patch**：`patches/react-native-screens+4.26.2.patch`
+
+1. `setupFabric()` 改 `as?` nullable cast + null guard + 幂等 flag `fabricListenerAttached`
+2. 加 `onHostResume()` 兜底：initialize 阶段 Fabric 没就绪时，host resume 时重试一次（flag 保护不会重复 add listener）
+
+`1e06421` 修掉第一次打 patch 时引入的重复 `onHostResume`（Kotlin 编译错误）。
+
+> **长期保留项**：screens 升级前先确认上游是否原生修了 `setupFabric`；没修就得同步更新 patch 文件。
+> 有人报「dev-client 输 URL 后红屏，栈里带 `ScreensModule.setupFabric`」→ 100% 是这个 patch 没生效。
+
+### G43d — EAS 云端双 lockfile 坑（`f44d979`）
+
+**症状**：前 4 次 build 全部 fail with `Unknown error`（通用错误，无具体信息）。
+
+**排查路径**：`eas build:view --json` → 取 `logFiles` URL → `curl --compressed` 拿到真实日志：
+
+```
+Running "npm ci --include=dev"
+npm error `npm ci` can only install packages when your package.json
+          and package-lock.json are in sync
+npm error Missing: expo-rest-timer-progress@1.0.0 from lock file
+```
+
+**关键发现**：EAS cloud 跑的是 **`npm ci`**，尽管 `pnpm-lock.yaml` 也在仓库里。双 lockfile 共存时 EAS 默认选 npm。
+`packageManager: pnpm@10.33.0` 字段（`8bd8142`）**没能**强制切换；`postinstall-postinstall`（`2d0e3eb` 移除）反而会把 `packageManager` 字段弄坏。
+
+**修复**：`npm install --package-lock-only --ignore-scripts` 把新依赖同步进 `package-lock.json`。
+
+> **未决**：仓库里同时存在 `pnpm-lock.yaml` 和 `package-lock.json`（两个都未跟踪/半跟踪），
+> 属于结构性隐患，值得单独决策要不要删掉其中一个。
+
+### G43 当前进度（2026-09-20 盘点）
+
+| 项 | 值 |
+|---|---|
+| **最后一次成功的 EAS Build** | `b3043661`（development profile，commit `1e06421`，2026-09-18 09:18 UTC） |
+| **HEAD** | `948efa5`（2026-09-19） |
+| **差距** | ⚠️ HEAD 的依赖锁版修复**尚未进任何 APK** |
+
+**下一步**：先直接用现有 APK + `pnpm start` 启 Metro 试连（锁版修复理论上 JS 侧装完依赖即生效）；
+若仍红屏（native 版本错配），跑 `pnpm eas:development` 重打 dev APK —— 必须用 **development** profile，preview 不带 dev-client。
+
+### 提交记录
+
+- `4a80a43` chore(EAS): 加 development profile + expo-dev-client 接入
+- `c1f8785` fix(worklets): 锁回 0.10.1 + reanimated 4.5.1 兼容 expo-modules-core peer dep
+- `8b75202` fix(rnscreens): patch setupFabric NPE on RN 0.86 dev-client
+- `2d0e3eb` fix(EAS): drop postinstall-postinstall (mangles packageManager field)
+- `1e06421` fix(rnscreens): remove duplicate onHostResume (Kotlin compile error)
+- `948efa5` fix(deps): pin reanimated 4.5.1 + worklets 0.10.1 (drop ^)
 
 ---
 
