@@ -41,12 +41,11 @@ describe('G35 §3 / G39 / G41 toExerciseRows 字段填充', () => {
     }
   });
 
-  it('G41: 250 条 remote → gif_url = https URL(R2 pub 域名)', () => {
+  it('G44: 254 条 remote → gif_url = https URL(腾讯云 COS 域名)', () => {
     const remoteRows = rows.filter((r) => r.gif_url?.startsWith('https://'));
     expect(remoteRows.length).toBe(254);
     for (const r of remoteRows) {
-      // 接受 pub-PLACEHOLDER.r2.dev(R2 还没建好) 或真实 pub-xxx.r2.dev
-      expect(r.gif_url).toMatch(/^https:\/\/pub-[A-Za-z0-9]+\.r2\.dev\//);
+      expect(r.gif_url).toMatch(/^https:\/\/[\w-]+\.cos\.ap-shanghai\.myqcloud\.com\//);
     }
   });
 

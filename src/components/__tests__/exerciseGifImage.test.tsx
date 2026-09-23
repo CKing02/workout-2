@@ -324,11 +324,11 @@ describe('G39 ExerciseGifImage', () => {
     act(() => tree.unmount());
   });
 
-  // === G41 R2 CDN 路径(250 个 bundled:false 走 https) ===
-  describe('G41 R2 CDN 路径', () => {
-    const R2_BASE = 'https://pub-PLACEHOLDER.r2.dev/workout2-gifs/exercises';
+  // === G44 腾讯云 COS 路径(254 个 bundled:false 走 https) ===
+  describe('G44 腾讯云 COS 路径', () => {
+    const R2_BASE = 'https://workout-gifs-cdn-20260923-1327489994.cos.ap-shanghai.myqcloud.com/exercises';
 
-    it('R2 URL → 初始 Skeleton,异步成功后切到 Image(Skeleton → setSource 序列)', async () => {
+    it('COS URL → 初始 Skeleton,异步成功后切到 Image(Skeleton → setSource 序列)', async () => {
       const r2Url = `${R2_BASE}/0151-7xI5MXA.gif`;
       const fileUri = 'file:///mock/cache/gifs/0151-7xI5MXA.gif';
       mockGetCachedOrDownload.mockResolvedValueOnce(fileUri);

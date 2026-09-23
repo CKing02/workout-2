@@ -243,9 +243,9 @@ describe('G39 exerciseGifCache', () => {
     });
   });
 
-  describe('G41 R2 CDN 路径(250 个 bundled:false 走 https)', () => {
-    it('R2 pub 域名 deep path → basename 清洗正确(无 query)', async () => {
-      const r2Url = 'https://pub-PLACEHOLDER.r2.dev/workout2-gifs/exercises/0151-7xI5MXA.gif';
+  describe('G44 腾讯云 COS 路径(254 个 bundled:false 走 https)', () => {
+    it('COS 域名 deep path → basename 清洗正确(无 query)', async () => {
+      const r2Url = 'https://workout-gifs-cdn-20260923-1327489994.cos.ap-shanghai.myqcloud.com/exercises/0151-7xI5MXA.gif';
       const result = await getCachedOrDownload(r2Url);
       // 缓存未命中 → 走 download,默认 ok 落到 0308 mock uri
       expect(result).toBe('file:///mock/Cache/gifs/0308-yz9nUhF.gif');
@@ -261,7 +261,7 @@ describe('G39 exerciseGifCache', () => {
       });
       const fsSizeBefore = fsEntries.length;
       const result = await getCachedOrDownload(
-        'https://pub-PLACEHOLDER.r2.dev/workout2-gifs/exercises/0151-7xI5MXA.gif',
+        'https://workout-gifs-cdn-20260923-1327489994.cos.ap-shanghai.myqcloud.com/exercises/0151-7xI5MXA.gif',
       );
       expect(result).toBe('file:///mock/Cache/gifs/0151-7xI5MXA.gif');
       expect(fsEntries.length).toBe(fsSizeBefore);
@@ -271,7 +271,7 @@ describe('G39 exerciseGifCache', () => {
       // hasaneyldrm 文件名形如 0662-I4hDWkc.gif,只含 [a-zA-Z0-9.-],无特殊字符
       // 测试一个含 query 但不带 .gif 的 URL → 应该返 null(不命中下载)
       const result = await getCachedOrDownload(
-        'https://pub-PLACEHOLDER.r2.dev/workout2-gifs/exercises/foo',
+        'https://workout-gifs-cdn-20260923-1327489994.cos.ap-shanghai.myqcloud.com/exercises/foo',
       );
       expect(result).toBeNull();
     });
@@ -280,7 +280,7 @@ describe('G39 exerciseGifCache', () => {
       resetFs();
       setDownloadThrow(new Error('R2 503 Service Unavailable'));
       const result = await getCachedOrDownload(
-        'https://pub-PLACEHOLDER.r2.dev/workout2-gifs/exercises/1311-Ccm5kAE.gif',
+        'https://workout-gifs-cdn-20260923-1327489994.cos.ap-shanghai.myqcloud.com/exercises/1311-Ccm5kAE.gif',
       );
       expect(result).toBeNull();
       expect(fsEntries).toHaveLength(0);
@@ -289,11 +289,11 @@ describe('G39 exerciseGifCache', () => {
     it('250 个 R2 URL 各自独立,basename 互不冲突', async () => {
       // 模拟批量:5 个不同 R2 URL 各自有自己的 basename
       const urls = [
-        'https://pub-PLACEHOLDER.r2.dev/workout2-gifs/exercises/0151-7xI5MXA.gif',
-        'https://pub-PLACEHOLDER.r2.dev/workout2-gifs/exercises/0171-tBWXbIT.gif',
-        'https://pub-PLACEHOLDER.r2.dev/workout2-gifs/exercises/0251-9WTm7dq.gif',
-        'https://pub-PLACEHOLDER.r2.dev/workout2-gifs/exercises/0662-I4hDWkc.gif',
-        'https://pub-PLACEHOLDER.r2.dev/workout2-gifs/exercises/1326-cP6M2x9.gif',
+        'https://workout-gifs-cdn-20260923-1327489994.cos.ap-shanghai.myqcloud.com/exercises/0151-7xI5MXA.gif',
+        'https://workout-gifs-cdn-20260923-1327489994.cos.ap-shanghai.myqcloud.com/exercises/0171-tBWXbIT.gif',
+        'https://workout-gifs-cdn-20260923-1327489994.cos.ap-shanghai.myqcloud.com/exercises/0251-9WTm7dq.gif',
+        'https://workout-gifs-cdn-20260923-1327489994.cos.ap-shanghai.myqcloud.com/exercises/0662-I4hDWkc.gif',
+        'https://workout-gifs-cdn-20260923-1327489994.cos.ap-shanghai.myqcloud.com/exercises/1326-cP6M2x9.gif',
       ];
       // 全部缓存命中(预先填)
       urls.forEach((u) => {

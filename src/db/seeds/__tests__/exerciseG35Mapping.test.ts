@@ -225,7 +225,7 @@ describe('G40 GIF bundle(52 张 bundled 全落盘)', () => {
   });
 });
 
-describe('G41 CDN 路径(bundled === false 走 R2 https 拉取)', () => {
+describe('G44 CDN 路径(bundled === false 走 COS https 拉取)', () => {
   const remote = EXERCISE_G35_MAPPING.filter((m) => !m.bundled);
 
   it('bundled === false 时 cdnUrl 必填', () => {
@@ -234,11 +234,11 @@ describe('G41 CDN 路径(bundled === false 走 R2 https 拉取)', () => {
     }
   });
 
-  it('cdnUrl 都是 https:// 头(R2 pub 域名)', () => {
+  it('cdnUrl 都是 https:// 头(腾讯云 COS 域名)', () => {
     for (const m of remote) {
       expect(m.cdnUrl!.startsWith('https://')).toBe(true);
-      // pub-xxx.r2.dev 是 Cloudflare R2 默认 public 域名
-      expect(m.cdnUrl!.includes('.r2.dev/')).toBe(true);
+      // workout-gifs-cdn-XXX.cos.ap-shanghai.myqcloud.com 是腾讯云 COS 默认域名
+      expect(m.cdnUrl!.includes('.cos.ap-shanghai.myqcloud.com/')).toBe(true);
     }
   });
 

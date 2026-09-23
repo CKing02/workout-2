@@ -1553,12 +1553,12 @@ G39 还有 22 张走 remote。G40 把这 22 张下载落盘 —— 动作库达�
 - **根因**：`seedExercisesIfEmpty` 检查 `existingCount > 0` 就直接 `return 0`；`backfillExerciseI18n` 只按 name UPDATE 已有行，**从不新增**
 - **修复**：`cde3c69` — 加 migration v10 + `upgradeExerciseSeedIfMissing(db)` 差量 INSERT，纯函数 `filterMissingSeedRows` 单测覆盖三态幂等。老装下次启动 52 → 306
 
-#### Bug 2 — `cdnUrl` 是字面占位符，R2 bucket 没部署 ⚠️ 用户拍板推迟
+#### Bug 2 — `cdnUrl` 是字面占位符，R2 bucket 没部署 ✅ **由 G44 接手完成**
 
 - **症状**：254 个新动作会出现，但缩略图**一直是 skeleton**
 - **根因**：`scripts/upload-g41-r2.js` 写好了但没跑（env 凭证没填），`pub-PLACEHOLDER.r2.dev` 没被 find-replace
-- **当前状态**：`src/db/seeds/exerciseG35Mapping.ts` 中 **254 条**仍是 `https://pub-PLACEHOLDER.r2.dev/...`（+ `exerciseGifImage.test.tsx:329` 测试常量 1 处）
-- **决策**：用户 2026-09-17 选**选项 C — 接受 skeleton 占位**，留后续处理
+- **2026-09-17 决策**：用户选**选项 C — 接受 skeleton 占位**，留后续处理
+- **2026-09-23 解决**：用户拍板改走腾讯云 COS（G44），254 张 GIF 实下载 + 上传 + URL 替换全部完成；详见下文 **G44** 节
 
 #### Bug 3 — v10 migration 嵌套事务导致真机启动闪退 ✅ 已修
 
@@ -1579,22 +1579,9 @@ G39 还有 22 张走 remote。G40 把这 22 张下载落盘 —— 动作库达�
 
 **经验**：AVD 不能 100% 替代真机做 crash 验证；expo-sqlite + ExceptionsManager 在 x86_64 模拟器与 ARM 真机行为不一致。migration 的 `run()` 内**永远不要**自己包事务。
 
-### Bug 2 修复路线（用户改主意时直接用）
+### Bug 2 修复路线（**已废弃**，由 G44 接手）
 
-```bash
-# 1. 准备 R2 凭证(参考 docs/setup/cloudflare-r2.md)
-export R2_ACCOUNT_ID="..." R2_ACCESS_KEY_ID="..." R2_SECRET_ACCESS_KEY="..."
-export R2_BUCKET="workout2-gifs" R2_PUBLIC_URL="https://pub-xxx.r2.dev"
-
-# 2. 上传 254 张 GIF
-node scripts/upload-g41-r2.js
-
-# 3. find-replace 占位符(映射表 + 测试常量)
-sed -i 's/pub-PLACEHOLDER/pub-xxx/g' src/db/seeds/exerciseG35Mapping.ts
-sed -i 's/pub-PLACEHOLDER/pub-xxx/g' src/components/__tests__/exerciseGifImage.test.tsx
-
-# 4. jest 全绿 → 触发新 EAS Build
-```
+历史版本（已不用执行）：Cloudflare R2 bucket `workout2-gifs` + R2 S3-compatible API + SigV4 签名。脚本仍在 `scripts/upload-g41-r2.js` 保留作为档案（用户最后拍板改走腾讯云 COS，详见 G44）。
 
 ### 提交记录
 
@@ -1890,6 +1877,77 @@ npm error Missing: expo-rest-timer-progress@1.0.0 from lock file
 - `2d0e3eb` fix(EAS): drop postinstall-postinstall (mangles packageManager field)
 - `1e06421` fix(rnscreens): remove duplicate onHostResume (Kotlin compile error)
 - `948efa5` fix(deps): pin reanimated 4.5.1 + worklets 0.10.1 (drop ^)
+
+---
+
+## G44. 254 张 CDN GIF 落地腾讯云 COS ✅
+
+**优先级**：P0（**Bug 2 收口**）  |  **依赖**：G41（已规划 R2 CDN 路径）  |  **阶段**：3
+**状态**：✅ **全部完成**（2026-09-23）
+
+### 为什么从 R2 改 COS
+
+G41 当时定 Cloudflare R2 做 CDN 托管，但 **R2 bucket 在大陆访问稳定性差 + 绑卡 / PayPal 摩擦大**，Bug 2 一拖就是一周。G44 用户拍板改走腾讯云 COS，理由：
+
+| 维度 | Cloudflare R2 | 腾讯云 COS |
+|------|---------------|------------|
+| 国内访问 | 经常被墙 / 不稳定 | 稳定（公网覆盖）|
+| 注册摩擦 | 需海外卡 / PayPal | 微信扫码 + 身份证实名 |
+| 出口流量 | 免费 | 10 GB/月免费，超出 0.5 元/GB |
+| 存储 | 10 GB 免费 | 5 GB 免费 |
+| 月成本（254 张 ~25 MB / 9 万次读） | $0 | ~0.9 元 |
+
+**G44 选了按量付费（不买资源包）**—— 254 张图 + 9 万次/月请求完全在免费额度内。
+
+### 实际步骤
+
+1. **开通 COS** → 控制台 → 对象存储 → 开通服务（免费，10 秒）
+2. **创建 bucket**：
+   - 名称：`workout-gifs-cdn-20260923-1327489994`（用户输入 `workout-gifs-cdn-20260923`，腾讯云自动追加 APPID `-1327489994`）
+   - 地域：公有云园区-中国-**上海**（ap-shanghai）
+   - 访问权限：**公有读私有写**（关键！不是私有读写）
+   - 存储类型：标准存储
+   - **数据冗余策略改为「单 AZ 存储」**（默认勾的是多 AZ，存储费贵 1.5-2 倍；254 张图根本不需要三机房冗余）
+3. **配 CORS**：来源 `*`、Methods `GET, HEAD`、Allow-Headers `*`、Expose-Headers `ETag, Content-Length, Content-Type`、Max-Age `3600`
+   - **OPTIONS 不需要勾**——腾讯云 COS 把 GET/HEAD 当简单方法，OPTIONS 预检自动放行
+4. **下载 254 张 GIF** 到 `.tmp/exercises/`：
+   - `scripts/download-g44-gifs.js`（基于 hasaneyldrm GitHub raw + 自动 fallback jsDelivr CDN，单一文件超时 22s 时换镜像秒过）
+   - 8 路并发 GitHub 限速（ECONNRESET），降为 4 并发 + retry 5 次后稳定
+5. **批量上传** 到 `exercises/` 路径：腾讯云控制台 → 「创建文件夹 `exercises/`」→「上传文件」批量选 254 张 GIF（单次最多 100 张，分 3 批）
+6. **修浏览器下载问题**：腾讯云控制台批量上传时**默认**给每个文件打 `x-cos-force-download: true` metadata，响应头里出现 `Content-Disposition: attachment`，浏览器一律走"另存为"。
+   - **不影响 RN 客户端**（拿字节流自己 Image 渲染，不解析 Content-Disposition）
+   - 但浏览器访问要修：用 cos-nodejs-sdk-v5 写 `scripts/fix-cos-force-download.js`，对每个文件 `putObjectCopy(... MetadataDirective: 'Replaced', xCosForceDownload: 'false')`，254 张全部改完，响应头验证只剩 `Content-Type: image/gif`
+7. **批量替换 URL**：
+   - `src/db/seeds/exerciseG35Mapping.ts`：254 条 `cdnUrl` 从 `pub-PLACEHOLDER.r2.dev/workout2-gifs/exercises/` 替换成 `workout-gifs-cdn-20260923-1327489994.cos.ap-shanghai.myqcloud.com/exercises/`
+   - 4 个测试文件的断言 + 描述：从 G41 R2 改成 G44 腾讯云 COS（regex 模式 `.r2.dev/` → `.cos.ap-shanghai.myqcloud.com/`）
+8. **jest 全跑**：298 个测试全绿（G44 相关 71 个 + 其余 227 个），唯一失败的 `modules/expo-rest-timer-progress/src/__tests__/index.test.ts` 是 expo winter/fetch 在 jest 环境的兼容问题，pre-existing，与 G44 改动无关。
+
+### 凭据生命周期
+
+- COS 子用户 `g44-cos-fix`，授权 `QcloudCOSFullAccess`
+- 任务跑完后**必须立刻禁用该 API key**（用户已确认）
+- 后续批量改 metadata / 重传等维护再临时开新 key，用完即关
+
+### 提交记录
+
+（待 commit——本节写完后一并提交）
+
+### 文档
+
+- `docs/setup/tencent-cos.md——新建 COS（配置 + CORS + 监控项）
+- `docs/setup/cloudflare-r2.md` 保留作为档案，标记废弃
+- `scripts/download-g44-gifs.js`——G44 增量下载工具（后续加新动作可重跑）
+- `scripts/fix-cos-force-download.js`——G44 metadata 批量修复工具
+
+### 月成本（实测估算）
+
+| 规模 | 月成本 |
+|------|---------|
+| 100 用户 × 30 次/天 | < 1 元 |
+| 1000 用户 × 30 次/天 | ~5 元 |
+| 10000 用户 × 30 次/天 | ~50 元（此时才考虑 100GB 流量包 ¥50/6 月）|
+
+监控建议：控制台 → 消息订阅 → **费用预警** → 预算 ¥10/月，超阈值短信通知。
 
 ---
 
