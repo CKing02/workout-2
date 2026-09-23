@@ -283,6 +283,10 @@ class RestTimerProgressModule : Module() {
      * 增量更新进度。
      * 必须重建整个通知(NotificationCompat.Builder 不支持 mutate),
      * 但 title / 颜色沿用上一次 show() 的,避免 JS 端每帧重复传。
+     *
+     * 到点(remaining<=0)走 cancel 而非 rebuild —— 与 show() 对齐。
+     * 不拦会让 Chronometer 的 base 落在 `elapsedRealtime` 之后,
+     * SystemUI 把它解释成"已经过多久"显示成 -0:01、-0:02 这种无效时间。
      */
     AsyncFunction("setProgress") { remainingSec: Int, totalSec: Int ->
       val ctx = appContext.reactContext ?: return@AsyncFunction
@@ -291,6 +295,11 @@ class RestTimerProgressModule : Module() {
         ?: return@AsyncFunction
       val safeTotal = totalSec.coerceAtLeast(1)
       val safeRemaining = remainingSec.coerceIn(0, safeTotal)
+      if (safeRemaining <= 0) {
+        nm.cancel(NOTIFICATION_ID)
+        cancelAlarm(ctx)
+        return@AsyncFunction
+      }
       val oldTitle = existing.notification.extras
         .getCharSequence(NotificationCompat.EXTRA_TITLE)
         ?.toString()
