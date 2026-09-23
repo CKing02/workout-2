@@ -37,6 +37,7 @@ import {
   ensureChannelAndPermissions,
   showOrUpdateRestTimerNotification,
   dismissRestTimerNotification,
+  consumeExpiredRestTimerNotification,
 } from './restTimerNotification';
 
 export function RestTimerNotificationBridge(): null {
@@ -127,6 +128,51 @@ export function RestTimerNotificationBridge(): null {
     const sub = AppState.addEventListener('change', onChange);
     return () => sub.remove();
   }, [progressColorHex, scheme]);
+
+  /* ----- 4. [G42 hotfix] 消费 receiver 写的 SP "expired_at" ----- */
+  /**
+   * 退后台 + 锁屏期间 App 进程被 freezer/cache,JS 端 RAF tick 不再触发。
+   * receiver 在闹钟到点时已经 cancel 通知 + 震动 + 写 SP,但 **App 内
+   * RestTimerOverlay 还停留在 0 秒**(JS 端没机会推进 state)。
+   *
+   * 用户回前台时(bridge mount 或 AppState 'active')读 SP:
+   *   - 返回 > 0 → store 进入"已到点"分支,跳过 1 秒折叠延迟,立即 skip
+   *     → overlay `visible = isActive || completedAt !== null` = false → 消失
+   *   - 返回 0   → 没发生过 receiver 唤起,JS 走正常 RAF tick 路径
+   *
+   * 防御:如果用户已在 receiver 唤起后开了新轮(remaining > 0),不该消费旧
+   * expired 标记把新轮干掉了。只在 store 里剩余时间 ≤ 0 时才 skip。
+   *
+   * `markCompleted()` 仍然先调一下再 skip —— skip 内部会清掉 completedAt,
+   * 但语义上"这是 receiver 触发的一次过期完成",markCompleted 留在日志/埋点
+   * 里更准确。实际上 markCompleted 完立即 skip,completedAt 永远不会被
+   * observer 看到(setState 同一个 microtask 同步清掉)——这是有意的,不需要
+   * 走 1s 折叠动画(receiver 已 cancel 通知,折叠动画显得多余)。
+   */
+  useEffect(() => {
+    const consume = async () => {
+      const expiredAt = await consumeExpiredRestTimerNotification();
+      if (expiredAt <= 0) return;
+
+      const state = useRestTimerStore.getState();
+      if (state.startedAt === null || state.durationMs === null) return;
+      // 用户可能已经在 receiver 唤起期间开启了新轮 —— 这种情况新轮
+      // durationMs > (now - startedAt) → remainingMs > 0 → 不能 skip
+      const remainingMs = state.durationMs - (Date.now() - state.startedAt);
+      if (remainingMs > 0) return;
+
+      state.markCompleted();
+      state.skip(); // 立刻清空 → overlay `visible=false` 整体消失
+    };
+
+    // mount 时跑一次(用户重启 App 后第一次 mount)
+    consume();
+    // 切回前台时再跑一次(锁屏 / 后台 → active)
+    const sub = AppState.addEventListener('change', (s) => {
+      if (s === 'active') consume();
+    });
+    return () => sub.remove();
+  }, []);
 
   // 平台分流 — iOS 路径整体 noop,但保留 hook 框架给未来 G 任务挂 Live Activity
   if (Platform.OS !== 'android') return null;

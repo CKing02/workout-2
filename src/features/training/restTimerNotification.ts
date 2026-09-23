@@ -48,6 +48,7 @@ import {
   ensureChannel as nativeEnsureChannel,
   showOrUpdate as nativeShowOrUpdate,
   dismiss as nativeDismiss,
+  consumeExpired as nativeConsumeExpired,
 } from 'expo-rest-timer-progress';
 
 /* -------------------------------------------------------------------------- */
@@ -144,5 +145,36 @@ export async function dismissRestTimerNotification(): Promise<void> {
     if (__DEV__) {
       console.warn('[restTimerNotification] dismiss failed:', e);
     }
+  }
+}
+
+/**
+ * "消费" alarm receiver 写入的"已到点"标记 —— 读 + 清 SharedPreferences。
+ *
+ * 触发场景:退后台 + 锁屏期间 App 进程被 freezer/cache,JS 端 RAF tick 不再
+ * 触发;receiver 唤起时已经 cancel 通知 + 震动 + 写 SP,但 **App 内
+ * RestTimerOverlay 还停留在 0 秒**(JS 端没机会推进 state)。
+ *
+ * bridge mount + AppState 'active' 时调本方法:
+ *   - 返回 > 0 → 让 store 进入"已到点"分支,跳过 1 秒折叠延迟,立即 skip
+ *     让 overlay 消失(视觉与通知栏一致 — 通知栏已 cancel,App 内也别挂着)
+ *   - 返回 0   → 没发生过 receiver 唤起,JS 走正常 RAF tick 路径
+ *
+ * native 是 read + clear 原子(commit 同步),多次调用安全。
+ *
+ * 返回:`number`(elapsedRealtime ms),0 = 无未消费的到点事件。
+ */
+export async function consumeExpiredRestTimerNotification(): Promise<number> {
+  if (Platform.OS !== 'android') return 0;
+  try {
+    return await nativeConsumeExpired();
+  } catch (e) {
+    if (__DEV__) {
+      console.warn(
+        '[restTimerNotification] consumeExpired failed:',
+        e,
+      );
+    }
+    return 0;
   }
 }

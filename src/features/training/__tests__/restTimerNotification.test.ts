@@ -37,11 +37,13 @@ jest.mock('react-native', () => ({
 const mockNativeEnsureChannel = jest.fn();
 const mockNativeShow = jest.fn();
 const mockNativeDismiss = jest.fn();
+const mockNativeConsumeExpired = jest.fn();
 
 jest.mock('expo-rest-timer-progress', () => ({
   ensureChannel: (...args: unknown[]) => mockNativeEnsureChannel(...args),
   showOrUpdate: (...args: unknown[]) => mockNativeShow(...args),
   dismiss: (...args: unknown[]) => mockNativeDismiss(...args),
+  consumeExpired: (...args: unknown[]) => mockNativeConsumeExpired(...args),
 }));
 
 /* ---- mock expo-notifications(只保留权限 + handler 两个) ---- */
@@ -61,6 +63,7 @@ describe('G41 restTimerNotification (Android)', () => {
     mockNativeEnsureChannel.mockReset();
     mockNativeShow.mockReset();
     mockNativeDismiss.mockReset();
+    mockNativeConsumeExpired.mockReset();
     mockGetPerms.mockReset();
     mockRequestPerms.mockReset();
     mockSetHandler.mockReset();
@@ -70,6 +73,7 @@ describe('G41 restTimerNotification (Android)', () => {
     mockNativeEnsureChannel.mockResolvedValue(undefined);
     mockNativeShow.mockResolvedValue(undefined);
     mockNativeDismiss.mockResolvedValue(undefined);
+    mockNativeConsumeExpired.mockResolvedValue(0);
   });
 
   it('ensureChannelAndPermissions:Android 上调原生 ensureChannel + 询问权限', async () => {
@@ -246,6 +250,41 @@ describe('G41 restTimerNotification (Android)', () => {
     await mod.ensureChannelAndPermissions();
     expect(mockNativeEnsureChannel).toHaveBeenCalledTimes(1);
   });
+
+  it('consumeExpired:调原生 consumeExpired + 透传返回值', async () => {
+    mockNativeConsumeExpired.mockResolvedValue(123456789);
+    let mod!: typeof import('../restTimerNotification');
+    jest.isolateModules(() => {
+      mod = require('../restTimerNotification');
+    });
+
+    const result = await mod.consumeExpiredRestTimerNotification();
+    expect(mockNativeConsumeExpired).toHaveBeenCalledTimes(1);
+    expect(result).toBe(123456789);
+  });
+
+  it('consumeExpired:无 receiver 触发时返回 0', async () => {
+    mockNativeConsumeExpired.mockResolvedValue(0);
+    let mod!: typeof import('../restTimerNotification');
+    jest.isolateModules(() => {
+      mod = require('../restTimerNotification');
+    });
+
+    const result = await mod.consumeExpiredRestTimerNotification();
+    expect(result).toBe(0);
+  });
+
+  it('consumeExpired:原生抛错时静默吞掉 + 返回 0', async () => {
+    mockNativeConsumeExpired.mockRejectedValue(new Error('SP read failed'));
+    let mod!: typeof import('../restTimerNotification');
+    jest.isolateModules(() => {
+      mod = require('../restTimerNotification');
+    });
+
+    // 不应 throw
+    const result = await mod.consumeExpiredRestTimerNotification();
+    expect(result).toBe(0);
+  });
 });
 
 describe('G41 restTimerNotification (iOS — 本期不实现)', () => {
@@ -254,6 +293,7 @@ describe('G41 restTimerNotification (iOS — 本期不实现)', () => {
     mockNativeEnsureChannel.mockReset();
     mockNativeShow.mockReset();
     mockNativeDismiss.mockReset();
+    mockNativeConsumeExpired.mockReset();
     mockGetPerms.mockReset();
     mockRequestPerms.mockReset();
   });
@@ -291,5 +331,16 @@ describe('G41 restTimerNotification (iOS — 本期不实现)', () => {
     await mod.dismissRestTimerNotification();
 
     expect(mockNativeDismiss).not.toHaveBeenCalled();
+  });
+
+  it('consumeExpired: iOS 上 noop + 返回 0', async () => {
+    let mod!: typeof import('../restTimerNotification');
+    jest.isolateModules(() => {
+      mod = require('../restTimerNotification');
+    });
+
+    const result = await mod.consumeExpiredRestTimerNotification();
+    expect(result).toBe(0);
+    expect(mockNativeConsumeExpired).not.toHaveBeenCalled();
   });
 });

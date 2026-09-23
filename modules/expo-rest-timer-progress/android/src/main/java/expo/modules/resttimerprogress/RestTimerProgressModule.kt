@@ -7,6 +7,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.os.Build
@@ -74,6 +75,41 @@ class RestTimerProgressModule : Module() {
 
     /** 允许的到点时刻漂移。1s 量化的 tick 抖动不会超这个值,但 +15s 一定超。 */
     private const val ALARM_RESCHEDULE_TOLERANCE_MS = 2000L
+
+    /** SharedPreferences 名(alarm receiver 写 / JS consumeExpired 读)。 */
+    private const val PREFS_NAME = "rest_timer_progress"
+
+    /** receiver 唤起时写入的"已到点"时间戳(elapsedRealtime ms);0 = 未触发。 */
+    private const val KEY_EXPIRED_AT = "expired_at_elapsed_ms"
+
+    /**
+     * receiver 在 `onReceive` 里写 SP,JS 端 `consumeExpired()` 读 + 清。
+     * 用 SP 而不是静态字段:receiver 可能被 Android 在 App 进程被杀后唤起,
+     * 静态字段会随进程死。SP 持久化到磁盘,下次 App 启动仍能读到。
+     *
+     * 调用方必须 useApplicationContext() 拿 SharedPreferences —— receiver 的
+     * context 可能是 Activity 上下文,receiver 路径走完就销毁,SP 跟着死。
+     */
+    private fun prefs(ctx: Context): SharedPreferences =
+      ctx.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+    /**
+     * [RestTimerAlarmReceiver] 在 `onReceive` 里调本方法,标记"闹钟已到点"。
+     *
+     * 为什么走 SP:receiver 可能被 Android 在 App 进程已被 cache/freeze 后唤起,
+     * 静态字段已丢;且 receiver 走完即销毁,静态字段也活不下来。SP 是 receiver
+     * 与 JS 端唯一可靠的跨进程通道。
+     *
+     * 用 `apply()` 而非 `commit()`:`BroadcastReceiver.onReceive` 必须在
+     * 8-10 秒内返回,否则 ANR。`apply()` 异步落盘足够 —— JS 端 `consumeExpired`
+     * 总在下次 App 进程启动 / 回前台时被调,中间几秒足够 SP 落盘。
+     */
+    @JvmStatic
+    fun markExpired(ctx: Context) {
+      prefs(ctx).edit()
+        .putLong(KEY_EXPIRED_AT, SystemClock.elapsedRealtime())
+        .apply()
+    }
 
     /**
      * 内容区 RemoteViews:一行「动作名 + 倒计时」+ 主题色进度条。
@@ -321,6 +357,38 @@ class RestTimerProgressModule : Module() {
         promise.resolve(null)
       } catch (e: Throwable) {
         promise.reject("ERR_DISMISS", e.message ?: "dismiss failed", e)
+      }
+    }
+
+    /**
+     * JS 端 "消费" alarm receiver 写入的"已到点"标记 —— 读 + 清 SharedPreferences。
+     *
+     * 触发场景:退后台 + 锁屏后,App 进程被 freezer/cache 冻结,JS 端 RAF tick
+     * 不再触发。闹钟到点时 receiver 唤起 → cancel 通知 + 震动 + SP 写时间戳。
+     * **此时 App 内 `RestTimerOverlay` 还在显示 0 秒**(因为 JS 端没机会推进 state)。
+     *
+     * 用户回前台,bridge mount + AppState 'active' 时调本方法:
+     *   - 返回 > 0 → App 内 store 进入"已到点"分支,跳过 1 秒折叠延迟,立即 skip
+     *     让 overlay 消失(视觉与通知栏一致 — 通知栏已 cancel,App 内也别挂着)
+     *   - 返回 0   → 没发生过 receiver 唤起,JS 走正常 RAF tick 路径
+     *
+     * read + clear 用 `commit()` 同步原子:避免 mount 多次 / AppState 抖动时
+     * 第一次拿到时间戳、第二次误报"又触发了"。`commit()` 在 SP 文件已存在时是
+     * KB 量级同步写,JS 端 mount 时一次性调用,负担可接受;若切到 apply() 则
+     * 需自己处理竞争(给 key 加一次性 token,逻辑更绕)。
+     *
+     * 返回:`Long`(elapsedRealtime ms),0 = 无未消费的到点事件。
+     */
+    AsyncFunction("consumeExpired") { promise: Promise ->
+      try {
+        val ctx = appContext.reactContext
+          ?: throw IllegalStateException("ReactContext lost")
+        val sp = prefs(ctx)
+        val expiredAt = sp.getLong(KEY_EXPIRED_AT, 0L)
+        sp.edit().remove(KEY_EXPIRED_AT).commit()
+        promise.resolve(expiredAt)
+      } catch (e: Throwable) {
+        promise.reject("ERR_CONSUME_EXPIRED", e.message ?: "consumeExpired failed", e)
       }
     }
   }

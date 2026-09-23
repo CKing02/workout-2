@@ -125,6 +125,13 @@ class RestTimerAlarmReceiver : BroadcastReceiver() {
     // 通知整体取消,不再显示冻结界面。
     NotificationManagerCompat.from(context).cancel(RestTimerProgressModule.NOTIFICATION_ID)
 
+    // [G42 hotfix #2] 写 SP "expired_at" —— JS 端回前台时通过 consumeExpired()
+    // 读到这标记 → 让 App 内 RestTimerOverlay 立即消失。
+    // 现象:锁屏 / 后台期间通知栏已 cancel,但 App 内 overlay 仍显示 0 秒直到
+    // 用户回前台触发 RAF tick。这条路径让"通知消失但 overlay 仍挂着"视觉同步:
+    // receiver 一旦唤起 → 通知 cancel + SP 写标记 → JS 回前台时立即 skip overlay。
+    RestTimerProgressModule.markExpired(context)
+
     // **强制震动路径**(绕过 channel,OEM 锁屏拦截不了)。即便 App 在前台也走:
     // isAppForeground() 早返后会清掉 channel 通知,所以这里先震一下"已覆盖"。
     // 在前台时 JS 侧 RestTimerOverlay 已经 haptic 过了,这次多震一次是可接受打扰。
