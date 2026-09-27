@@ -1398,16 +1398,15 @@ function LastSetsPreview({ exerciseId, metricType, lastSets }: LastSetsPreviewPr
       </Text>
       {lastSets.map((s, i) => (
         <Text
-          // G21: confirmed root cause via binary-rollback hunt (see
-          // memory `feedback-g21-dup-key-root-cause`). The duplicate-key
-          // warning fires here when the same `s.id` appears in two
-          // different `lastSets` entries — but the *upstream* cause is
-          // that `getLastSetsForExercises` returns training_sets rows
-          // whose `exercise_id` is the same across two entries, yet
-          // somehow the records share a `training_sets.id`. Until the
-          // store is audited, the safe defensive fix is the index
-          // suffix: it guarantees uniqueness within this list, which
-          // is the only place these siblings live.
+          // G21 真正根因已于 2026-09-27 定位并修掉（见 trainingSetRepo.ts
+          // `getLastSetsForExercises`）：不是 DB 里有重复行，是该查询用了
+          // `SELECT *` + JOIN，`trainings.id` 覆盖了 `training_sets.id`，
+          // 同一场训练的每组拿到同一个 id。**之前的注释把根因归给"DB 里存在
+          // 重复 training_sets.id 行"，是错的**，别再照着它查。
+          //
+          // `#{i}` 后缀保留：现在 `s.id` 已恢复唯一，但同一 id 若因别的原因
+          // 再次进入列表（或未来这个查询又回归），这个后缀能保证兄弟节点唯一，
+          // 不会再把 warning 升级成红屏 overlay。代价仅为 key 稳定性略降。
           key={`${s.id}#${i}`}
           style={[
             typography.body,

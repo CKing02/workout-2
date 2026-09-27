@@ -139,8 +139,23 @@ export async function getLastSetsForExercises(
   if (exerciseIds.length === 0) return out;
   // 占位符数量 = exerciseIds.length
   const placeholders = exerciseIds.map(() => '?').join(',');
+  // 必须是 `ts.*` 而不是 `*`。[G21 真正根因，2026-09-27 实机 DB 定位]
+  // `SELECT *` 在 JOIN 下会把**两张表**的同名列都吐出来，而 `training_sets.id`
+  // 与 `trainings.id` 同名、`duration_seconds` 也同名。expo-sqlite 的
+  // `composeRow()`（node_modules/expo-sqlite/src/paramUtils.ts:65）是按列序
+  // `row[name] = values[i]` 逐列赋值 —— **后者覆盖前者**，于是
+  //   - `r.id`            拿到的是 *训练* 的 id（不是 set 的）
+  //   - `r.duration_seconds` 拿到的是 *整场训练* 的总时长（不是本组的）
+  // 同一场训练里的每一组于是共享同一个 `id` → `LastSetsPreview` 的
+  // `key={s.id}` 撞车 → React "Encountered two children with the same key"，
+  // 在 errorLogs 里一次性炸出 186 条同 fingerprint 记录、升级成红屏 overlay。
+  // 真机 DB 实测：2/2 个有 ≥2 组历史的动作都复现 `count=2 unique=1`。
+  // `duration_seconds` 那半边还会让「上次」预览把整场训练时长当成单组时长显示。
+  //
+  // 同文件的 `listSetsByExerciseInRange` 用的是正确写法（`ts.*` + `t.*` 起别名），
+  // 本函数是唯一漏网的。改回 `ts.*` 后两个字段同时归位。
   const rows = await db.getAllAsync<TrainingSetRow & { rn: number }>(
-    `SELECT *, ROW_NUMBER() OVER (
+    `SELECT ts.*, ROW_NUMBER() OVER (
        PARTITION BY ts.exercise_id
        ORDER BY t.started_at DESC, ts.set_index DESC
      ) AS rn
