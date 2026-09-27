@@ -6,6 +6,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
+import android.media.AudioAttributes
 import android.os.Build
 import android.os.Process
 import android.os.VibrationEffect
@@ -69,15 +70,31 @@ class RestTimerAlarmReceiver : BroadcastReceiver() {
     /**
      * 直接调 Vibrator service 强制震动,绕过通知 channel 路径。
      *
-     * 必要性:channel vibrate 在锁屏下会被 OPPO ColorOS / 小米 MIUI 等 OEM 拦截
-     * (标准 Android 不拦),但 Vibrator 是 system service,**OEM 不能拦截**(系统级 API)。
-     * 后台场景下 channel 路径已生效,会"多震一次"—— 是 G42 receiver 注释里
-     * "宁可多震一次,也不要漏掉提醒"的明确取舍。
+     * 必要性:channel vibrate 在锁屏下**可能**被 OEM(OPPO ColorOS / 小米 MIUI)拦截,
+     * 所以留一条不经过 NotificationManager 的兜底路径。
+     *
+     * **[2026-09-27 修正] 必须带 AudioAttributes,否则后台静默失效。**
+     * 早先的注释断言"Vibrator 是 system service,OEM 不能拦截"—— 这个前提是错的:
+     * 拦截它的不是 OEM,是 AOSP 自己的 VibratorService。不带 AudioAttributes 时
+     * usage 默认 USAGE_UNKNOWN,而 frameworks/base 的判定是
+     *
+     *     if (procState > IMPORTANT_FOREGROUND && !vib.isNotification()
+     *             && !vib.isRingtone() && !vib.isAlarm())
+     *         Slog.e(TAG, "Ignoring incoming vibration ... is background, usage = USAGE_UNKNOWN");
+     *
+     * 即后台进程 + 非(通知/铃声/闹钟)的震动一律丢弃。真机(OPPO PBEM00 / Android 10)
+     * 复现过这条日志。更坑的是它是**静默丢弃**(不抛异常),下面 catch 永不触发,
+     * App 侧完全无感。传 USAGE_ALARM 后走进豁免分支。
+     *
+     * 双震取舍:后台场景下重建的「休息结束」通知也会经 channel 震一次
+     * (usageHint=USAGE_NOTIFICATION,同样豁免),所以这里会"多震一次"——
+     * 沿用本文件顶部"宁可多震一次,也不要漏掉提醒"的既有取舍;
+     * 且只有在锁屏拦截 channel 真的发生时,这条兜底才有存在意义。
      *
      * 兼容性:覆盖 minSdk 24 到 ~35。
      *   - API 31+:`VibratorManager.getDefaultVibrator()`
-     *   - API 26-30:`getSystemService(Vibrator::class.java)` + `VibrationEffect.createWaveform`
-     *   - API 24-25:`getSystemService(Vibrator::class.java)` + `vibrate(longArrayOf, -1)`(deprecated 但 work)
+     *   - API 26-30:`getSystemService(Vibrator::class.java)` + `vibrate(VibrationEffect, AudioAttributes)`
+     *   - API 24-25:`getSystemService(Vibrator::class.java)` + `vibrate(long[], int, AudioAttributes)`(deprecated 但 work)
      *
      * 失败兜底:try/catch 所有 Throwable —— 震动不是关键功能,失败不能影响通知本身。
      */
@@ -93,15 +110,23 @@ class RestTimerAlarmReceiver : BroadcastReceiver() {
           Log.w(TAG, "vibrator service unavailable")
           return
         }
+        // USAGE_ALARM 让震动在后台也被 VibratorService 放行(见上)。
+        // CONTENT_TYPE_SONIFICATION 与"提醒音"语义一致,配合 USAGE_ALARM 会按
+        // 系统的"闹钟强度"(mRingIntensity / mAlarmIntensity)输出。
+        val attrs = AudioAttributes.Builder()
+          .setUsage(AudioAttributes.USAGE_ALARM)
+          .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+          .build()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-          vibrator.vibrate(VibrationEffect.createWaveform(VIBRATION_PATTERN, -1))
+          vibrator.vibrate(VibrationEffect.createWaveform(VIBRATION_PATTERN, -1), attrs)
         } else {
           @Suppress("DEPRECATION")
-          vibrator.vibrate(VIBRATION_PATTERN, -1)
+          vibrator.vibrate(VIBRATION_PATTERN, -1, attrs)
         }
       } catch (t: Throwable) {
-        // [G42 hotfix] 不再静默吞,让下次真机复现时能 logcat 抓到根因
-        // (OPPO 锁屏拦截 / SecurityException / 系统禁震动 等)。
+        // 不再静默吞 —— 让真机复现时能 logcat 抓到根因
+        // (SecurityException / 系统禁震动 等)。注意:被 VibratorService
+        // 判定为"后台不允许"时不抛异常,只会打系统日志,这里抓不到。
         Log.w(TAG, "vibration failed", t)
       }
     }
@@ -132,9 +157,13 @@ class RestTimerAlarmReceiver : BroadcastReceiver() {
     // receiver 一旦唤起 → 通知 cancel + SP 写标记 → JS 回前台时立即 skip overlay。
     RestTimerProgressModule.markExpired(context)
 
-    // **强制震动路径**(绕过 channel,OEM 锁屏拦截不了)。即便 App 在前台也走:
-    // isAppForeground() 早返后会清掉 channel 通知,所以这里先震一下"已覆盖"。
-    // 在前台时 JS 侧 RestTimerOverlay 已经 haptic 过了,这次多震一次是可接受打扰。
+    // **直调 Vibrator 兜底路径**(不经过 NotificationManager)。两条分支都走:
+    //   - 前台:下面 isAppForeground() 会早返、不重建通知,所以 channel 根本不会震
+    //     —— 这次直调其实是前台唯一的一次"到点"震动(JS 侧 RestTimerOverlay
+    //     的 haptic 也会跑,属可接受的重叠)。
+    //   - 后台:重建的「休息结束」通知会经 channel 再震一次,这里"多震一次"。
+    // 多数情况下它是冗余的,但只有当 OEM 真把 channel 震动拦了,它才是唯一退路
+    // —— 所以必须带 AudioAttributes.USAGE_ALARM,否则最需要它时恰好失效(详见上)。
     triggerVibration(context)
 
     if (isAppForeground(context)) return
