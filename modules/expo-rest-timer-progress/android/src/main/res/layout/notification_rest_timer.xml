@@ -6,7 +6,7 @@
     - 系统头部(应用图标 / 应用名 / 时间 / 圆角卡片)由 SystemUI 绘制
     - 本布局只画内容区:一行「动作名 + 倒计时」+ 进度条
 
-  show() 与 setProgress() 共用同一份 RemoteViews,
+  内容区由 RestTimerProgressModule.build() 组装,每次重建一份 RemoteViews;
   收起态和展开态传的是同一个对象 —— 展开后没有任何新内容可显示。
 
   2026-09-22 后台冻结修复:
@@ -16,8 +16,12 @@
     Chronometer 是**由 SystemUI 自己每秒刷新**的,App 进程冻不冻结都照走 ——
     系统时钟 App 的计时通知用的就是这个机制。
 
-    代价:进度条仍会冻结(它靠 App 侧的 setProgressBar 更新)。数字活过来即可,
-    要让进度条也在后台动,得上前台服务 + 原生 ticker,成本不成比例。
+  2026-09-28 进度条后台冻结修复:
+    进度条**没有** Chronometer 那样的自走机制,值只能由 App 主动写
+    (RemoteViews.setProgressBar)。所以上面那条修完之后,通知栏会出现
+    "数字照走、进度条卡死"的自相矛盾画面(真机实测确认)。
+    现在改由前台服务 RestTimerTickerService 每秒重画一次,进程不再被冻结,
+    前台后台走同一条渲染路径。详见该类的注释。
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"

@@ -17,6 +17,18 @@
   -->
   <uses-permission android:name="android.permission.VIBRATE" />
 
+  <!--
+    前台服务:退后台后继续每秒重画通知栏进度条(见 RestTimerTickerService 注释)。
+    FOREGROUND_SERVICE 是 API 28+ 的普通权限,系统自动授予。
+  -->
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+
+  <!--
+    API 34+ 起,foregroundServiceType="specialUse" 需要配套这个普通权限。
+    低版本系统不认识它,声明了也无害(未知权限被忽略)。
+  -->
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+
   <application>
     <!--
       exported=false —— 这个 receiver 只应该被我们自己排的 PendingIntent 唤起。
@@ -26,6 +38,27 @@
         android:name="expo.modules.resttimerprogress.RestTimerAlarmReceiver"
         android:enabled="true"
         android:exported="false" />
+
+    <!--
+      休息倒计时 ticker。exported=false —— 只由本 App 的 startForegroundService 拉起。
+
+      foregroundServiceType 必须声明:targetSdk 34+ 起,startForeground() 若找不到
+      匹配的已声明类型会抛 MissingForegroundServiceTypeException,服务直接起不来。
+      为什么选 specialUse 而不是 shortService:短服务的硬上限是 3 分钟,而本 App
+      的休息时长预设最大 240s(PlanEditorScreen.tsx 的 REST_PRESETS),
+      超时会走 onTimeout 强制收尾甚至崩溃,不能用一个会"到点自爆"的类型。
+
+      <property> 里的 subtype 是 API 34+ 要求的用途说明(Play 审核也看它)。
+    -->
+    <service
+        android:name="expo.modules.resttimerprogress.RestTimerTickerService"
+        android:enabled="true"
+        android:exported="false"
+        android:foregroundServiceType="specialUse">
+      <property
+          android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+          android:value="workout_rest_timer_countdown" />
+    </service>
   </application>
 
 </manifest>

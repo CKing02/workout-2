@@ -2,9 +2,8 @@
  * expo-rest-timer-progress 单元测试 — JS 端包装
  *
  * 验证:
- *   1. iOS 上 ensureChannel / showOrUpdate / setProgress / dismiss 全部 noop
- *   2. Android 上 4 个函数都正确转发到 native module,参数不变
- *   3. setProgress 不返回值(native 是 sync,JS 端也走 sync 转发)
+ *   1. iOS 上 ensureChannel / showOrUpdate / dismiss 全部 noop
+ *   2. Android 上 3 个函数都正确转发到 native module,参数不变
  */
 
 let mockPlatformOS: 'android' | 'ios' = 'android';
@@ -19,14 +18,12 @@ jest.mock('react-native', () => ({
 
 const mockEnsureChannel = jest.fn();
 const mockShow = jest.fn();
-const mockSetProgress = jest.fn();
 const mockDismiss = jest.fn();
 
 jest.mock('expo-modules-core', () => ({
   requireNativeModule: () => ({
     ensureChannel: (...args: unknown[]) => mockEnsureChannel(...args),
     show: (...args: unknown[]) => mockShow(...args),
-    setProgress: (...args: unknown[]) => mockSetProgress(...args),
     dismiss: (...args: unknown[]) => mockDismiss(...args),
   }),
 }));
@@ -36,7 +33,6 @@ describe('expo-rest-timer-progress', () => {
     mockPlatformOS = 'android';
     mockEnsureChannel.mockReset();
     mockShow.mockReset();
-    mockSetProgress.mockReset();
     mockDismiss.mockReset();
     mockEnsureChannel.mockResolvedValue(undefined);
     mockShow.mockResolvedValue(undefined);
@@ -71,16 +67,6 @@ describe('expo-rest-timer-progress', () => {
     expect(mockShow).toHaveBeenCalledWith(30, 60, '0:30', null);
   });
 
-  it('Android: setProgress 转发 (rem, total)', () => {
-    let mod!: typeof import('../index');
-    jest.isolateModules(() => {
-      mod = require('../index');
-    });
-    mod.setProgress(20, 60);
-    expect(mockSetProgress).toHaveBeenCalledTimes(1);
-    expect(mockSetProgress).toHaveBeenCalledWith(20, 60);
-  });
-
   it('Android: dismiss 转发', async () => {
     let mod!: typeof import('../index');
     jest.isolateModules(() => {
@@ -96,22 +82,19 @@ describe('expo-rest-timer-progress (iOS — noop)', () => {
     mockPlatformOS = 'ios';
     mockEnsureChannel.mockReset();
     mockShow.mockReset();
-    mockSetProgress.mockReset();
     mockDismiss.mockReset();
   });
 
-  it('iOS: ensureChannel / show / setProgress / dismiss 全部 noop', async () => {
+  it('iOS: ensureChannel / show / dismiss 全部 noop', async () => {
     let mod!: typeof import('../index');
     jest.isolateModules(() => {
       mod = require('../index');
     });
     await mod.ensureChannel();
     await mod.showOrUpdate(45, 90, 'x', '#fff');
-    mod.setProgress(20, 60);
     await mod.dismiss();
     expect(mockEnsureChannel).not.toHaveBeenCalled();
     expect(mockShow).not.toHaveBeenCalled();
-    expect(mockSetProgress).not.toHaveBeenCalled();
     expect(mockDismiss).not.toHaveBeenCalled();
   });
 });

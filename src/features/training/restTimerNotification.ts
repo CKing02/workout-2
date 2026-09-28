@@ -21,20 +21,25 @@
  *   - 改成本地 expo-module `expo-rest-timer-progress`,内部用
  *     NotificationCompat.Builder.setProgress() + 主题色 .color —— Android
  *     系统用自带 ProgressBar 模板渲染,跨 OEM 一致、每秒平滑前移
- *   - module 内部 setProgress 增量更新,每秒 1 次;bridge 不再每秒 re-build
  *   - colorHex 由调用方(bridge)从 useTheme().colors.primary 传入,
  *     light/dark 自动切换 + JS 单一真源
  *   - iOS 路径本期直接 return —— 用户已确认 Android 优先
  *
- * 限制(必须在调用方 bridge 内消化):
- *   - App 进 background 后 Android 会挂起 JS 线程,**进度条**会停在最后一次刷新的值
- *     (倒计时数字与"到点提醒"已由原生兜底,见 2026-09-22 注)
- *   - 用户切回前台时 bridge 监听 AppState='active' 立刻再调一次 showOrUpdate 自动校准
- *
- * 2026-09-22 后台可见性修复(两处都在原生侧,本文件只是配合):
+ * 2026-09-22 / 2026-09-28 后台可见性修复(全部在原生侧,本文件只是配合):
  *   - mm:ss 从 title 拆出 → 原生 <Chronometer>,SystemUI 自绘自走
  *   - 到点提醒 → 原生 AlarmManager + RestTimerAlarmReceiver,不依赖 JS 存活。
  *     原因是休息计时器的主场景就是"人不在看屏幕",靠 JS 存活等于没有提醒
+ *   - **进度条** → 原生前台服务 RestTimerTickerService + 1s ticker。
+ *     这条是 2026-09-28 补的:进度条的值只能由 App 主动写,
+ *     而 RemoteViews 里唯一会自走的控件只有 Chronometer,所以前两条修完之后
+ *     会出现"数字照走、进度条卡死"的自相矛盾画面(真机实测:退后台后
+ *     数字从 00:49 正常走到 00:41,进度条却停在 ~99% 不动)。
+ *
+ * 因此 **`showOrUpdate` 现在是"同步权威状态"而不是"渲染"**:
+ * bridge 仍然每秒调它(前台时它就是那个心跳),但原生只在状态**真的变了**时
+ * 才动服务(开新一轮 / +15s / 主题色翻转 / 回前台校准),不变时是一次纯比较。
+ * 用户切回前台时 bridge 监听 AppState='active' 再推一次,是为了把
+ * "退后台期间 JS 停摆"造成的偏差立刻校准回来。
  *
  * 调用方约定:
  *   - showOrUpdateRestTimerNotification 的 colorHex 参数:bridge 必须传

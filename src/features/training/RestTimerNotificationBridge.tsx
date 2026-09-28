@@ -6,12 +6,14 @@
  *
  * 关键设计:
  *   - **复用 store 状态,不重复维护 timer**:startedAt/durationMs/completedAt 都来自 store
- *     (`getRemainingMs` 公式:`durationMs - (Date.now() - startedAt)`),前台 1s tick + 后台 freeze
- *     都自动正确
+ *     (`getRemainingMs` 公式:`durationMs - (Date.now() - startedAt)`)
  *   - **runId 依赖**:store 的 `runId` 单调递增,start/extend 都会变。extend 不变更 runId
  *     (G7 设计),让 TimerRing 视觉连续;start + 重置时依赖变 useEffect 重挂 interval
- *   - **AppState 'active' 触发**:用户在 background 时通知栏秒数会"冻结"在最后值
- *     (managed workflow 无法绕过),切回前台时立刻 push 一次当前真值,通知秒数跳到正确位置
+ *   - **AppState 'active' 触发**:切回前台时立刻 push 一次当前真值。
+ *     [2026-09-28] 通知本身**不再需要**这次补偿 —— 原生 ticker 一直在按
+ *     elapsedRealtime 算真值。保留它的意义变成一个廉价的自愈兜底:
+ *     若服务因故没起来(比如 Android 12+ 后台启动被拒、startForeground 抛异常),
+ *     回到前台这一推会把它重新拉起。
  *   - **前台不弹横幅**:setNotificationHandler 返回 shouldShowBanner:false,避免遮训练 UI
  *     训练中浮窗由 in-app RestTimerOverlay 承担
  *   - **主题色**:从 useTheme().colors.primary 取,跟随 light/dark 切换自动重渲染
@@ -22,9 +24,14 @@
  *
  * 2026-09-18 重构(原生 ProgressBar):
  *   - 桥接从 `expo-notifications.scheduleNotificationAsync` 切到本地 expo-module
- *     `expo-rest-timer-progress`(NotificationCompat.Builder.setProgress)
+ *     `expo-rest-timer-progress`(RemoteViews.setProgressBar,自绘内容区)
  *   - showOrUpdateRestTimerNotification 多了一个 colorHex 参数:从 theme.primary 读
- *   - 主题变化(scheme 翻转)时 effect 重跑 → show 一次带新颜色,setProgress 后续沿用
+ *   - 主题变化(scheme 翻转)时 effect 重跑 → show 一次带新颜色
+ *
+ * [2026-09-28] 每秒 tick 从"渲染"降级为"同步权威状态":真正的每秒重画挪到了
+ * 原生前台服务 RestTimerTickerService。本组件保持每秒调用不变 ——
+ * 前台时它就是那个心跳,原生侧对"状态没变"的调用做了纯比较短路,不产生
+ * Binder 调用。见 restTimerNotification.ts 头注释。
  */
 
 import { useEffect } from 'react';

@@ -1,12 +1,16 @@
 /**
  * expo-rest-timer-progress — JS 端包装
  *
- * 暴露五个函数给 src/features/training/restTimerNotification.ts:
+ * 暴露四个函数给 src/features/training/restTimerNotification.ts:
  *   - ensureChannel() : 建/复用 channel
- *   - showOrUpdate(rem, total, title, colorHex) : 首次全量 show
- *   - setProgress(rem, total) : 增量更新进度
+ *   - showOrUpdate(rem, total, title, colorHex) : 把权威状态推给原生
  *   - dismiss() : 取消通知
- *   - consumeExpired() : 读 + 清 SharedPreferences 里 receiver 写的"已到点"标记
+ *   - consumeExpired() : 读 + 清 SharedPreferences 里的"已到点"标记
+ *
+ * **本模块不负责每秒渲染**:真正的每秒重画在原生侧
+ * (`RestTimerTickerService`,前台服务 + 1s ticker)。`showOrUpdate` 只在
+ * 状态变化时(开新一轮 / +15s / 主题色翻转 / 回前台校准)才真正动到原生,
+ * 状态没变时是一次纯比较。详见 RestTimerProgressModule.kt 头注释。
  *
  * iOS 路径整体 noop —— 本模块 Android-only。
  */
@@ -22,7 +26,6 @@ type Native = {
     title: string,
     colorHex: string | null,
   ) => Promise<void>;
-  setProgress: (remainingSec: number, totalSec: number) => void;
   dismiss: () => Promise<void>;
   /**
    * 读 + 清 SP "expired_at_elapsed_ms"。返回 elapsedRealtime ms(0 = 无)。
@@ -49,15 +52,6 @@ export async function showOrUpdate(
 ): Promise<void> {
   if (!Native) return;
   await Native.show(remainingSec, totalSec, title, colorHex);
-}
-
-/**
- * 增量更新进度 — sync fire-and-forget。
- * Native 是 in-place rebuild + notify,通常 <5ms;无需 await。
- */
-export function setProgress(remainingSec: number, totalSec: number): void {
-  if (!Native) return;
-  Native.setProgress(remainingSec, totalSec);
 }
 
 export async function dismiss(): Promise<void> {

@@ -25,11 +25,16 @@ import expo.modules.kotlin.modules.ModuleDefinition
  * 用 NotificationCompat.Builder.setProgress() 让系统渲染通知栏进度条,
  * 而不是在 body 字符串里手画 unicode 块字符。
  *
- * 四个 JS 调用:
+ * 三个 JS 调用:
  *   - ensureChannel() : 建/复用 "rest_timer" channel (HIGH importance, silent, vibrate)
- *   - show(rem, total, title, colorHex) : 首次发通知 + 排"到点"闹钟
- *   - setProgress(rem, total) : 增量更新进度(从 activeNotifications 读旧 title)
- *   - dismiss() : cancel notification + 取消闹钟
+ *   - show(rem, total, title, colorHex) : 把权威状态交给 [RestTimerTickerService]
+ *     (**不直接渲染** —— 见下"渲染入口唯一")
+ *   - dismiss() : 停服务 + cancel notification + 取消闹钟
+ *
+ * **渲染入口唯一(2026-09-28 改)**:真正的每秒重画在 [RestTimerTickerService]
+ * 里。本模块只负责组装通知([build])、排到点闹钟、以及把 JS 推来的权威状态
+ * 转交给服务。为什么不让 JS 继续每秒渲染:退后台后 JS 停摆,进度条会冻住
+ * (详见下面"后台冻结修复"第 3 条),所以必须由原生进程内的 ticker 接管。
  *
  * 渲染方式(2026-09-20 改):内容区自绘 RemoteViews + DecoratedCustomViewStyle。
  *   - 系统头部(图标 / 应用名 / 时间 / 圆角卡片)保留,观感与其他通知一致
@@ -38,31 +43,42 @@ import expo.modules.kotlin.modules.ModuleDefinition
  *   - 进度条用主题色着色(setProgressTintList):系统模板的进度条固定吃
  *     Material You 强调色,`.color` 只影响图标底色,所以必须自绘才跟得上主题
  *
- * 后台冻结修复(2026-09-22):
+ * 后台冻结修复(2026-09-22 起,2026-09-28 补全):
  *   退后台后 RN 的 JS 定时器不再触发(App 进程也会被 Android 的 cached-apps
  *   freezer 冻结),原来靠每秒 `show()` 推进的一切全部停摆 —— 通知定格在
  *   最后一帧,数字是假的;而且"到点 dismiss + 震动"也一起失效,用户完全
- *   不知道休息何时结束。两个层面都在原生兜:
+ *   不知道休息何时结束。三个层面都在原生兜:
  *     1. 倒计时数字 → `Chronometer`(由 SystemUI 自绘自走,详见布局注释)
  *     2. 到点提醒   → `AlarmManager` + [RestTimerAlarmReceiver]
- *   进度条仍会冻结(要靠 JS 的 setProgressBar),这是有意的取舍:让它在后台
- *   也动需要前台服务 + 原生 ticker,成本与收益不成比例。
+ *     3. 进度条     → [RestTimerTickerService](前台服务 + 原生 1s ticker)
+ *
+ *   **为什么第 3 条必须上前台服务**:进度条的值只能由 App 主动写
+ *   (`RemoteViews.setProgressBar`),RemoteViews 里唯一会自走的控件是
+ *   `Chronometer` —— 没有能自走的进度控件。所以第 1 条修完会出现一个
+ *   自相矛盾的画面:**数字照走、进度条卡死**。2026-09-27 真机实测确认:
+ *   App 退后台后数字从 00:49 正常走到 00:41,进度条却停在 ~99% 不动
+ *   (真值应是 49/60=82%)。前台服务把每秒重画挪进原生进程,ticker 就不会停。
+ *   代价是 targetSdk 34+ 需要声明 foregroundServiceType,见模块 AndroidManifest。
  *
  * 跟现有 expo-notifications 的 channel("rest_timer")同 id — 创建幂等,无冲突。
  */
 class RestTimerProgressModule : Module() {
   companion object {
     const val CHANNEL_ID = "rest_timer"
+
+    /**
+     * 倒计时通知的固定 id。
+     *
+     * **三个写入方共用它,这是有意的**:[RestTimerTickerService](每秒重画)、
+     * [RestTimerAlarmReceiver.handleRestExpired] 的「休息结束」、以及本模块的
+     * dismiss。共用才能保证"同一时刻通知栏只有一条与休息有关的通知",
+     * 不会出现冻结的「杠铃卧推 00:45」和「休息结束」并排显示。
+     * 也因此 [RestTimerTickerService.onDestroy] 到点收尾时必须 DETACH 而非 REMOVE。
+     */
     const val NOTIFICATION_ID = 1001
 
     /** 闹钟 PendingIntent 的 requestCode —— 跟通知 ID 分开命名空间,别混用。 */
     const val ALARM_REQUEST_CODE = 2001
-
-    /** show() 第一次设置的颜色,setProgress() 不再传 color —— 沿用首次。 */
-    @Volatile var cachedColorHex: String? = null
-
-    /** 当前轮的动作名 —— setProgress() 重建通知时沿用。 */
-    @Volatile var cachedTitle: String = ""
 
     /**
      * 已排闹钟的到点时刻(elapsedRealtime ms);null = 没排。
@@ -83,12 +99,14 @@ class RestTimerProgressModule : Module() {
     private const val KEY_EXPIRED_AT = "expired_at_elapsed_ms"
 
     /**
-     * receiver 在 `onReceive` 里写 SP,JS 端 `consumeExpired()` 读 + 清。
-     * 用 SP 而不是静态字段:receiver 可能被 Android 在 App 进程被杀后唤起,
-     * 静态字段会随进程死。SP 持久化到磁盘,下次 App 启动仍能读到。
+     * 到点处理器([RestTimerAlarmReceiver.handleRestExpired])写 SP,
+     * JS 端 `consumeExpired()` 读 + 清。
+     * 用 SP 而不是静态字段:闹钟那条路径的 receiver 可能在 App 进程已被杀之后
+     * 才被唤起,静态字段已随进程死。SP 持久化到磁盘,下次 App 启动仍能读到。
      *
-     * 调用方必须 useApplicationContext() 拿 SharedPreferences —— receiver 的
+     * 调用方必须用 applicationContext 拿 SharedPreferences —— receiver 的
      * context 可能是 Activity 上下文,receiver 路径走完就销毁,SP 跟着死。
+     * 用 `apply()` 而非 `commit()`:见 [markExpired] 的说明。
      */
     private fun prefs(ctx: Context): SharedPreferences =
       ctx.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -159,8 +177,13 @@ class RestTimerProgressModule : Module() {
       return rv
     }
 
-    /** 组装通知。show() 和 setProgress() 只有 title / 进度来源不同,其余完全一致。 */
-    private fun build(
+    /**
+     * 组装通知 —— **唯一的渲染入口**。
+     *
+     * 调用方是 [RestTimerTickerService.render](每个 tick 一次)。
+     * `internal` 而非 `private`:service 在同 Gradle module 内的另一个文件里。
+     */
+    internal fun build(
       ctx: Context,
       title: String,
       totalSec: Int,
@@ -174,6 +197,9 @@ class RestTimerProgressModule : Module() {
         .setOngoing(true)
         .setSilent(true)
         .setPriority(NotificationCompat.PRIORITY_HIGH)
+        // Android 12+ 默认把"App 在前台时启动的前台服务通知"推迟 10s 才显示,
+        // 避免一闪而过的通知。倒计时通知是要人看着走的,推迟等于没有 —— 关掉。
+        .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
         .setStyle(NotificationCompat.DecoratedCustomViewStyle())
         .setCustomContentView(content)
         .setCustomBigContentView(content) // 与收起态同一份 → 展开无新内容
@@ -284,6 +310,18 @@ class RestTimerProgressModule : Module() {
       }
     }
 
+    /**
+     * 把 JS 侧的权威状态交给 [RestTimerTickerService]。
+     *
+     * **本方法不渲染**(2026-09-28 起)。JS 仍然每秒调它 —— 前台时它就是那个
+     * 每秒心跳,但它只在状态**真的变了**的时候才动服务:
+     * 开新一轮 / +15s 续命 / 主题色翻转 / 回前台校准。状态没变时是一次
+     * 纯比较,几微秒,不产生任何 Binder 调用。
+     *
+     * 为什么改成这样:原来这里每秒 `nm.notify()`,退后台 JS 一停进度条就冻住。
+     * 渲染权收归原生 ticker 之后,前台后台走的是同一条渲染路径,
+     * 不会出现"两边都写、谁赢看时序"的抖动。
+     */
     AsyncFunction("show") {
         remainingSec: Int, totalSec: Int, title: String, colorHex: String?, promise: Promise ->
       try {
@@ -291,23 +329,26 @@ class RestTimerProgressModule : Module() {
           ?: throw IllegalStateException("ReactContext lost")
         val safeTotal = totalSec.coerceAtLeast(1)
         val safeRemaining = remainingSec.coerceIn(0, safeTotal)
-        if (colorHex != null && colorHex.isNotBlank()) {
-          cachedColorHex = colorHex
-        }
-        cachedTitle = title
-        val nm = NotificationManagerCompat.from(ctx)
         if (safeRemaining <= 0) {
-          // 已经到点:不要再挂一条 00:00 的"进行中"通知。
-          // 典型触发场景是"后台跑完后切回前台" —— bridge 的 AppState 校准会先推一次
-          // remaining=0,若不拦,它会把 receiver 刚发的「休息结束」顶掉,
-          // 闪一下 00:00 再消失。直接收掉,JS 侧的 dismiss 随后也走同一条路。
-          nm.cancel(NOTIFICATION_ID)
-          cancelAlarm(ctx)
+          // 已经到点 —— **什么都不做**,直接返回。
+          //
+          // 典型触发场景:后台跑完后切回前台,bridge 的 AppState 校准会先推一次
+          // remaining=0。这里若渲染,会挂出一条 00:00 的"进行中"通知。
+          //
+          // [2026-09-28 修正] 原实现在这里 cancel + cancelAlarm,本意是"别挂 00:00",
+          // 但它操作的 NOTIFICATION_ID 是**共享**的 —— 于是把刚发的「休息结束」
+          // 一起删掉了(那条通知用的也是这个 id),并且会在闹钟兑现前把它取消掉。
+          // 收摊是 dismiss() 的职责(JS 在 tick 到 0 后立刻调它),
+          // 服务的到点收尾在 RestTimerTickerService.render() 里,都不缺这一下。
+          // 这里保持无副作用,是唯一不会误伤「休息结束」的写法。
         } else {
-          nm.notify(NOTIFICATION_ID, build(ctx, title, safeTotal, safeRemaining, colorHex))
           // 到点提醒由原生兜底 —— JS 在后台不再触发,排不上就等于没有提醒。
+          // 排闹钟自带去抖(ALARM_RESCHEDULE_TOLERANCE_MS),每秒调它不会重排。
           val endElapsed = SystemClock.elapsedRealtime() + safeRemaining * 1000L
           scheduleAlarm(ctx, endElapsed, title, colorHex)
+          if (!RestTimerTickerService.matches(endElapsed, safeTotal, title, colorHex)) {
+            RestTimerTickerService.start(ctx, endElapsed, safeTotal, title, colorHex)
+          }
         }
         promise.resolve(null)
       } catch (e: Throwable) {
@@ -316,43 +357,19 @@ class RestTimerProgressModule : Module() {
     }
 
     /**
-     * 增量更新进度。
-     * 必须重建整个通知(NotificationCompat.Builder 不支持 mutate),
-     * 但 title / 颜色沿用上一次 show() 的,避免 JS 端每帧重复传。
+     * 隐藏"休息中"通知(用户跳过 / 自然完成 / 切换到下一组时调)。
      *
-     * 到点(remaining<=0)走 cancel 而非 rebuild —— 与 show() 对齐。
-     * 不拦会让 Chronometer 的 base 落在 `elapsedRealtime` 之后,
-     * SystemUI 把它解释成"已经过多久"显示成 -0:01、-0:02 这种无效时间。
+     * 三件事的顺序有讲究:先停服务,再 cancel 通知。
+     * [RestTimerTickerService.stop] 会**同步**把服务的运行标记置 false,
+     * 所以哪怕服务此刻正好在 tick,那一帧也会被丢掉 —— 否则它会把这里
+     * 刚 cancel 掉的通知重新画回来(通知栏闪一下)。
      */
-    AsyncFunction("setProgress") { remainingSec: Int, totalSec: Int ->
-      val ctx = appContext.reactContext ?: return@AsyncFunction
-      val nm = NotificationManagerCompat.from(ctx)
-      val existing = nm.activeNotifications.find { it.id == NOTIFICATION_ID }
-        ?: return@AsyncFunction
-      val safeTotal = totalSec.coerceAtLeast(1)
-      val safeRemaining = remainingSec.coerceIn(0, safeTotal)
-      if (safeRemaining <= 0) {
-        nm.cancel(NOTIFICATION_ID)
-        cancelAlarm(ctx)
-        return@AsyncFunction
-      }
-      val oldTitle = existing.notification.extras
-        .getCharSequence(NotificationCompat.EXTRA_TITLE)
-        ?.toString()
-        ?: ""
-      nm.notify(
-        NOTIFICATION_ID,
-        build(ctx, oldTitle, safeTotal, safeRemaining, cachedColorHex),
-      )
-    }
-
     AsyncFunction("dismiss") { promise: Promise ->
       try {
         val ctx = appContext.reactContext
           ?: throw IllegalStateException("ReactContext lost")
+        RestTimerTickerService.stop(ctx)
         NotificationManagerCompat.from(ctx).cancel(NOTIFICATION_ID)
-        cachedColorHex = null
-        cachedTitle = ""
         cancelAlarm(ctx) // 跳过 / 自然完成 → 到点提醒必须一起撤,否则会在休息结束后乱震
         promise.resolve(null)
       } catch (e: Throwable) {
