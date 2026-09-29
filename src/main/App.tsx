@@ -37,6 +37,7 @@ import { toast } from '@/hooks/useToast';
 import { useSettingsStore } from '@/store/settingsStore';
 import { useExerciseStore } from '@/store/exerciseStore';
 import { useBodyMeasurementStore } from '@/store/bodyMeasurementStore';
+import { useAvatarStore } from '@/store/avatarStore';
 
 function ThemedStatusBar() {
   const { scheme } = useTheme();
@@ -76,6 +77,11 @@ function DatabaseBootstrap({ children }: { children: React.ReactNode }) {
         // scheme. Five parallel `getSetting` reads on the same DB connection
         // — adds <10ms vs. init.
         await useSettingsStore.getState().load();
+        // 自定义头像（本地文件，不进 DB）。放在 settings 之后、首帧之前，
+        // 免得「我的」页先画一帧首字符再跳成头像。
+        // 可以放心的 await：load() 内部吞掉所有异常，不会走到下面的 catch
+        // 去误报「数据库初始化失败」。开销只是一次目录 list()。
+        await useAvatarStore.getState().load();
         // G35 §3 老装兼容:backfillExerciseI18n 刚 UPDATE 了老行 5 字段,
         // 但 exerciseStore cache 还是老 9 列 —— 重拉一次让 store 拿到新数据。
         await useExerciseStore.getState().reload();

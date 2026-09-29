@@ -141,7 +141,9 @@ export async function getCachedOrDownload(url: string): Promise<string | null> {
 /**
  * 暴露给「清除全部数据」流程:删整个缓存目录。
  *
- * `wipeAllData` 路径在 settings 里会触发,这里独立成函数方便测试。
+ * 调用点：`@/features/profile/clearAllData.ts`。
+ * （2026-09-29 才真正接上 —— 本函数从 G41 起就存在且注释声称属于该流程，
+ *  但一直没有被任何地方调用，清数据后 GIF 缓存会残留。）
  */
 export async function clearGifCache(): Promise<void> {
   if (!CACHE_DIR.exists) return;

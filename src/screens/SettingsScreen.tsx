@@ -38,7 +38,8 @@ import { Input } from '@/components/Input';
 import { ListItem } from '@/components/ListItem';
 import { SegmentedControl } from '@/components/SegmentedControl';
 import { Sheet } from '@/components/Sheet';
-import { wipeAllData } from '@/db';
+import { clearAllData } from '@/features/profile/clearAllData';
+import { ProfileEditSheet } from '@/features/profile/ProfileEditSheet';
 import { toast } from '@/hooks/useToast';
 import { useExerciseStore } from '@/store/exerciseStore';
 import { usePlanStore } from '@/store/planStore';
@@ -98,30 +99,15 @@ export function SettingsScreen() {
   } = useSettingsStore();
 
   const [restSheetOpen, setRestSheetOpen] = useState(false);
-  const [usernameSheetOpen, setUsernameSheetOpen] = useState(false);
+  const [profileSheetOpen, setProfileSheetOpen] = useState(false);
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
-  const [usernameDraft, setUsernameDraft] = useState('');
   // G31: 导入流程状态。pendingImport 是已通过 schema 校验、待二次确认的 payload。
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [importing, setImporting] = useState(false);
   const [pendingImport, setPendingImport] = useState<ValidatablePayload | null>(
     null,
   );
-
-  const handleOpenUsername = () => {
-    setUsernameDraft(username);
-    setUsernameSheetOpen(true);
-  };
-
-  const handleSaveUsername = async () => {
-    await useSettingsStore.getState().setUsername(usernameDraft.trim());
-    setUsernameSheetOpen(false);
-    // G12: 轻量反馈
-    if (usernameDraft.trim()) {
-      toast.show('用户名已保存', 'success');
-    }
-  };
 
   const handleChangeUnit = async (next: Unit) => {
     feedback();
@@ -140,21 +126,9 @@ export function SettingsScreen() {
 
   const handleClearAll = async () => {
     setClearDialogOpen(false);
-    // G14: 真正接入 SQLite — 事务内清 7 张表，再 reseed 内置动作。
-    try {
-      await wipeAllData();
-      await Promise.all([
-        useExerciseStore.getState().reload(),
-        usePlanStore.getState().reload(),
-        useTrainingStore.getState().loadHistory(),
-        useSettingsStore.getState().load(),
-      ]);
-      useTrainingStore.getState().cancelTraining();
-      toast.show('已清除全部数据', 'success');
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      toast.show('清除失败：' + msg, 'error');
-    }
+    // G14: 清库 + 头像文件 + GIF 缓存 + 4 个 store 的同步，全在 clearAllData 里
+    //（与「我的」页共用，避免这份收尾清单又被抄成两份）。
+    await clearAllData();
   };
 
   // G19: 真实导出 —— 全表读 → 写文件 → 弹分享面板。
@@ -343,16 +317,16 @@ export function SettingsScreen() {
 
         <Card padding="sm" style={{ marginTop: spacing.sm }}>
           <ListItem
-            title="用户名"
+            title="头像与用户名"
             subtitle="纯本地显示"
             rightSlot={
               <Text style={[typography.subtitle, { color: colors.textSecondary }]}>
                 {username || '未设置'} ›
               </Text>
             }
-            onPress={handleOpenUsername}
-            accessibilityLabel={`用户名，当前 ${username || '未设置'}`}
-            accessibilityHint="点击编辑用户名"
+            onPress={() => setProfileSheetOpen(true)}
+            accessibilityLabel={`头像与用户名，当前 ${username || '未设置'}`}
+            accessibilityHint="点击编辑头像与用户名"
           />
         </Card>
 
@@ -463,41 +437,11 @@ export function SettingsScreen() {
         </View>
       </Sheet>
 
-      {/* ------------------- 用户名 Sheet ------------------- */}
-      <Sheet
-        visible={usernameSheetOpen}
-        onClose={() => setUsernameSheetOpen(false)}
-        title="编辑用户名"
-        maxHeightRatio={0.4}
-      >
-        <View style={{ gap: spacing.md }}>
-          <Input
-            value={usernameDraft}
-            onChangeText={setUsernameDraft}
-            placeholder="请输入用户名"
-            maxLength={20}
-            autoFocus
-            accessibilityLabel="用户名输入"
-          />
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="保存用户名"
-            accessibilityHint="保存并关闭抽屉"
-            onPress={handleSaveUsername}
-            hitSlop={8}
-            style={({ pressed }) => ({
-              alignSelf: 'flex-end',
-              paddingVertical: spacing.sm,
-              paddingHorizontal: spacing.sm,
-              opacity: pressed ? 0.6 : 1,
-            })}
-          >
-            <Text style={[typography.label, { color: colors.primary }]}>
-              保存
-            </Text>
-          </Pressable>
-        </View>
-      </Sheet>
+      {/* ------------------- 资料编辑抽屉（与「我的」页共用） ------------------- */}
+      <ProfileEditSheet
+        visible={profileSheetOpen}
+        onClose={() => setProfileSheetOpen(false)}
+      />
 
       {/* ------------------- 清除数据 Dialog ------------------- */}
       <Dialog

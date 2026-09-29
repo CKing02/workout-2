@@ -53,3 +53,9 @@ export { Placeholder } from './Placeholder';
 export { Toast, useToastDismiss } from './Toast';
 
 export { ErrorBoundary } from './ErrorBoundary';
+
+export { Avatar } from './Avatar';
+export type { AvatarProps } from './Avatar';
+
+export { MenuRow } from './MenuRow';
+export type { MenuRowProps } from './MenuRow';

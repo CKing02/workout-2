@@ -2,7 +2,7 @@
  * ProfileScreen — 我的 Tab（G10 升级）。
  *
  * 布局：
- *  - 顶部：用户名（来自 settingsStore.username）+ 编辑按钮（弹 Sheet）
+ *  - 顶部：头像（可点，弹资料编辑抽屉）+ 用户名 + 编辑按钮
  *  - 中部：3 个 ListItem 入口（设置 / 动作库占位 / 数据导出占位）
  *  - 底部：版本号 + 清除全部数据按钮（二次确认 → 占位行为）
  */
@@ -18,19 +18,13 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
 
-import { Button } from '@/components/Button';
-import { Card } from '@/components/Card';
-import { Dialog } from '@/components/Dialog';
-import { Input } from '@/components/Input';
-import { ListItem } from '@/components/ListItem';
-import { Sheet } from '@/components/Sheet';
+import { Avatar, Button, Card, Dialog, ListItem } from '@/components';
 import { toast } from '@/hooks/useToast';
-import { wipeAllData } from '@/db';
+import { clearAllData } from '@/features/profile/clearAllData';
+import { ProfileEditSheet } from '@/features/profile/ProfileEditSheet';
 import type { RootStackParamList, TabParamList } from '@/navigation/types';
-import { useExerciseStore } from '@/store/exerciseStore';
-import { usePlanStore } from '@/store/planStore';
+import { useAvatarStore } from '@/store/avatarStore';
 import { useSettingsStore } from '@/store/settingsStore';
-import { useTrainingStore } from '@/store/trainingStore';
 import { useTheme } from '@/theme';
 import { exportBackup } from '@/utils/exportData';
 import { haptic } from '@/utils/haptics';
@@ -47,47 +41,17 @@ interface ProfileScreenProps {
 export function ProfileScreen({ navigation }: ProfileScreenProps) {
   const { colors, typography, spacing } = useTheme();
   const username = useSettingsStore((s) => s.username);
+  const avatarUri = useAvatarStore((s) => s.uri);
 
-  const [usernameSheetOpen, setUsernameSheetOpen] = useState(false);
+  const [profileSheetOpen, setProfileSheetOpen] = useState(false);
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
-  const [usernameDraft, setUsernameDraft] = useState('');
 
-  const handleOpenUsername = () => {
-    setUsernameDraft(username);
-    setUsernameSheetOpen(true);
-  };
-
-  const handleSaveUsername = async () => {
-    await useSettingsStore.getState().setUsername(usernameDraft.trim());
-    setUsernameSheetOpen(false);
-    // G12: 轻量反馈
-    if (usernameDraft.trim()) {
-      toast.show('用户名已保存', 'success');
-    }
-  };
-
+  // G14: 清库 + 头像文件 + GIF 缓存 + 4 个 store 的同步，全在
+  // clearAllData 里（两个入口共用，避免这份收尾清单又被抄成两份）。
   const handleClearAll = async () => {
     setClearDialogOpen(false);
-    // G14: 真正接入 SQLite — 事务内清 7 张表，再 reseed 内置动作。
-    // settings 表被清后 settingsStore 需 reload，否则内存保留旧值。
-    try {
-      await wipeAllData();
-      await Promise.all([
-        useExerciseStore.getState().reload(),
-        usePlanStore.getState().reload(),
-        useTrainingStore.getState().loadHistory(),
-        useSettingsStore.getState().load(),
-      ]);
-      // 保险：如果用户清数据时内存里恰好有 active training，DB 已经
-      // 没了，内存必须跟上；UX 上这种入口（Profile/Settings）触达不到
-      // ActiveTrainingScreen，但兜底总比脏数据好。
-      useTrainingStore.getState().cancelTraining();
-      toast.show('已清除全部数据', 'success');
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      toast.show('清除失败：' + msg, 'error');
-    }
+    await clearAllData();
   };
 
   const handleGoSettings = () => {
@@ -144,7 +108,7 @@ export function ProfileScreen({ navigation }: ProfileScreenProps) {
         }}
         keyboardShouldPersistTaps="handled"
       >
-        {/* ---------------------- 用户名卡片 ---------------------- */}
+        {/* ---------------------- 头像 + 用户名卡片 ---------------------- */}
         <Card padding="lg" elevated style={{ marginBottom: spacing.lg }}>
           <View
             style={{
@@ -153,10 +117,13 @@ export function ProfileScreen({ navigation }: ProfileScreenProps) {
               gap: spacing.md,
             }}
           >
+            {/* 头像本身可点 —— 比多一个隐形入口更好发现。用户名编辑仍走右边的「编辑」。 */}
             <Avatar
-              text={username ? username.charAt(0).toUpperCase() : '·'}
-              colors={colors}
-              spacing={spacing}
+              uri={avatarUri}
+              text={username}
+              size={56}
+              onPress={() => setProfileSheetOpen(true)}
+              accessibilityLabel="更换头像"
             />
             <View style={{ flex: 1 }}>
               <Text style={[typography.label, { color: colors.textTertiary }]}>训练者</Text>
@@ -172,9 +139,9 @@ export function ProfileScreen({ navigation }: ProfileScreenProps) {
             </View>
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="编辑用户名"
-              accessibilityHint="弹出编辑用户名的底部抽屉"
-              onPress={handleOpenUsername}
+              accessibilityLabel="编辑资料"
+              accessibilityHint="弹出编辑头像与用户名的底部抽屉"
+              onPress={() => setProfileSheetOpen(true)}
               hitSlop={8}
               style={({ pressed }) => ({
                 paddingVertical: spacing.xs,
@@ -278,40 +245,11 @@ export function ProfileScreen({ navigation }: ProfileScreenProps) {
       </ScrollView>
 
       {/* ---------------------- 用户名 Sheet ---------------------- */}
-      <Sheet
-        visible={usernameSheetOpen}
-        onClose={() => setUsernameSheetOpen(false)}
-        title="编辑用户名"
-        maxHeightRatio={0.4}
-      >
-        <View style={{ gap: spacing.md }}>
-          <Input
-            value={usernameDraft}
-            onChangeText={setUsernameDraft}
-            placeholder="请输入用户名"
-            maxLength={20}
-            autoFocus
-            accessibilityLabel="用户名输入"
-          />
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="保存用户名"
-            accessibilityHint="保存并关闭抽屉"
-            onPress={handleSaveUsername}
-            hitSlop={8}
-            style={({ pressed }) => ({
-              alignSelf: 'flex-end',
-              paddingVertical: spacing.xs,
-              paddingHorizontal: spacing.sm,
-              opacity: pressed ? 0.6 : 1,
-            })}
-          >
-            <Text style={[typography.label, { color: colors.primary }]}>
-              保存
-            </Text>
-          </Pressable>
-        </View>
-      </Sheet>
+      {/* ---------------------- 资料编辑抽屉 ---------------------- */}
+      <ProfileEditSheet
+        visible={profileSheetOpen}
+        onClose={() => setProfileSheetOpen(false)}
+      />
 
       {/* ---------------------- Dialogs ---------------------- */}
       <Dialog
@@ -330,34 +268,6 @@ export function ProfileScreen({ navigation }: ProfileScreenProps) {
 /* -------------------------------------------------------------------------- */
 /* 子组件                                                                    */
 /* -------------------------------------------------------------------------- */
-
-function Avatar({
-  text,
-  colors,
-  spacing,
-}: {
-  text: string;
-  colors: ReturnType<typeof useTheme>['colors'];
-  spacing: ReturnType<typeof useTheme>['spacing'];
-}) {
-  return (
-    <View
-      style={{
-        width: 56,
-        height: 56,
-        borderRadius: 28,
-        backgroundColor: colors.primaryMuted,
-        alignItems: 'center',
-        justifyContent: 'center',
-        marginRight: spacing.xs,
-      }}
-    >
-      <Text style={{ color: colors.primary, fontSize: 24, fontWeight: '700' }}>
-        {text}
-      </Text>
-    </View>
-  );
-}
 
 function Glyph({
   text,
