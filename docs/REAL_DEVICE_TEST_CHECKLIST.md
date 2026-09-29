@@ -555,6 +555,52 @@ adb logcat -c && adb logcat -v threadtime | grep -E "\[db\]|migration|upgrade"
 
 ---
 
+## 9.10 G45 自定义头像专项 🟡 P1
+
+> ⚠️ **前置动作：必须重打 APK。** `expo-image-picker` 是原生依赖，
+> 当前 dev-client 里没有它，**Metro 热更不可能让它生效**。装上旧 APK 跑本节会
+> 一律卡在第 3 条（选图入口点了没反应 / 抛 module not found）。
+>
+> 验收机：OPPO PBEM00（`3c66de59`，Android 10 / API 29）。
+
+| # | 步骤 | 期望 | 结果 |
+|---|------|------|------|
+| 45.1 | 首装/无头像态 → 进「我的」 | 头像显示**首字符**圆圈 | ☐ 通过 / ☐ 失败 |
+| 45.2 | 点头像 | 弹出 Sheet「编辑资料」，含「从相册选择」+ 用户名输入；**没有**「恢复默认头像」 | ☐ 通过 / ☐ 失败 |
+| 45.3 | 点「从相册选择」 | 系统相册打开 → 选一张 → 方形裁剪 → 头像**立刻**变 | ☐ 通过 / ☐ 失败 |
+| 45.4 | **再选第二张图**（关键） | 头像**必须变**，不能还是上一张 ← 唯一能证明 expo-image 缓存不骗人的判据 | ☐ 通过 / ☐ 失败 |
+| 45.5 | 杀进程重开 → 进「我的」 | 头像**还在**（证明落到了 `Paths.document`，没被当 cache 清） | ☐ 通过 / ☐ 失败 |
+| 45.6 | 重开 Sheet → 点「恢复默认头像」 | 回到首字符圆圈 + toast「已恢复默认头像」 | ☐ 通过 / ☐ 失败 |
+| 45.7 | 再选一张 →「清除全部数据」→ 确认 → 下面命令查目录 | 头像回首字符；`files/avatars/` **为空或目录不存在** | ☐ 通过 / ☐ 失败 |
+| 45.8 | 进「设置」页 → 点「头像与用户名」 | 弹的是**同一个** Sheet（标题「编辑资料」，带头像预览）；改用户名保存后「我的」页同步更新 | ☐ 通过 / ☐ 失败 |
+| 45.9 | 导出备份 → 打开 JSON | 里面**没有**任何头像路径（搜 `avatar` / `avatars` / `file://`） | ☐ 通过 / ☐ 失败 |
+| 45.10 | 导入一份备份 | 头像**不受影响**，仍在 | ☐ 通过 / ☐ 失败 |
+
+**45.7 的验证命令**（唯一能证明「文件真被删了」而不只是「UI 变回首字符」的手段）：
+
+```bash
+adb -s 3c66de59 shell run-as com.workout2.app ls -l files/avatars/
+# 期望：No such file or directory，或目录存在但为空
+```
+
+**确认两个权限没被 native 库漏进来**（`expo-image-picker` 的库 manifest 无条件声明 `CAMERA`，
+plugin 不显式关掉还会加 `RECORD_AUDIO`）：
+
+```bash
+adb -s 3c66de59 shell dumpsys package com.workout2.app | grep -i -e camera -e record_audio
+# 期望：两条都**查不到**
+```
+
+**若 45.3 失败（选择器打不开）**：ColorOS 对 `ACTION_GET_CONTENT` 有历史性紧箍。
+先看日志确认是不是权限被拒：
+
+```bash
+adb -s 3c66de59 logcat -c && adb -s 3c66de59 logcat -v threadtime | grep -iE "imagepicker|ImageLibrary|SecurityException"
+# 若确为权限问题，再补 requestMediaLibraryPermissionsAsync（当前实现刻意不预申请）
+```
+
+---
+
 ## 10. G13–G43 增量 AC 速查表 🟡 P1
 
 > 每个目标至少跑一条核心 AC 即可，详细见对应章节。
@@ -588,6 +634,7 @@ adb logcat -c && adb logcat -v threadtime | grep -E "\[db\]|migration|upgrade"
 | **G42d** 后台进度条不冻结 | 按 Home 后进度条继续推进 + 前台服务起来 | 见 §9.5（42.28–42.33） | ✅ 通过（2026-09-28，`67024c6`） |
 | **G43** dev-client 工程链路 | 装 dev APK → 连 Metro → 不红屏 | 见 §14 | ✅ 通过（2026-09-27） |
 | **G44** 254 张 CDN GIF | 抽查 `bundled: false` 动作 GIF 全部渲染 | 见 §9.8 | ✅ 通过（2026-09-27） |
+| **G45** 自定义头像 | 换两张图都跟着变 + 杀进程还在 + 清数据后文件真没了 | 见 §9.10 | ☐ 通过 / ☐ 失败 |
 | **US-12** 身体测量追踪 | Profile → 身体测量 → 记录体重/体脂 + 趋势 tab | 见 §9.9 | ☐ 通过 / ☐ 失败 |
 
 **历史已验通过（保留供参考）**：
@@ -636,10 +683,11 @@ adb logcat -c && adb logcat -v threadtime | grep -E "\[db\]|migration|upgrade"
 | **回归** | 12 min | §2.3–2.8 + §3 + §4 |
 | **G29 专项** | 5 min | §9（14 条必跑） |
 | **G39–G42 新增专项** | 15 min | §9.5（通知栏 27 条）+ §9.7（GIF 6 条）+ §9.8（306 9 条）+ §9.9（身体测量 10 条）+ §9.6（G38.3 15 条） |
+| **G45 头像专项** | 5 min | §9.10（10 条，**先确认装的是带 G45 的新 APK**） |
 | **完整** | 25 min | §5 + §6 + §7 + §8 + §10 速查 |
 | **总耗时** | ~75 min | 全部跑完约 75 分钟，可分 3 批 |
 
-**建议顺序（本轮重点）**：§14 装机 → §9.8（验 G41 升级路径 306）→ §9.5（验 G42 通知栏）→ §1.5 → 其余。
+**建议顺序（本轮重点）**：§14 装机（新 APK）→ **§9.10（G45 头像，本轮新功能）** → §9.5（验 G42d 后台进度条）→ §9.8（G41 升级路径 306）→ §1.5 → 其余。
 
 ---
 
@@ -809,16 +857,18 @@ EAS Build 页面：`https://expo.dev/accounts/cccking/projects/workout-2/builds/
 | EAS build fail `Unknown error` | EAS 云端跑 `npm ci`，`package-lock.json` 与 `package.json` 不同步 | `npm install --package-lock-only --ignore-scripts` 后 commit 再 build（G43d） |
 | Metro 连不上 | IP 变了 / 防火墙 | `adb reverse tcp:8081 tcp:8081`（USB 连接时），或更新 `exp://` 里的 IP |
 
-### 14.4 当前 build 状态（2026-09-29 核实）
+### 14.4 当前 build 状态（2026-09-29 晚核实）
 
 | 项 | 值 |
 |---|---|
-| 最后一次成功的 build | GH Actions run `36443103752`（commit `67024c6`，2026-09-28，15 分钟） |
-| 上一次验收用 APK | run `35883827334`（commit `787b85d`，157MB，sha256 `43bcca81...d9fd0`，2026-09-27） |
+| **本轮验收要用的 build** | GH Actions run `36582470541`（分支 `feat/custom-avatar`，commit `64fb756`，2026-09-29） |
+| 上一次成功的 build | GH Actions run `36443103752`（commit `67024c6`，2026-09-28，15 分钟） |
+| 更早的验收用 APK | run `35883827334`（commit `787b85d`，157MB，sha256 `43bcca81...d9fd0`，2026-09-27） |
 | 更早的 EAS Build（已不用） | `b3043661`（development，commit `1e06421`，2026-09-18） |
-| **master HEAD** | `67024c6`（G42d 前台服务，已 ff-merge 并 push） |
+| **master HEAD** | `35ee66f`（G42d 已 ff-merge；其上另有 `d392bd7` 本地原生模块单测修复 + `35ee66f` §13 文档整理） |
 | 验收机 | OPPO PBEM00 / Android 10 / API 29 / arm64-v8a / serial `3c66de59` |
-| ⚠️ 注意 | `67024c6` 含 Kotlin 改动，**Metro 热更不了** —— 要复核 G42d，必须用 run `36443103752` 的 APK 或本地 `:app:assembleDebug` 重装 |
+| ⚠️ 注意 1 | `67024c6` 含 Kotlin 改动，**Metro 热更不了** |
+| ⚠️ 注意 2 | **G45 头像功能必须用 `36582470541` 或更新的 APK** —— `expo-image-picker` 是原生依赖，旧 APK 里没有；且该分支从 master 分出，G42d 的修复也在里面，两个目标可以一次验完 |
 
 ---
 

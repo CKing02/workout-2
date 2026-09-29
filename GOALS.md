@@ -2050,6 +2050,97 @@ G41 当时定 Cloudflare R2 做 CDN 托管，但 **R2 bucket 在大陆访问稳�
 
 ---
 
+## G45. 用户自定义头像（相册选图）⏳ 代码完成 / 待真机验收
+
+**优先级**：P1  |  **依赖**：无（新引入原生依赖 `expo-image-picker`）  |  **阶段**：3
+**状态**：代码完成 + 测试全绿；**真机验收未跑**（卡点：必须重打 APK，见下）
+
+### 需求（用户已拍板，四条不再讨论）
+
+1. **只做相册选图** —— 不做拍照，因此不引入 `CAMERA` 权限
+2. **头像只在「我的」页显示** —— 首页/其它页不动
+3. **「头像 + 用户名」编辑抽成一个共享 Sheet**，Profile 与 Settings 共用
+4. **头像纯本地**：不参与导出/导入；「清除全部数据」时连同图片文件一起删
+
+### 决策：头像路径**不进 settings 表**
+
+`settings` 是 key-value 表，加个 `avatarUri` 键不需要 migration —— 看似最省事，
+但 `exportData.ts:80,:128` 用 `listSettings(db)` **整表 dump**、
+`importData.ts:210` 又 `DELETE FROM settings` **整表覆盖**：
+
+- 存进去 → `file://` 沙盒路径进备份，还原到另一台设备指向不存在的文件
+- 要绕开就得在导出端加黑名单 + 导入端加忽略 + 改 `importData.test.ts` 基线 payload
+  —— 四个改动点，只为了一条不该被导出的数据
+- 还会引入「DB 说有路径 / 文件其实没了」这种**无法自愈**的不一致态
+
+**改成：文件本身就是唯一真相。** 存在 `Paths.document/avatars/` 下，DB 完全不参与。
+「不参与备份」于是成了结构性保证，而不是一份要一直记着维护的过滤规则 ——
+`settingsStore` / `exportData` / `importData` 一行都没动。
+
+根目录用 `Paths.document` 而非 `Paths.cache`：后者按 `Paths.d.ts` 自己的说法
+「can be deleted by the system when the device runs low on storage」，头像放 cache 会莫名消失。
+
+### 三个实现细节（都不是偏好，是踩过后定的）
+
+| 决定 | 理由 |
+|---|---|
+| 文件名唯一（`avatar-<ts>.<ext>`）+ `getStoredAvatar()` 扫目录取最新并清多余 | 固定名方案要靠 `?v=lastModified` 去顶掉 `expo-image` 按 URI 字符串做的缓存，属于「赌它能 work」—— 而且这个 bug **只有真机换第二张图才验得出来**。唯一名让 URI 每次都变，原理上不可能失败，且崩在中途能自愈 |
+| 写文件走 `bytes()` + `write()`，不走 `copy()` | 这是 `file://` 与 `content://` **都成立**的唯一路径（走 `ContentResolver.openInputStream`，同 `SettingsScreen.tsx:195` 已验证的机制）。`copy()` 对 `content://` 的行为本地 `.d.ts` 看不出，验它要花一次 21 分钟的打包括 |
+| **不预申请相册权限** | `ImageLibraryContract.kt:115` 老路径走 `ACTION_GET_CONTENT`、Android 13+ 走系统 Photo Picker —— **两条都不需要存储权限**。预申请会在 API 29 验收机上白弹一个授权框，正好违背「只要相册」的意图 |
+
+### 原生配置：两个 `false` 都必须写
+
+`expo-image-picker` 的库 manifest **无条件声明 `CAMERA`**（会被 manifest merger 并进 APK），
+且 `plugin/build/withImagePicker.js` 里不显式传 `microphonePermission: false`
+就会**凭空加一个 `RECORD_AUDIO`**。所以 `app.json` 里两个都写 false 才符合「只要相册」。
+
+> ⚠️ `android/` 在 `.gitignore` 里、CI 每次 `expo prebuild` 重新生成 ——
+> **手改本地 `android/app/src/main/AndroidManifest.xml` 没有任何用，`app.json` 才是唯一杠杆。**
+
+### 顺带修好的既有缺口
+
+`clearGifCache()`（`src/screens/exerciseGifCache.ts`）的 doc 注释白纸黑字写着
+「暴露给『清除全部数据』流程」，但**从 G41 起从来没有任何地方调用过它** ——
+清数据会留下 `Paths.cache/gifs`。根因是收尾清单被抄成了两份（`ProfileScreen` /
+`SettingsScreen` 各一份），加项时漏了一处。
+
+本次把清单抽成 `src/features/profile/clearAllData.ts` 一处，头像文件清理和
+GIF 缓存清理都在里面，两个屏各调一次。
+
+### 文件清单
+
+| 文件 | 作用 |
+|---|---|
+| `src/utils/avatarFile.ts` | 文件 IO（唯一真相层），不碰任何 store |
+| `src/utils/avatarPicker.ts` | 原生边界（拉起相册），不碰 store |
+| `src/store/avatarStore.ts` | 薄响应式投影，三个方法都不抛 |
+| `src/components/Avatar.tsx` | 纯展示（进 design system barrel）；首字符**始终**画在底层，图片绝对定位盖上去，加载失败自然露出兜底 |
+| `src/features/profile/ProfileEditSheet.tsx` | 两屏共用的资料编辑抽屉 |
+| `src/features/profile/clearAllData.ts` | 「清除全部数据」唯一收尾入口 |
+
+### 提交记录
+
+- `64fb756` feat(G45): 用户自定义头像（相册选图）+ 资料编辑抽屉去重
+
+### 测试
+
+37 suites / 397 tests 全绿（改动前 31 / 328，本次 +6 suites / +69 tests），`tsc --noEmit` 干净。
+
+> 记一笔测试环境的坑：RN 0.86 里 `react-native` 导出的 `Pressable` 与树里那个同名
+> 组件**不是同一个对象引用**，`findAllByType(Pressable)` 永远返回 0 个 ——
+> 于是「不传 onPress 就没有 Pressable」会**假通过**。要按 `type.name` 或宿主 View 的
+> `accessibilityRole` 查。
+
+### 验收
+
+见 `docs/REAL_DEVICE_TEST_CHECKLIST.md` §9.10（10 条）。两条不能省：
+
+- **第 4 条（连换两张图）** —— 唯一能证明 expo-image 缓存不骗人的判据
+- **第 7 条（`run-as ... ls files/avatars/`）** —— 唯一能证明文件真被删了，
+  而不只是 UI 变回首字符的手段
+
+---
+
 ## Phase 2 路线（P2+，待评估优先级）
 
 > 下列项目 PRD 列入但未排期，是否纳入 Phase 2 视用户偏好决定。
