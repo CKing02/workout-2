@@ -706,14 +706,20 @@ adb logcat -c && adb logcat -v threadtime | grep -E "\[db\]|migration|upgrade"
 - 状态：**未验证 / 未定位**，只是 logcat 里看到了。**不阻塞任何 AC**（G21 的 AC 是「无红屏」）
 - 下一步：下次跑训练时顺手看一眼调用栈，再决定要不要单开目标
 
-**2. 本地原生模块的单测 suite 跑不起来（pre-existing）**
+**2. ~~本地原生模块的单测 suite 跑不起来~~ ✅ 已修（2026-09-29）**
 
-- `modules/expo-rest-timer-progress/src/__tests__/index.test.ts` 加载即失败：
-  `TypeError: Super expression must either be null or a function`，栈在 `expo/src/winter/fetch/FetchResponse.ts`
-- 后果：全套 jest 是「**321 passed + 1 suite failed**」（`@babel/runtime/helpers/inherits` 拿不到 superclass）。
-  不是回归 —— **在 `67024c6` 之前就存在**，提交信息已记录基线一致
-- **实际影响**：本地原生模块的 **JS wrapper 单测一个都没在跑**。`67024c6` 新增的 `consumeExpired()` 因此**无任何单测覆盖**
-- 下一步：修 jest 的 `testEnvironment` / mock 顺序（该 suite 把 `react-native` 整个 mock 成 `{Platform}`，疑似撞上 jest-expo 的 setup 加载顺序）
+- 症状：`modules/expo-rest-timer-progress/src/__tests__/index.test.ts` 加载即失败，
+  `TypeError: Super expression must either be null or a function`，栈在 `expo/src/winter/fetch/FetchResponse.ts`；
+  全套 jest 呈现为「321 passed + **1 suite failed**」
+- **真根因**：测试里把 `expo-modules-core` **整体 mock** 掉了 ——
+  `jest.mock('expo-modules-core', () => ({ requireNativeModule: () => ({...}) }))`。
+  这让**所有** native module 名都返回同一个假对象，包括 expo 自己在 winter runtime 里查的
+  `ExpoFetchModule` → `FetchResponse` 的基类变 `undefined` → `_inherits` 加载期抛错。
+  **症状极具欺骗性**：看起来像环境问题，实际是 mock 写法；而且因为 suite 从来没跑起来，它一直静默掩盖覆盖缺口
+- **不是** `react-native` 全量 mock 的锅（当时文档里那个猜测是错的，已实测排除）
+- 修法：**按名字分派** —— 只有 `'RestTimerProgress'` 走假对象，其余交给真实的 `requireNativeModule`
+- 结果：**31/31 suites、328/328 tests、exit 0**；顺带补上 `consumeExpired()` 的 3 个用例
+  （此前它零覆盖 —— 而它正是「后台到点 popup 不消失」那条修复的核心）
 
 **3. 进度条着色（G42 三条 AC）→ 见 §9.5「已知限制」**，属产品决策项，不是工程 bug
 

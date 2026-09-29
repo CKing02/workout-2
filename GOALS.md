@@ -1814,7 +1814,8 @@ modules/expo-rest-timer-progress/android/src/main/java/expo/modules/resttimerpro
 ### 验收状态
 
 - [x] `pnpm typecheck` 干净
-- [x] `pnpm test` 304/304（原 299 − 4 删 + 16 新 restTimerNotification + 6 新模块 wrapper）
+- [x] `pnpm test` 全绿 —— 截至 2026-09-29 为 **31/31 suites、328/328 tests**（G42c 时为 304/304；
+      模块 wrapper 的 7 个用例此前因 mock 写法问题**从未真正跑起来**，已于 09-29 修复，见测试清单 §13-2）
 - [x] `npx expo-modules-autolinking resolve --platform android` 显示 `packages: ['expo.modules.resttimerprogress.RestTimerProgressPackage']`
 - [x] 训练完成三条路径（自然完成 / 主动结束空闲 / 主动结束间歇中）通知栏正确消失 + 双按钮工作 — 2026-09-18 用户确认「测试正常」
 - [ ] **真机**：light 模式进度条颜色 = `#FF6B35` ← ❌ **未达成**，见下方「已知风险」第 1 条
