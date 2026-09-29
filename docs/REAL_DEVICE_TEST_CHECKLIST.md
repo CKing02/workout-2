@@ -3,7 +3,7 @@
 > 用途：dev-client 真机冒烟 + 回归测试
 > 适用版本：当前 `master` 分支（`67024c6`，含 G1–G44 全量）
 > Metro 任务 ID / IP：**跟随当前会话**（由 Claude 在启动 Metro 时告知，不写死）
-> 运行方式：**dev-client APK（GH Actions 产物，不再用 EAS）** → `pnpm start` 启 Metro → dev-client 内输入 `exp://<电脑IP>:8081`
+> 运行方式：**dev-client APK（GH Actions 产物，不再用 EAS）** → `npm start` 启 Metro → dev-client 内输入 `exp://<电脑IP>:8081`
 >
 > 📅 **回填记录（2026-09-29）**：§9.5 / §10 / §13 / §14 已按 2026-09-27 与 09-28 两轮真机验收结果逐项回填。
 > 勾选规则：**只勾有证据的**；验收会话里没单独跑过的项标 `☐ 未单独记录`（**不是失败**）。
@@ -645,45 +645,18 @@ adb logcat -c && adb logcat -v threadtime | grep -E "\[db\]|migration|upgrade"
 
 ## 13. 备注 / 已知小问题
 
-> 这里由 Claude 维护，把测试中发现但暂未修的已知问题登记下来，便于集中处理。
+> 由 Claude 维护。**维护规则（2026-09-29 立，血的教训）**：
+>
+> 1. **待处理**留在上面，**已解决**下沉到「已解决」区，并写明依据（日期 / commit / 核实命令）。
+> 2. **过时条目必须删或更正** —— 留一条已经不存在的隐患，会让人照着它做**无效决策**。
+>    2026-09-29 就真踩了：汇报时照抄了「双 lockfile 共存待决策」，而 pnpm 早已退场，
+>    那条隐患根本不存在（见 13.9）。
+> 3. **判「已修」必须给可复现的核实手段**，不能只凭印象 —— 例如 13.9 是靠
+>    `npm ci --dry-run` 验的，不是靠「我记得删了」。
 
-### ✅ 已修复（2026-09-02）
+### 🟡 待处理
 
-- **❌ 1.3 主题切换不生效** → 修复（4 个文件改动，未提交）：
-  - `src/main/App.tsx` — `DatabaseBootstrap` 内 `await useSettingsStore.getState().load()`
-  - `src/theme/ThemeProvider.tsx` — `const mode = useSettingsStore((s) => s.themeMode)` 订阅替代本地 `useState`；删除 unused `setMode/toggle` API
-  - **根因**：`settingsStore.load()` 从未有人调用 + provider 与 store 完全断联。**没有闪烁因为根本没切换过**。
-- **❌ 2.2.1 ActiveTraining 不沉浸** → 修复（2 个文件改动）：
-  - `src/screens/ActiveTrainingScreen.tsx` — `useFocusEffect` 调 `setStatusBarHidden(true/false, 'fade')`
-  - `src/navigation/TabNavigator.tsx` — `useEffect` 监听 RootStack state，按 focused route ∈ `[ActiveTraining, TrainingComplete]` 切 `tabBarStyle.display`
-  - **根因**：Android 系统状态栏从未 hidden；Tab 栏在 v7 native-stack 上理论上应被覆盖，但 Expo Go 实机会漏
-  - **原 plan 推荐** `navigation.getParent('Tabs')` 在 v7 实际不可达（Tabs 是 sibling 不是 ancestor）—— 改成 TabNavigator 自监听更稳
-
-### 🟡 已知未覆盖（本次范围外）
-
-- **Android 软导航条（OS-level home indicator）**：`expo-status-bar` 只控顶部状态栏，底部 home/back 指示条仍可见。若用户对"全屏沉浸"要求严苛到软导航条，需要 `expo-navigation-bar` 依赖或原生沉浸 flag。本次不做。
-- **`useBootData` hook 注释误导**：`src/store/exerciseStore.ts:7` 注释引用的 hook 不存在。exerciseStore/planStore 现在靠各自 screen 的 lazy `useEffect(() => load(), [])` 工作，没有 bug 但与注释不一致。本次不动。
-
-### 📁 工程收口历史（G30）
-
-- **G30 完成前**:`_diag/`、`_drawio_render/`、`docs/architecture/` 长期 untracked;测试清单停在 G1–G12
-- **G30 完成后**:
-  - `_diag/` → `scripts/audit/`(G22 复现排查脚本 + README)
-  - `_drawio_render/`(仅 stub package.json,无业务价值)→ 整目录删除
-  - `-p/`(空目录残留)→ 删除
-  - `docs/architecture/` 保持 source of truth(未变动)
-  - `docs/REAL_DEVICE_TEST_CHECKLIST.md` 重写为 G1–G29 全量范围
-
-### 📝 测试清单扩到 G1–G43（2026-09-20）
-
-- 标题范围 G1–G29 → **G1–G43**；运行方式从 **Expo Go** 改为 **dev-client APK**（新增 §14 装机与连接）
-- §9.5 从「G38 字符进度条」改写为「**G42 原生 ProgressBar**」——旧实现的预期值已全部作废
-- 新增 §9.7（G39/G40 GIF 三态）、§9.8（G41 动作库 306）、§9.9（US-12 身体测量）、§9.5 的 G42a 训练完成专项（42.19–42.27）
-- 修正 §2.7（G17 是**只读参考显示**，不是预填输入框 —— 与 §2.8 的 G28 处方预填是两回事）
-- 修正 §1.6 / §7.4（G31 导入已落地，不再是「待做」）
-- 去掉重复的「## 10.」标题
-
-### 🟡 G31 plan_sets 处方回滚缺口（待 G19 修补）
+#### 13.1 G31 plan_sets 处方回滚缺口（待修）
 
 - **症状**: 导出计划（G24a 设过 10×10）→ G14 清除 → G31 导入同一文件 → plan_sets 处方数据丢失,计划变成"无预填的初始状态"
 - **根因**: G19 导出端没把 `plan_sets` 和 `plan_exercises.rest_seconds` 写到 `BackupPayload`,所以导入端严格遵循"还原导出端给的"原则无法还原处方
@@ -697,16 +670,55 @@ adb logcat -c && adb logcat -v threadtime | grep -E "\[db\]|migration|upgrade"
 - **修法**（G33+ 待办）:回 G19 扩展导出字段 — `planExercises` 增 `restSeconds` 字段 + 新增 `planSets` 数组（`{planExerciseId, setIndex, setType, weight, reps}`）;导入端 `importData.ts` 跟着补 `plan_sets` 表 INSERT
 - **当前状态**（2026-09-20 复核）：**仍未修** —— `src/db/exportBackup.ts` / `importRepo.ts` 里搜不到 `planSets`。登记备查，不影响 G31 主路径验收
 
-### 🟡 已知未修（2026-09-29 回填）
-
-**1. G21 的 duplicate-key 数据条件仍在（红屏已消失）**
+#### 13.2 G21 的 duplicate-key 数据条件仍在（红屏已消失）
 
 - 症状：训练页 logcat 仍会打 `[DIAG:dup-key] lastSets[xxx] has dup s.id count=2 unique=1`
 - 含义：`f4bef66` 修掉了**红屏**（真根因 = `SELECT *` + JOIN 列名覆盖），但产生重复 key 的**数据条件本身**在某个路径上仍存在
 - 状态：**未验证 / 未定位**，只是 logcat 里看到了。**不阻塞任何 AC**（G21 的 AC 是「无红屏」）
 - 下一步：下次跑训练时顺手看一眼调用栈，再决定要不要单开目标
 
-**2. ~~本地原生模块的单测 suite 跑不起来~~ ✅ 已修（2026-09-29）**
+#### 13.3 进度条着色：G42 三条 AC 未达成（产品决策项）
+
+→ 详见 §9.5「已知限制」。`setProgressTintList` 需 API ≥ 31，验收机 Android 10 上进度条是系统 teal。
+不是工程 bug，是要拍板：换 RemoteViews 自绘 widget，还是放弃系统 ProgressBar。
+
+#### 13.4 `_diag/` 让 `tsc --noEmit` 报错（噪音）
+
+- `_diag/g41-zh-data-entries.ts`（9-17 的 G41 遗留，`_diag/` 被 `.gitignore:46` 忽略）产生 20 个语法错
+- **排除它 tsc 全净** —— 所以 `typecheck` 别拿原始输出当信号
+
+#### 13.5 rnscreens patch 是长期保留项
+
+- `patches/react-native-screens+4.26.2.patch`。升 `react-native-screens` 前必须确认上游是否原生修了 `setupFabric`，否则升级即红屏（症状见 §14）
+
+#### 13.6 `modules/` 下原生模块改动必须重打 APK
+
+- 改 Kotlin（如换通知小图标）**不能靠 Metro fast refresh**，必须重打 APK：
+  `gh workflow run android-apk.yml --ref <branch> -f abi='arm64-v8a,x86_64'`（约 21 分钟）
+
+#### 13.7 Android 软导航条未覆盖（本次范围外）
+
+- `expo-status-bar` 只控顶部状态栏，底部 home/back 指示条仍可见。若对"全屏沉浸"要求严苛到软导航条，需要 `expo-navigation-bar` 依赖或原生沉浸 flag。本次不做。
+
+#### 13.8 `useBootData` hook 注释误导（本次范围外）
+
+- `src/store/exerciseStore.ts:7` 注释引用的 hook 不存在。exerciseStore/planStore 现在靠各自 screen 的 lazy `useEffect(() => load(), [])` 工作，没有 bug 但与注释不一致。本次不动。
+
+### ✅ 已解决
+
+#### 13.9 双 lockfile 共存 → 已收口（2026-09-29 核实）
+
+- **曾经是真伤害**：EAS cloud 跑 `npm ci` 读 `package-lock.json`，本地开发用 pnpm 读 `pnpm-lock.yaml`。
+  G42 引入本地模块 `file:expo-rest-timer-progress` 时只同步了一份 → EAS 连续 4 次报没信息量的
+  `Unknown error`（`f44d979` 补齐 `package-lock.json` 是当时的真修复）
+- **现状：pnpm 已完全退场，不存在「二选一」**：
+  - `pnpm-lock.yaml` 不在磁盘上，且**从未被 git 跟踪**（`git log --diff-filter=D -- pnpm-lock.yaml` 为空）
+  - git 跟踪的 lockfile **只有 `package-lock.json`**；CI（`.github/workflows/android-apk.yml`）只消费它
+  - `packageManager: pnpm@10.33.0` 字段已在 `9898685` 删掉
+  - **核实命令**：`npm ci --dry-run --ignore-scripts` → **exit 0**（`package.json` 与 `package-lock.json` 同步）
+- 顺带清理：全仓文档里的 `pnpm xxx` 命令已改为 `npm xxx`（2026-09-29 全量扫过）
+
+#### 13.10 本地原生模块的单测 suite 跑不起来 → 已修（2026-09-29）
 
 - 症状：`modules/expo-rest-timer-progress/src/__tests__/index.test.ts` 加载即失败，
   `TypeError: Super expression must either be null or a function`，栈在 `expo/src/winter/fetch/FetchResponse.ts`；
@@ -718,21 +730,42 @@ adb logcat -c && adb logcat -v threadtime | grep -E "\[db\]|migration|upgrade"
   **症状极具欺骗性**：看起来像环境问题，实际是 mock 写法；而且因为 suite 从来没跑起来，它一直静默掩盖覆盖缺口
 - **不是** `react-native` 全量 mock 的锅（当时文档里那个猜测是错的，已实测排除）
 - 修法：**按名字分派** —— 只有 `'RestTimerProgress'` 走假对象，其余交给真实的 `requireNativeModule`
-- 结果：**31/31 suites、328/328 tests、exit 0**；顺带补上 `consumeExpired()` 的 3 个用例
+- 结果（`d392bd7`）：**31/31 suites、328/328 tests、exit 0**；顺带补上 `consumeExpired()` 的 3 个用例
   （此前它零覆盖 —— 而它正是「后台到点 popup 不消失」那条修复的核心）
+- 测试文件头写了完整踩坑说明，防止有人改回整体 mock
 
-**3. 进度条着色（G42 三条 AC）→ 见 §9.5「已知限制」**，属产品决策项，不是工程 bug
+#### 13.11 主题切换不生效 → 已修（2026-09-02）
 
-**4. `_diag/` 让 `tsc --noEmit` 报错（噪音）**
+- `src/main/App.tsx` — `DatabaseBootstrap` 内 `await useSettingsStore.getState().load()`
+- `src/theme/ThemeProvider.tsx` — `const mode = useSettingsStore((s) => s.themeMode)` 订阅替代本地 `useState`；删除 unused `setMode/toggle` API
+- **根因**：`settingsStore.load()` 从未有人调用 + provider 与 store 完全断联。**没有闪烁因为根本没切换过**。
 
-- `_diag/g41-zh-data-entries.ts`（9-17 的 G41 遗留，`_diag/` 被 `.gitignore:46` 忽略）产生 20 个语法错
-- **排除它 tsc 全净** —— 所以 `typecheck` 别拿原始输出当信号
+#### 13.12 ActiveTraining 不沉浸 → 已修（2026-09-02）
 
-### 🟡 G43 已知工程隐患（不阻塞测试，但该决策）
+- `src/screens/ActiveTrainingScreen.tsx` — `useFocusEffect` 调 `setStatusBarHidden(true/false, 'fade')`
+- `src/navigation/TabNavigator.tsx` — `useEffect` 监听 RootStack state，按 focused route ∈ `[ActiveTraining, TrainingComplete]` 切 `tabBarStyle.display`
+- **根因**：Android 系统状态栏从未 hidden；Tab 栏在 v7 native-stack 上理论上应被覆盖，但 Expo Go 实机会漏
+- **原 plan 推荐** `navigation.getParent('Tabs')` 在 v7 实际不可达（Tabs 是 sibling 不是 ancestor）—— 改成 TabNavigator 自监听更稳
 
-- **仓库里双 lockfile 共存**：`package-lock.json`（被 EAS cloud 的 `npm ci` 使用）+ `pnpm-lock.yaml`（本地 `pnpm install` 使用）。G43d 的 4 次 build 失败就是被这个咬的。属于结构性隐患，值得单独决策删掉哪个
-- **rnscreens patch 是长期保留项**：`patches/react-native-screens+4.26.2.patch`。升 `react-native-screens` 前必须确认上游是否原生修了 `setupFabric`，否则升级即红屏（症状见 §14）
-- **`module/` 下原生模块改动必须重打 APK**：改 Kotlin（如换通知小图标）不能靠 Metro fast refresh，要 `pnpm eas:development` 重打
+#### 13.13 工程收口历史（G30）
+
+- **G30 完成前**:`_diag/`、`_drawio_render/`、`docs/architecture/` 长期 untracked;测试清单停在 G1–G12
+- **G30 完成后**:
+  - `_diag/` → `scripts/audit/`(G22 复现排查脚本 + README)
+  - `_drawio_render/`(仅 stub package.json,无业务价值)→ 整目录删除
+  - `-p/`(空目录残留)→ 删除
+  - `docs/architecture/` 保持 source of truth(未变动)
+  - `docs/REAL_DEVICE_TEST_CHECKLIST.md` 重写为 G1–G29 全量范围
+
+#### 13.14 测试清单历次扩容
+
+- **2026-09-20**：标题范围 G1–G29 → **G1–G43**；运行方式从 **Expo Go** 改为 **dev-client APK**（新增 §14 装机与连接）
+  - §9.5 从「G38 字符进度条」改写为「**G42 原生 ProgressBar**」——旧实现的预期值已全部作废
+  - 新增 §9.7（G39/G40 GIF 三态）、§9.8（G41 动作库 306）、§9.9（US-12 身体测量）、§9.5 的 G42a 训练完成专项（42.19–42.27）
+  - 修正 §2.7（G17 是**只读参考显示**，不是预填输入框 —— 与 §2.8 的 G28 处方预填是两回事）
+  - 修正 §1.6 / §7.4（G31 导入已落地，不再是「待做」）
+  - 去掉重复的「## 10.」标题
+- **2026-09-29**：范围 G1–G43 → **G1–G44**；§9.5 / §10 / §13 / §14 按 09-27、09-28 两轮真机验收逐项回填
 
 ---
 
@@ -746,7 +779,7 @@ adb logcat -c && adb logcat -v threadtime | grep -E "\[db\]|migration|upgrade"
 | 场景 | 做法 |
 |---|---|
 | 已有可用 APK（当前 GH Actions run `36443103752`，commit `67024c6`） | 直接用，跳过重打 |
-| 代码含 native 改动（Kotlin / 依赖版本 / patch） | `pnpm eas:development` 重打 —— **必须 `development` profile**，`preview` 不带 dev-client |
+| 代码含 native 改动（Kotlin / 依赖版本 / patch） | `gh workflow run android-apk.yml --ref <branch> -f abi='arm64-v8a,x86_64'` 重打（约 21 分钟） |
 | 只想改 JS | 不用重打，Metro fast refresh 秒级生效 |
 
 > **出包现在走 GitHub Actions，不是 EAS**（EAS 免费额度挡到 2026-10-01）。
@@ -761,7 +794,7 @@ EAS Build 页面：`https://expo.dev/accounts/cccking/projects/workout-2/builds/
 | # | 步骤 | 期望 | 结果 |
 |---|------|------|------|
 | 43.1 | 手机装 APK | 装出 `com.workout2.app` | ☐ 通过 / ☐ 失败 |
-| 43.2 | 电脑跑 `pnpm start` | Metro 起来，看到 `packager-status:running` | ☐ 通过 / ☐ 失败 |
+| 43.2 | 电脑跑 `npm start` | Metro 起来，看到 `packager-status:running` | ☐ 通过 / ☐ 失败 |
 | 43.3 | 确认手机和电脑**同一局域网** | 能 ping 通 | ☐ 通过 / ☐ 失败 |
 | 43.4 | dev-client 内输入 `exp://<电脑IP>:8081` | **进入 App，不红屏** | ☐ 通过 / ☐ 失败 |
 | 43.5 | 首屏 | 三 Tab 正常渲染，无白屏 | ☐ 通过 / ☐ 失败 |
@@ -771,7 +804,7 @@ EAS Build 页面：`https://expo.dev/accounts/cccking/projects/workout-2/builds/
 | 症状 | 根因 | 处理 |
 |---|---|---|
 | 红屏栈里带 `ScreensModule.setupFabric` / `RNSModule` / `NullPointerException: ... FabricUIManager` | **rnscreens patch 没生效** | 检查 `patches/` 目录 + `package.json` 的 `postinstall: patch-package`，然后**重打 APK**（G43c） |
-| 红屏提到 reanimated / worklets 版本不匹配 | 依赖漂了（reanimated 4.6.0 / worklets ≥0.12） | `pnpm install` 后确认 `node_modules` 里是 **4.5.1 / 0.10.1**；仍红屏说明 APK 内 native 版本也是错的 → 重打（G43b） |
+| 红屏提到 reanimated / worklets 版本不匹配 | 依赖漂了（reanimated 4.6.0 / worklets ≥0.12） | `npm install` 后确认 `node_modules` 里是 **4.5.1 / 0.10.1**；仍红屏说明 APK 内 native 版本也是错的 → 重打（G43b） |
 | SIGSEGV / 进程直接挂 | worklets 0.12.x bundle mode | 锁回 0.10.1 + `bundleMode: false`（G43b） |
 | EAS build fail `Unknown error` | EAS 云端跑 `npm ci`，`package-lock.json` 与 `package.json` 不同步 | `npm install --package-lock-only --ignore-scripts` 后 commit 再 build（G43d） |
 | Metro 连不上 | IP 变了 / 防火墙 | `adb reverse tcp:8081 tcp:8081`（USB 连接时），或更新 `exp://` 里的 IP |

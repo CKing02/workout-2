@@ -1813,9 +1813,9 @@ modules/expo-rest-timer-progress/android/src/main/java/expo/modules/resttimerpro
 
 ### 验收状态
 
-- [x] `pnpm typecheck` 干净
-- [x] `pnpm test` 全绿 —— 截至 2026-09-29 为 **31/31 suites、328/328 tests**（G42c 时为 304/304；
-      模块 wrapper 的 7 个用例此前因 mock 写法问题**从未真正跑起来**，已于 09-29 修复，见测试清单 §13-2）
+- [x] `npm run typecheck` 干净
+- [x] `npm test` 全绿 —— 截至 2026-09-29 为 **31/31 suites、328/328 tests**（G42c 时为 304/304；
+      模块 wrapper 的 7 个用例此前因 mock 写法问题**从未真正跑起来**，已于 09-29 修复，见测试清单 §13.10）
 - [x] `npx expo-modules-autolinking resolve --platform android` 显示 `packages: ['expo.modules.resttimerprogress.RestTimerProgressPackage']`
 - [x] 训练完成三条路径（自然完成 / 主动结束空闲 / 主动结束间歇中）通知栏正确消失 + 双按钮工作 — 2026-09-18 用户确认「测试正常」
 - [ ] **真机**：light 模式进度条颜色 = `#FF6B35` ← ❌ **未达成**，见下方「已知风险」第 1 条
@@ -1939,8 +1939,15 @@ npm error Missing: expo-rest-timer-progress@1.0.0 from lock file
 
 **修复**：`npm install --package-lock-only --ignore-scripts` 把新依赖同步进 `package-lock.json`。
 
-> **未决**：仓库里同时存在 `pnpm-lock.yaml` 和 `package-lock.json`（两个都未跟踪/半跟踪），
-> 属于结构性隐患，值得单独决策要不要删掉其中一个。
+> **✅ 已收口（2026-09-29 核实）**：原本登记的「双 lockfile 共存，待决策删哪个」**已不成立** ——
+> pnpm 已完全退场，不存在二选一：
+> - `pnpm-lock.yaml` 不在磁盘上，且**从未被 git 跟踪**（`git log --diff-filter=D -- pnpm-lock.yaml` 为空）
+> - git 跟踪的 lockfile 只有 `package-lock.json`；CI（`.github/workflows/android-apk.yml`）只消费它
+> - `packageManager: pnpm@10.33.0` 字段已在 `9898685` 删掉
+> - 核实命令：`npm ci --dry-run --ignore-scripts` → exit 0（`package.json` 与 lock 同步）
+>
+> ⚠️ 教训：这条过时隐患在 2026-09-29 的进度汇报里被**照抄引用**，当成待办报给了用户。
+> 文档里的隐患清单要定期核实，**过时的必须删** —— 见测试清单 §13 的维护规则。
 
 ### G43 收口（2026-09-23 核实 → 2026-09-27 真机验收通过）
 
