@@ -1,9 +1,12 @@
-# 真机测试清单 — 锻炼 2点零 MVP（G1–G43）
+# 真机测试清单 — 锻炼 2点零 MVP（G1–G44）
 
 > 用途：dev-client 真机冒烟 + 回归测试
-> 适用版本：当前 `master` 分支（含 G1–G43 全量）
+> 适用版本：当前 `master` 分支（`67024c6`，含 G1–G44 全量）
 > Metro 任务 ID / IP：**跟随当前会话**（由 Claude 在启动 Metro 时告知，不写死）
-> 运行方式：**dev-client APK（EAS development profile）** → `pnpm start` 启 Metro → dev-client 内输入 `exp://<电脑IP>:8081`
+> 运行方式：**dev-client APK（GH Actions 产物，不再用 EAS）** → `pnpm start` 启 Metro → dev-client 内输入 `exp://<电脑IP>:8081`
+>
+> 📅 **回填记录（2026-09-29）**：§9.5 / §10 / §13 / §14 已按 2026-09-27 与 09-28 两轮真机验收结果逐项回填。
+> 勾选规则：**只勾有证据的**；验收会话里没单独跑过的项标 `☐ 未单独记录`（**不是失败**）。
 >
 > ⚠️ **G39 起不再能用 Expo Go** —— worklets 版本与 Expo Go 自带的不兼容（详见 §14）。
 > 首次装 APK + 连 Metro 的完整步骤见 **§14 dev-client 安装与连接（G43）**。
@@ -357,8 +360,10 @@
 |---|---|
 | 通知由谁发 | 本地 expo-module `expo-rest-timer-progress`（`NotificationCompat.Builder`） |
 | 进度条 | 系统自带 ProgressBar（`setProgress(max, current, indeterminate=false)`），**不是**字符画 |
-| 更新频率 | 1 Hz（`RestTimerNotificationBridge` 的 `setInterval(1000)`） |
-| 进度条颜色 | 取自 `useTheme().colors.primary`，light = `#FF6B35` / dark = `#FF7A4D` |
+| **每秒谁来重画** | ⚠️ **原生前台服务 `RestTimerTickerService`**（1s Handler ticker），**不是 JS** —— 2026-09-28 G42d 改的，详见下方说明 |
+| JS 侧的角色 | 只「同步权威状态」：`showOrUpdate(rem, total, name, colorHex)`，由原生 `matches()` 去重成 no-op（1.5s 容差） |
+| 到点靠谁 | **AlarmManager** `setExactAndAllowWhileIdle`（服务**不持 wake lock**，Doze 下 ticker 会停） |
+| 进度条颜色 | ⚠️ **Android 10 上着色无效**（`setProgressTintList` 需 API ≥ 31），显示为系统 teal —— 见下方「已知限制」 |
 | channel id | `rest_timer`（与旧实现同 id，Android 建 channel 幂等） |
 | 通知 id | 固定 int `1001` |
 | 通知小图标 | ⚠️ 当前是系统占位 `ic_menu_recent_history`（灰白时钟），**不是 App 图标** —— 见到不要当 bug 报 |
@@ -367,41 +372,61 @@
 
 | # | 步骤 | 期望 | 结果 |
 |---|------|------|------|
-| 42.1 | 完成一组动作，触发 RestTimer（如 squat 90s） | 通知栏**立即**出现休息通知 | ☐ 通过 / ☐ 失败 |
-| 42.2 | 端上看到的文案 | `mm:ss` 剩余时间 + 当前动作名（G42b 简化后的排版） | ☐ 通过 / ☐ 失败 |
-| 42.3 | 等待 5 秒 | **进度条**在推进，剩余时间每秒 -1 | ☐ 通过 / ☐ 失败 |
-| 42.4 | 进度条推进质感 | 系统 ProgressBar 平滑推进，**没有**旧版「块字符整段跳 / 字宽不齐」的问题 | ☐ 通过 / ☐ 失败 |
-| 42.5 | light 模式下看进度条颜色 | = `#FF6B35` | ☐ 通过 / ☐ 失败 |
-| 42.6 | dark 模式下看进度条颜色 | = `#FF7A4D` | ☐ 通过 / ☐ 失败 |
-| 42.7 | 计时中切主题（浅 ↔ 深） | 通知栏进度条颜色**跟随切换**（theme scheme 触发 effect 重 show） | ☐ 通过 / ☐ 失败 |
-| 42.8 | 启动计时 → 按 Home 切到桌面 | 通知栏**保留** | ☐ 通过 / ☐ 失败 |
-| 42.9 | 切回 App | **通知立即**跳到正确秒数（±1s 内，切回瞬间 tick 触发） | ☐ 通过 / ☐ 失败 |
-| 42.10 | 锁屏 30 秒后亮屏解锁 | 通知秒数立即跳到正确值（同 42.9） | ☐ 通过 / ☐ 失败 |
-| 42.11 | 计时 60s 到 0 | 通知**立即消失** | ☐ 通过 / ☐ 失败 |
-| 42.12 | 计时中点「跳过」 | 通知立即消失 | ☐ 通过 / ☐ 失败 |
-| 42.13 | 计时中点「+15s」 | 通知进度条与秒数同步 +15（`extend` 不动 `startedAt`） | ☐ 通过 / ☐ 失败 |
-| 42.14 | 完成一组后立刻开始下一组 | 通知进度条重置到满格 | ☐ 通过 / ☐ 失败 |
-| 42.15 | 长按通知 → 系统设置 | 看到 channel `rest_timer` + HIGH importance + vibrate | ☐ 通过 / ☐ 失败 |
-| 42.16 | 启动 App 后**首次**弹通知 | 系统弹「允许锻炼2点零发送通知吗？」对话框，点「允许」 | ☐ 通过 / ☐ 失败 |
-| 42.17 | 拒绝权限后再启动 | 通知不再显示，但训练主流程正常（静默吞错） | ☐ 通过 / ☐ 失败 |
-| 42.18 | 杀 App 重启 → 进训练屏 | channel 已存在，权限状态保留，无重复弹窗 | ☐ 通过 / ☐ 失败 |
+| 42.1 | 完成一组动作，触发 RestTimer（如 squat 90s） | 通知栏**立即**出现休息通知 | ✅ 通过（09-27 / 09-28） |
+| 42.2 | 端上看到的文案 | `mm:ss` 剩余时间 + 当前动作名（G42b 简化后的排版） | ✅ 通过（09-28 帧抓取） |
+| 42.3 | 等待 5 秒 | **进度条**在推进，剩余时间每秒 -1 | ✅ 通过 |
+| 42.4 | 进度条推进质感 | 系统 ProgressBar 平滑推进，**没有**旧版「块字符整段跳 / 字宽不齐」的问题 | ✅ 通过（09-27 像素测量 339px） |
+| 42.5 | light 模式下看进度条颜色 | = `#FF6B35` | ❌ **未达成** —— Android 10 上 `setProgressTintList` 无效，显示系统 teal（需 API ≥ 31） |
+| 42.6 | dark 模式下看进度条颜色 | = `#FF7A4D` | ❌ **未达成**（同上；且 dark 从未单独实测） |
+| 42.7 | 计时中切主题（浅 ↔ 深） | 通知栏进度条颜色**跟随切换**（theme scheme 触发 effect 重 show） | ❌ **未达成**（同上） |
+| 42.8 | 启动计时 → 按 Home 切到桌面 | 通知栏**保留** | ✅ 通过（09-28 按 Home 后通知在且进度条在走） |
+| 42.9 | 切回 App | **通知立即**跳到正确秒数（±1s 内，切回瞬间 tick 触发） | ✅ 通过（09-28 回前台 `00:41` 条 ~70% = 正确值） |
+| 42.10 | 锁屏 30 秒后亮屏解锁 | 通知秒数立即跳到正确值（同 42.9） | ✅ 通过（09-27 锁屏黑屏 50s，89s → 38s） |
+| 42.11 | 计时 60s 到 0 | 通知**立即消失** | ✅ 通过（09-28 到点被「休息结束」干净替换） |
+| 42.12 | 计时中点「跳过」 | 通知立即消失 | ✅ 通过（09-28 skip 后服务无记录、活跃 NotificationRecord = 0） |
+| 42.13 | 计时中点「+15s」 | 通知进度条与秒数同步 +15（`extend` 不动 `startedAt`） | ☐ **未单独记录** |
+| 42.14 | 完成一组后立刻开始下一组 | 通知进度条重置到满格 | ☐ **未单独记录** |
+| 42.15 | 长按通知 → 系统设置 | 看到 channel `rest_timer` + HIGH importance + vibrate | ☐ **未单独记录** |
+| 42.16 | 启动 App 后**首次**弹通知 | 系统弹「允许锻炼2点零发送通知吗？」对话框，点「允许」 | ☐ **未单独记录** |
+| 42.17 | 拒绝权限后再启动 | 通知不再显示，但训练主流程正常（静默吞错） | ☐ **未单独记录** |
+| 42.18 | 杀 App 重启 → 进训练屏 | channel 已存在，权限状态保留，无重复弹窗 | ☐ **未单独记录** |
+
+> **`☐ 未单独记录` 的含义**：不是「失败」，是**验收会话里没有单独跑过这一条、也没有留下证据**。
+> 不虚勾。APK 重打后顺手补跑一遍即可，成本很低（大多在同一个训练流程里）。
+
+**G42d 后台冻结专项**（2026-09-28 本轮改动，前台服务 + 原生 1s ticker）：
+
+| # | 步骤 | 期望 | 结果 |
+|---|------|------|------|
+| 42.28 | 计时中按 Home 退到桌面，等 10s+ | **进度条继续推进**（不是冻在最后一帧）；秒数同步在走 | ✅ 通过（23:49:27 `00:21`/条 ~65% → 23:49:38 `00:11`/条 **~37%**） |
+| 42.29 | `adb shell dumpsys activity services` | 看到 `RestTimerTickerService`：`isForeground=true foregroundId=1001`，无 `MissingForegroundServiceTypeException` | ✅ 通过 |
+| 42.30 | 后台等到 0 | 发「休息结束」通知**一次**，且把倒计时那条**替换**掉（不是并排两条） | ✅ 通过（23:49:49 帧显示「休息结束 / T杠划船」） |
+| 42.31 | 后台到点时 `dumpsys vibrator` | alarm 段 `usageHint:4` ×1 + notification 段 `usageHint:5` ×1，同一时刻（**不重复震**） | ✅ 通过 |
+| 42.32 | 计时中点「跳过」 | 服务停止、通知栏无残留（`NotificationRecord` 数 = 0） | ✅ 通过 |
+| 42.33 | 息屏（黑屏）停留 30s+ | ⚠️ **进度条会停**（Doze 下 ticker 停，服务不持 wake lock）—— 这是**有意取舍**，不是 bug；只要**到点仍然准**即可 | ☐ 未单独记录 |
 
 **G42a 训练完成路径收尾专项**（本轮改动，重点验）：
 
 | # | 步骤 | 期望 | 结果 |
 |---|------|------|------|
-| 42.19 | 做完**最后一组**（自然完成） | 通知栏**立即消失**，不残留最后一组的剩余秒数 | ☐ 通过 / ☐ 失败 |
-| 42.20 | 主动点「结束训练」且**当前不在休息间歇** | 通知栏无残留 | ☐ 通过 / ☐ 失败 |
-| 42.21 | 主动点「结束训练」且**正处于休息间歇** | 通知栏立即消失（这是修复前的复现路径） | ☐ 通过 / ☐ 失败 |
-| 42.22 | 进入完成页 | 底部是**两个按钮**：「保存训练记录」+「不保存」 | ☐ 通过 / ☐ 失败 |
-| 42.23 | 点「保存训练记录」 | 按钮走三态 idle → saving → saved（saved 有 spring 动画 + 颜色渐变） | ☐ 通过 / ☐ 失败 |
-| 42.24 | 保存后回首页 | 历史列表出现本次训练 | ☐ 通过 / ☐ 失败 |
-| 42.25 | 点「不保存」 | 弹二次确认 Dialog | ☐ 通过 / ☐ 失败 |
-| 42.26 | 确认不保存 → 回首页 | 历史列表**不出现**本次训练 | ☐ 通过 / ☐ 失败 |
-| 42.27 | 完成页文案 | **没有**「已写入训练历史 · #xxx」这一行（已删） | ☐ 通过 / ☐ 失败 |
+| 42.19 | 做完**最后一组**（自然完成） | 通知栏**立即消失**，不残留最后一组的剩余秒数 | ✅ 通过（2026-09-18 用户确认） |
+| 42.20 | 主动点「结束训练」且**当前不在休息间歇** | 通知栏无残留 | ✅ 通过（2026-09-18 用户确认） |
+| 42.21 | 主动点「结束训练」且**正处于休息间歇** | 通知栏立即消失（这是修复前的复现路径） | ✅ 通过（2026-09-18 用户确认） |
+| 42.22 | 进入完成页 | 底部是**两个按钮**：「保存训练记录」+「不保存」 | ✅ 通过（2026-09-18「双按钮工作」确认） |
+| 42.23 | 点「保存训练记录」 | 按钮走三态 idle → saving → saved（saved 有 spring 动画 + 颜色渐变） | ✅ 通过（同上） |
+| 42.24 | 保存后回首页 | 历史列表出现本次训练 | ✅ 通过（同上） |
+| 42.25 | 点「不保存」 | 弹二次确认 Dialog | ✅ 通过（同上，依据为「双按钮工作」整体确认，未逐条单独记录） |
+| 42.26 | 确认不保存 → 回首页 | 历史列表**不出现**本次训练 | ✅ 通过（同上） |
+| 42.27 | 完成页文案 | **没有**「已写入训练历史 · #xxx」这一行（已删） | ✅ 通过（代码可查：该行已删） |
 
 **已知限制**（不阻塞通过）：
-- 锁屏停留 >60s：通知秒数停在锁屏瞬间值（系统冻结 JS 线程，managed workflow 无法绕过）
+- **进度条着色在 Android 10 上做不到** ❌ —— `setProgressTintList` 走 `RemoteViews.setColorStateList` 需 **API ≥ 31**。
+  验收机 OPPO PBEM00 是 Android 10（API 29），进度条是**系统 teal 而非主题橙**。代码里已注释。
+  所以 42.5 / 42.6 / 42.7 三条判 ❌，**不是没测，是该方案在这个 API 级别上无解**。
+  产品上若必须着色 → 换 RemoteViews 自绘 ProgressBar widget，或放弃系统 ProgressBar。
+- **息屏后进度条会停**（G42d 后的新限制，取代旧的「锁屏 60s 秒数停」）——
+  秒数由原生 `Chronometer` 自走**会继续**；进度条靠前台服务 ticker，而服务**不持 wake lock**，
+  Doze 下 CPU 睡、ticker 停。**这是有意取舍**：进度条只在亮屏时有意义，**到点始终准**（靠 AlarmManager）。
 - iOS 路径本期 noop（`Platform.OS !== 'android'` 直接 return），Live Activity 未做
 - 进度条颜色各 OEM 渲染略有差异（三星 One UI 通常一致，小米 MIUI 偶有 accent 优先级问题）
 
@@ -544,7 +569,7 @@ adb logcat -c && adb logcat -v threadtime | grep -E "\[db\]|migration|upgrade"
 | **G18** 数据可视化 | 我的 → 数据概览 → 4 屏合一 | 见 §3.3 | ☐ 通过 / ☐ 失败 |
 | **G19** 导出 JSON | 设置 → 数据管理 → 导出 → 收到文件 | 见 §7.3 | ☐ 通过 / ☐ 失败 |
 | **G20** 技术债清理 | 全文搜「stub / 占位」无残留（grep 验证） | 命令：`grep -rn "stub\|占位" src/` | ☐ 通过 / ☐ 失败 |
-| **G21** duplicate-key 修复 | 真机跑训练无 React dup-key LogBox | 跑 5 次训练观察 | ☐ 通过 / ☐ 失败 |
+| **G21** duplicate-key 修复 | 真机跑训练无 React dup-key LogBox | 跑 5 次训练观察 | ✅ 通过（2026-09-27 A/B 验证，`f4bef66`；残留 `[DIAG:dup-key]` 见 §13） |
 | **G22** id 重复自愈 | 当前 0 重复行（详见 `scripts/audit/`） | 命令：`node scripts/audit/audit-dup-rows.js backup.json` | ☐ 通过 / ☐ 失败 |
 | **G23** errorLogs 去重 | 30s 内同 fingerprint 只入库 1 条 | 触发已知 bug → 看 errorLogs 表 | ☐ 通过 / ☐ 失败 |
 | **G24a** plan_sets 持久化 | 杀进程后 plan 编辑器数据仍在 | 见 §2.8.2 | ☐ 通过 / ☐ 失败 |
@@ -558,9 +583,11 @@ adb logcat -c && adb logcat -v threadtime | grep -E "\[db\]|migration|upgrade"
 | **G39** GIF 三态资源层 | `asset:` 前缀 bundled 秒开；remote 走 skeleton → 淡入 | 见 §9.7 | ☐ 通过 / ☐ 失败 |
 | **G40** 52 张全 bundled | 动作库 52 个动作缩略图**全部**秒开，无 blank | 见 §9.7 | ☐ 通过 / ☐ 失败 |
 | **G41** 动作库 306 | 动作库总数 = 306（含 254 CDN 缩略图 skeleton） | 见 §9.8 | ☐ 通过 / ☐ 失败 |
-| **G42** 通知栏原生 ProgressBar | 系统 ProgressBar 推进 + light/dark 颜色 + 切主题跟随 | 见 §9.5 | ☐ 通过 / ☐ 失败 |
-| **G42a** 训练完成 save flow | 通知无残留 + 双按钮保存 / 不保存 | 见 §9.5（42.19–42.27） | ☐ 通过 / ☐ 失败 |
-| **G43** dev-client 工程链路 | 装 dev APK → 连 Metro → 不红屏 | 见 §14 | ☐ 通过 / ☐ 失败 |
+| **G42** 通知栏原生 ProgressBar | 系统 ProgressBar 推进（**着色项除外**，见 §9.5 已知限制） | 见 §9.5 | ⚠️ 通过（着色 ❌，其余 ✅，2026-09-27/28） |
+| **G42a** 训练完成 save flow | 通知无残留 + 双按钮保存 / 不保存 | 见 §9.5（42.19–42.27） | ✅ 通过（2026-09-18） |
+| **G42d** 后台进度条不冻结 | 按 Home 后进度条继续推进 + 前台服务起来 | 见 §9.5（42.28–42.33） | ✅ 通过（2026-09-28，`67024c6`） |
+| **G43** dev-client 工程链路 | 装 dev APK → 连 Metro → 不红屏 | 见 §14 | ✅ 通过（2026-09-27） |
+| **G44** 254 张 CDN GIF | 抽查 `bundled: false` 动作 GIF 全部渲染 | 见 §9.8 | ✅ 通过（2026-09-27） |
 | **US-12** 身体测量追踪 | Profile → 身体测量 → 记录体重/体脂 + 趋势 tab | 见 §9.9 | ☐ 通过 / ☐ 失败 |
 
 **历史已验通过（保留供参考）**：
@@ -670,6 +697,31 @@ adb logcat -c && adb logcat -v threadtime | grep -E "\[db\]|migration|upgrade"
 - **修法**（G33+ 待办）:回 G19 扩展导出字段 — `planExercises` 增 `restSeconds` 字段 + 新增 `planSets` 数组（`{planExerciseId, setIndex, setType, weight, reps}`）;导入端 `importData.ts` 跟着补 `plan_sets` 表 INSERT
 - **当前状态**（2026-09-20 复核）：**仍未修** —— `src/db/exportBackup.ts` / `importRepo.ts` 里搜不到 `planSets`。登记备查，不影响 G31 主路径验收
 
+### 🟡 已知未修（2026-09-29 回填）
+
+**1. G21 的 duplicate-key 数据条件仍在（红屏已消失）**
+
+- 症状：训练页 logcat 仍会打 `[DIAG:dup-key] lastSets[xxx] has dup s.id count=2 unique=1`
+- 含义：`f4bef66` 修掉了**红屏**（真根因 = `SELECT *` + JOIN 列名覆盖），但产生重复 key 的**数据条件本身**在某个路径上仍存在
+- 状态：**未验证 / 未定位**，只是 logcat 里看到了。**不阻塞任何 AC**（G21 的 AC 是「无红屏」）
+- 下一步：下次跑训练时顺手看一眼调用栈，再决定要不要单开目标
+
+**2. 本地原生模块的单测 suite 跑不起来（pre-existing）**
+
+- `modules/expo-rest-timer-progress/src/__tests__/index.test.ts` 加载即失败：
+  `TypeError: Super expression must either be null or a function`，栈在 `expo/src/winter/fetch/FetchResponse.ts`
+- 后果：全套 jest 是「**321 passed + 1 suite failed**」（`@babel/runtime/helpers/inherits` 拿不到 superclass）。
+  不是回归 —— **在 `67024c6` 之前就存在**，提交信息已记录基线一致
+- **实际影响**：本地原生模块的 **JS wrapper 单测一个都没在跑**。`67024c6` 新增的 `consumeExpired()` 因此**无任何单测覆盖**
+- 下一步：修 jest 的 `testEnvironment` / mock 顺序（该 suite 把 `react-native` 整个 mock 成 `{Platform}`，疑似撞上 jest-expo 的 setup 加载顺序）
+
+**3. 进度条着色（G42 三条 AC）→ 见 §9.5「已知限制」**，属产品决策项，不是工程 bug
+
+**4. `_diag/` 让 `tsc --noEmit` 报错（噪音）**
+
+- `_diag/g41-zh-data-entries.ts`（9-17 的 G41 遗留，`_diag/` 被 `.gitignore:46` 忽略）产生 20 个语法错
+- **排除它 tsc 全净** —— 所以 `typecheck` 别拿原始输出当信号
+
 ### 🟡 G43 已知工程隐患（不阻塞测试，但该决策）
 
 - **仓库里双 lockfile 共存**：`package-lock.json`（被 EAS cloud 的 `npm ci` 使用）+ `pnpm-lock.yaml`（本地 `pnpm install` 使用）。G43d 的 4 次 build 失败就是被这个咬的。属于结构性隐患，值得单独决策删掉哪个
@@ -687,9 +739,14 @@ adb logcat -c && adb logcat -v threadtime | grep -E "\[db\]|migration|upgrade"
 
 | 场景 | 做法 |
 |---|---|
-| 已有可用 APK（当前 `b3043661`，commit `1e06421`） | 直接用，跳过重打 |
+| 已有可用 APK（当前 GH Actions run `36443103752`，commit `67024c6`） | 直接用，跳过重打 |
 | 代码含 native 改动（Kotlin / 依赖版本 / patch） | `pnpm eas:development` 重打 —— **必须 `development` profile**，`preview` 不带 dev-client |
 | 只想改 JS | 不用重打，Metro fast refresh 秒级生效 |
+
+> **出包现在走 GitHub Actions，不是 EAS**（EAS 免费额度挡到 2026-10-01）。
+> workflow 是 **`workflow_dispatch` only** —— `git push` **不会**触发构建，必须显式：
+> `gh workflow run android-apk.yml --ref <branch> -f abi='arm64-v8a,x86_64'`（约 21 分钟出 157MB APK）。
+> `gh` 必须设 `HTTPS_PROXY/HTTP_PROXY/ALL_PROXY=http://127.0.0.1:7890`；`git push` 走 SSH 直连即可、不用代理。
 
 EAS Build 页面：`https://expo.dev/accounts/cccking/projects/workout-2/builds/<build-id>`（手机扫码直接装）。
 
@@ -713,13 +770,16 @@ EAS Build 页面：`https://expo.dev/accounts/cccking/projects/workout-2/builds/
 | EAS build fail `Unknown error` | EAS 云端跑 `npm ci`，`package-lock.json` 与 `package.json` 不同步 | `npm install --package-lock-only --ignore-scripts` 后 commit 再 build（G43d） |
 | Metro 连不上 | IP 变了 / 防火墙 | `adb reverse tcp:8081 tcp:8081`（USB 连接时），或更新 `exp://` 里的 IP |
 
-### 14.4 当前 build 状态（2026-09-20）
+### 14.4 当前 build 状态（2026-09-29 核实）
 
 | 项 | 值 |
 |---|---|
-| 最后一次成功的 EAS Build | `b3043661`（development，commit `1e06421`，2026-09-18） |
-| HEAD | `948efa5`（reanimated / worklets 精确锁版） |
-| ⚠️ 注意 | **HEAD 的锁版修复尚未进任何 APK**。先用现有 APK 试连；若版本错配红屏，跑 `pnpm eas:development` 重打 |
+| 最后一次成功的 build | GH Actions run `36443103752`（commit `67024c6`，2026-09-28，15 分钟） |
+| 上一次验收用 APK | run `35883827334`（commit `787b85d`，157MB，sha256 `43bcca81...d9fd0`，2026-09-27） |
+| 更早的 EAS Build（已不用） | `b3043661`（development，commit `1e06421`，2026-09-18） |
+| **master HEAD** | `67024c6`（G42d 前台服务，已 ff-merge 并 push） |
+| 验收机 | OPPO PBEM00 / Android 10 / API 29 / arm64-v8a / serial `3c66de59` |
+| ⚠️ 注意 | `67024c6` 含 Kotlin 改动，**Metro 热更不了** —— 要复核 G42d，必须用 run `36443103752` 的 APK 或本地 `:app:assembleDebug` 重装 |
 
 ---
 

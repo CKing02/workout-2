@@ -529,8 +529,21 @@
 
 ### 涉及
 - 定位：`src/screens/ActiveTrainingScreen.tsx:1166`（`LastSetsPreview` 内 `lastSets.map((s, i) => <Text key={s.id} ... />)`）
-- 根因（二分回退锁定）：在用户 DB 中存在 `training_sets.id` 重复行（errorLogs 一次性写入 186 条同 fingerprint，186 次 LogBox 升级到 red overlay）
+- 根因（二分回退锁定）：**当时**判断为「用户 DB 中存在 `training_sets.id` 重复行」（errorLogs 一次性写入 186 条同 fingerprint，186 次 LogBox 升级到 red overlay）
 - 修复：`key={s.id}` → `key={\`${s.id}#${i}\`}`（idx 后缀保证 React 兄弟节点唯一性）
+
+> ### ⚠️ 根因更正（2026-09-27，`f4bef66`）
+>
+> 上面那条根因是**误诊**，已推翻。真根因是 **SQL 查询的列名覆盖**：
+> `SELECT *` + JOIN 时 `trainings.id` 与 `training_sets.id` 同名，结果集里**后者把前者静默覆盖**，
+> 于是多行 `training_sets.id` 拿到同一个值 → React 兄弟节点 key 重复 → red overlay。
+> **数据库里没有重复行**，G22「自愈关闭」的结论因此说对了（表是干净的），只是当时没查出真正的机制。
+>
+> - 判据：**JOIN + `SELECT *` + 同名列 → 后者静默覆盖**。以后再见到「id 重复」先查这条，不要先怀疑 DB。
+> - `key={\`${s.id}#${i}\`}` 的 idx 兜底**保留**（它治的是症状，仍然有效），但查询侧的列名歧义才是必须修的。
+> - **AC-21.1 已于 2026-09-27 真机 A/B 验证通过**（改前红屏 / 改后不红屏），提交 `f4bef66`，已合入 master。
+> - 🟡 **残留观察（未验证）**：训练页 logcat 仍会打 `[DIAG:dup-key] lastSets[xxx] has dup s.id count=2 unique=1`。
+>   红屏不再出现，但产生重复 key 的**数据条件本身**在某个路径上仍存在。已登记在测试清单 §13，待顺手查。
 - 顺手：`src/lib/diagnostics/installErrorHandlers.ts` 扩 console.error 过滤条件，让 `Encountered two children with the same key` 也能进 errorLogs（之前漏抓）+ `captureProjectFrames()` 抓 native JS 栈筛 src/ 帧（Hermes dev build 下拿不到，作为诊断基建保留）
 
 ### 验收标准（AC）
@@ -1690,12 +1703,13 @@ G40 暴露一个关键事实：APK bundled 不是无限容量方案。G41 把"�
 
 ---
 
-## G42. 休息通知收口 + 通知栏原生 ProgressBar ✅ 代码完成 / ⏳ 真机验收待做
+## G42. 休息通知收口 + 通知栏原生 ProgressBar ✅ 真机验收通过（着色项除外）
 
 **优先级**：P2（体验收口）  |  **依赖**：G38 / G38.1  |  **阶段**：3
-**状态**：**✅ 代码 + 单测完成（pnpm test 304/304）；⏳ 通知栏进度条的视觉验收从未在真机跑过**
+**状态**：**✅ 2026-09-27 / 09-28 两轮真机验收通过**（OPPO PBEM00 / Android 10），已合入 master
+**例外**：进度条**着色**三条 AC 未达成 —— Android 10 上做不到，见「已知风险」第 1 条
 
-本目标由三块拼成，按落地顺序排列。
+本目标由四块拼成，按落地顺序排列。
 
 ### G42a — 训练完成 save flow 重构（`7c69b36`）
 
@@ -1753,23 +1767,88 @@ modules/expo-rest-timer-progress/
 
 **改动文件**：`modules/expo-rest-timer-progress/*`（7 新文件）、`package.json`（加 `file:` 依赖）、`jest.config.js`（testMatch 收 `modules/**`）、`restTimerNotification.ts`（主体换调原生模块，export 签名全保留）、`RestTimerNotificationBridge.tsx`（`useTheme()` 读 color，effect 依赖加 scheme）、`restTimerNotification.test.ts`（mock 原生模块，删 4 个 unicode 断言）。
 
+> ⚠️ 上面 G42c 设计表里 **`setProgress` 增量更新 / `cachedColorHex` 两条已作废** —— 那两个东西在 G42d 里被删掉了（前者全仓库无调用点，属于死代码；后者随之变成只写不读）。读设计表时以 G42d 为准。
+
+### G42d — 后台进度条冻结：前台服务 + 原生 1s ticker（`787b85d` + `92e2db9` + `67024c6`）
+
+**真机暴露的矛盾现象**（2026-09-28 22:55 实测）：
+
+```
+22:55:19  按 Home 后   Chronometer 00:49  进度条填充 ~99%   ← 应为 82%
+22:55:27  回前台后     Chronometer 00:41  进度条填充 ~70%   ← 恢复正确
+```
+
+**数字在走、进度条卡死**。根因是两者刷新机制**不对称**：RemoteViews 里唯一会自走的控件是
+`<Chronometer>`（SystemUI 每秒按 time base 重画，与 App 进程死活无关）—— 上一条修复正是靠它；
+而 `<ProgressBar>` 没有对应机制，值只能由 App 主动写 `RemoteViews.setProgressBar`。
+退后台后进程被 Android 的 **cached-app freezer** 冻住，JS `setInterval` 停摆 → 最后一帧定格。
+回前台 JS 复活、下一推立刻校准 —— 所以看上去像「一回来就正常了」。
+
+**改法**：把每秒重画从 JS **挪进原生前台服务**，前台后台走同一条渲染路径。
+
+```
+modules/expo-rest-timer-progress/android/src/main/java/expo/modules/resttimerprogress/
+├── RestTimerTickerService.kt     # 新增：前台服务 + 1s Handler ticker，每帧重建 RemoteViews
+├── RestTimerProgressModule.kt    # show() 从"渲染"降级为"同步权威状态"
+└── RestTimerAlarmReceiver.kt     # 到点路径，与服务共用 handleRestExpired + 5s 去抖
+```
+
+**架构三条要点（改动时别破坏）**：
+
+| # | 要点 | 说明 |
+|---|---|---|
+| 1 | **渲染入口唯一** | 服务活着时它是唯一渲染者；JS 的 `show()` 降级为同步权威状态，由 `RestTimerTickerService.matches()`（total/title/color 相同 + 到点时刻差 ≤1.5s）去重成 no-op。**不去重的话两边同时写同一条通知，谁赢看时序，进度条会来回跳。** 1.5s 容差是为了吸收 JS 侧 `ceil` 量化带来的 ≤1s 抖动，否则服务会被每秒重启 |
+| 2 | **AlarmManager 仍是到点的保证** | 服务**不持 wake lock**，息屏进 Doze 后 CPU 睡、ticker 同样会停。所以**进度条只在亮屏时有意义**（ticker 够用），**到点必须准**（靠 `setExactAndAllowWhileIdle`）。两条路径共用一个 `handleRestExpired` |
+| 3 | **`onDestroy` 分两种收尾** | 到点 → `STOP_FOREGROUND_DETACH`（刚发的「休息结束」用的是**同一个** `NOTIFICATION_ID`，`REMOVE` 会把它一起抹掉，是真会踩到的竞态）；跳过 / 切换 → `REMOVE`，别在通知栏留一条冻死的倒计时 |
+
+**manifest 要点**：`FOREGROUND_SERVICE` + `FOREGROUND_SERVICE_SPECIAL_USE`；service 声明
+`foregroundServiceType="specialUse"` + `PROPERTY_SPECIAL_USE_FGS_SUBTYPE`（targetSdk 36 下类型是**强制**的，
+不给会 `MissingForegroundServiceTypeException`）。**没用 `shortService`** —— 它有 3 分钟上限，而
+`REST_PRESETS` 最大 240s，会撞。API 29–33 传 `TYPE_NONE` 走传统路径，API 34+ 才传 specialUse。
+另关掉 Android 12+ 对前台服务通知的 10s 延迟显示（`FOREGROUND_SERVICE_IMMEDIATE`）—— 倒计时通知要人看着走。
+
+**顺带修掉的既存 bug**：`show(0)` 原来是 cancel + cancelAlarm，本意是「别挂一条 00:00 的进行中通知」，
+但它操作的是**共享** `NOTIFICATION_ID` → 会把刚发的「休息结束」一起删掉，还会在闹钟兑现前把它取消掉。
+现在改成**纯 no-op**，收摊交给 `dismiss()`。
+
 ### 验收状态
 
 - [x] `pnpm typecheck` 干净
 - [x] `pnpm test` 304/304（原 299 − 4 删 + 16 新 restTimerNotification + 6 新模块 wrapper）
 - [x] `npx expo-modules-autolinking resolve --platform android` 显示 `packages: ['expo.modules.resttimerprogress.RestTimerProgressPackage']`
 - [x] 训练完成三条路径（自然完成 / 主动结束空闲 / 主动结束间歇中）通知栏正确消失 + 双按钮工作 — 2026-09-18 用户确认「测试正常」
-- [ ] **真机**：light 模式进度条颜色 = `#FF6B35`
-- [ ] **真机**：dark 模式进度条颜色 = `#FF7A4D`
-- [ ] **真机**：切主题 → 通知栏进度条颜色跟随切换
-- [ ] **真机**：退后台通知停留，切回前台 ProgressBar 立刻校准
+- [ ] **真机**：light 模式进度条颜色 = `#FF6B35` ← ❌ **未达成**，见下方「已知风险」第 1 条
+- [ ] **真机**：dark 模式进度条颜色 = `#FF7A4D` ← ❌ **未达成**（同上，且 dark 从未单独实测）
+- [ ] **真机**：切主题 → 通知栏进度条颜色跟随切换 ← ❌ **未达成**（同上）
+- [x] **真机**：退后台通知停留 + 进度条继续推进 — 2026-09-28 ✅
+
+**真机验收记录（OPPO PBEM00 / Android 10 / arm64-v8a / serial `3c66de59`）**
+
+| 验收点 | 证据 | 日期 |
+|---|---|---|
+| 后台倒计时数字不冻结 | 锁屏 + 黑屏约 50s，计时器 89s → 38s 正常推进 | 09-27 |
+| 通知栏 RemoteViews 进度条渲染 | 像素测量确认填充段 `x=[69..407]` 339px | 09-27 |
+| 到点 AlarmManager 触发 + 通知 cancel | receiver 准点唤起 | 09-27 |
+| **后台进度条继续走**（G42d 主验收） | 按 Home 后 23:49:27 `00:21`/条 ~65%；23:49:38 `00:11`/条 **~37%**（= 11/30 ✅） | 09-28 |
+| **前台服务真的起来** | `dumpsys activity services`：`isForeground=true foregroundId=1001`，无 `MissingForegroundServiceTypeException` | 09-28 |
+| 到点「休息结束」发一次 | 23:49:49 帧显示「休息结束 / T杠划船」，倒计时那条被**干净替换**（不是并排） | 09-28 |
+| 到点震动唯一不重复 | `dumpsys vibrator`：alarm 段 `usageHint:4` ×1 + notification 段 `usageHint:5` ×1，同一时刻 | 09-28 |
+| skip 收尾干净 | 点「跳过」后服务无记录、活跃 `NotificationRecord` 数 = 0 | 09-28 |
+
+> 逐条 AC 的勾选状态见 `docs/REAL_DEVICE_TEST_CHECKLIST.md` §9.5 —— 那份是逐项对照表，
+> 其中**未单独记录**的若干项（+15s / 下一组重置 / 权限弹窗 / channel 设置）没有虚勾。
 
 ### 已知风险
 
-- 通知小图标当前用系统占位 `android.R.drawable.ic_menu_recent_history`（灰白时钟），**不是 App adaptive icon**，待后续目标换 `app_icon` resource
-- iOS 路径仍是 noop（`Platform.OS !== 'android'` 直接 return），**Live Activity 未做**
-- `NotificationCompat.Builder.color` 影响 accent / ProgressBar 填充，各 OEM 渲染略有差异（三星 One UI 通常一致，小米 MIUI 偶有 accent 优先级问题）
-- 1 Hz 是 `NotificationManager` 的安全更新频率；想要真 60 fps 需要 RemoteViews + ProgressBar widget 局部更新
+1. **❌ 进度条着色在 Android 10 上做不到** —— `setProgressTintList` 走 `RemoteViews.setColorStateList`
+   需要 **API ≥ 31**。验收机 OPPO PBEM00 是 Android 10（API 29），进度条呈现为**系统 teal 而非主题橙**。
+   代码里已注释说明。**上面三条颜色 AC 因此判为未达成**，不是没测，是这套实现方案在该 API 级别上无解。
+   若产品上必须着色：换 RemoteViews 自绘 ProgressBar widget（可着色），或放弃系统 ProgressBar。
+2. 通知小图标当前用系统占位 `android.R.drawable.ic_menu_recent_history`（灰白时钟），**不是 App adaptive icon**，待后续目标换 `app_icon` resource
+3. iOS 路径仍是 noop（`Platform.OS !== 'android'` 直接 return），**Live Activity 未做**
+4. **息屏后进度条仍会停**（有意取舍）—— 服务不持 wake lock，Doze 下 CPU 睡、ticker 停。
+   只有**亮屏**时进度条才有意义；**到点始终准**（靠 AlarmManager）。
+5. 1 Hz 是 `NotificationManager` 的安全更新频率；想要真 60 fps 需要 RemoteViews + ProgressBar widget 局部更新
 
 ### 提交记录
 
@@ -1779,13 +1858,17 @@ modules/expo-rest-timer-progress/
 - `8798e50` feat(G42): 通知栏原生 ProgressBar — 本地 expo-module expo-rest-timer-progress ← G42c
 - `8bd8142` chore(G42): add packageManager pnpm@10.33.0（试 pnpm 强制，**没用**）
 - `f44d979` fix(G42): 同步 package-lock.json 加入 expo-rest-timer-progress（**真修复**）
+- `787b85d` fix(G42): 后台到点 popup 直接消失 — receiver 写 SP，bridge 回前台 consume 立即清 ← G42d
+- `92e2db9` fix(G42): 直调震动补 `AudioAttributes.USAGE_ALARM`（后台 `USAGE_UNKNOWN` 被 AOSP 静默丢弃）← G42d
+- `67024c6` fix(G42): 通知栏进度条后台不再冻 — 前台服务 + 原生 1s ticker ← G42d
 
 ---
 
-## G43. dev-client 工程链路修复（跨 G39–G42）🟡 进行中
+## G43. dev-client 工程链路修复（跨 G39–G42）✅ 真机验收通过
 
 **优先级**：P1（**阻塞全部真机验收**）  |  **依赖**：G39（首次引入 dev-client）  |  **阶段**：3
-**状态**：**🟢 全部 6 commit 已合入 HEAD（`1d8de95`），GH Actions run `35866541012` 已 in_progress；APK 出后真机一次性验 G42 + G43 + G44**
+**状态**：**✅ 2026-09-27 真机验收通过** —— 全部 6 commit 在栈上，dev-client 输 URL 后**不红屏、无 SIGSEGV、首页完整渲染**；
+`patches/` 的 rnscreens `setupFabric` 兜底 + worklets 0.10.1 锁版**均确认生效**（验收 APK: run `35883827334`，commit `787b85d`）
 
 ### 为什么单开一节
 
@@ -1858,21 +1941,22 @@ npm error Missing: expo-rest-timer-progress@1.0.0 from lock file
 > **未决**：仓库里同时存在 `pnpm-lock.yaml` 和 `package-lock.json`（两个都未跟踪/半跟踪），
 > 属于结构性隐患，值得单独决策要不要删掉其中一个。
 
-### G43 当前进度（2026-09-23 核实）
+### G43 收口（2026-09-23 核实 → 2026-09-27 真机验收通过）
 
 | 项 | 值 |
 |---|---|
-| **HEAD** | `1d8de95`（2026-09-23，G44 顶 commit） |
-| **G43 全部 6 commit 是否在 HEAD 栈** | ✅ 全部：`4a80a43` + `c1f8785` + `8b75202` + `2d0e3eb` + `1e06421` + `948efa5` |
+| **G43 全部 6 commit 是否在栈** | ✅ 全部：`4a80a43` + `c1f8785` + `8b75202` + `2d0e3eb` + `1e06421` + `948efa5` |
 | **patches/react-native-screens+4.26.2.patch** | ✅ 文件存在（1730 bytes, 9-18） |
-| **GH Actions run** | `35866541012`（ABI: arm64-v8a,x86_64，in_progress） |
-| **触发时间** | 2026-09-23T13:21:50Z |
-| **上次成功的 build** | `b3043661`（2026-09-18 09:18 UTC，commit `1e06421`）— 这次跑出来后会覆盖它 |
+| **验收用 APK** | GH Actions run `35883827334`（commit `787b85d`，157MB，sha256 `43bcca81...d9fd0`） |
+| **真机结果** | ✅ 输 `exp://` 进 App **不红屏**、**无 SIGSEGV**、首页三 Tab 完整渲染 |
 
-**下一步**：等 run `35866541012` completed → 下载 Artifacts → 真机一次验三件事：
-- **G43**：装 APK + 启 Metro 连 exp:// 输入 URL → 不红屏（rnscreens patch 生效）+ 不 SIGSEGV（worklets 锁版生效）
-- **G42**：训练中锁屏 30s → 通知栏 RemoteViews 自绘进度条 + 到点震动
-- **G44**：动作库 254 张 GIF cache miss 路径渲染
+**G43 + G42 + G44 一次性验收结论（2026-09-27，OPPO PBEM00 / Android 10）**：
+
+| 目标 | 结果 | 依据 |
+|---|---|---|
+| **G43** | ✅ 通过 | rnscreens patch + worklets 锁版双双生效 |
+| **G44** | ✅ 通过 | 抽查 4 个 `bundled: false` 动作 GIF 全部渲染；logcat 零图片加载错误；COS 独立 curl 返回 `200 image/gif 92KB` |
+| **G42** | ⚠️ → ✅ | 当天「三缺一」（直调震动被系统丢），`92e2db9` 修复后通过 |
 
 > 若 G43 真机仍红屏带 `ScreensModule.setupFabric` 栈 → `patches/` 目录在 CI 没生效（postinstall 没跑或 lockfile 没装 `patch-package`），查 GH Actions 日志 `npm run postinstall` 步骤。
 
