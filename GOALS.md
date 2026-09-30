@@ -2127,6 +2127,12 @@ GIF 缓存清理都在里面，两个屏各调一次。
 ### 提交记录
 
 - `64fb756` feat(G45): 用户自定义头像（相册选图）+ 资料编辑抽屉去重
+- `ef6f30b` docs(G45): 补 GOALS 一节 + 真机验收清单 §9.10（10 条）
+- `ad48f73` docs(G45): 补 offline 权限核实证据（`tools:node="remove"`）
+- APK build：run `36582470541` ✅ success（18m36s，62.7MB，`64fb756`）
+
+> 分支从 master `35ee66f` 分出（**不是**原计划的 `fix/rest-timer-background` ——
+> 那条落后 master 两个 commit）。好处是本轮 APK 同时含 G42d，两个目标一次验完。
 
 ### 测试
 

@@ -861,7 +861,7 @@ EAS Build 页面：`https://expo.dev/accounts/cccking/projects/workout-2/builds/
 
 | 项 | 值 |
 |---|---|
-| **本轮验收要用的 build** | GH Actions run `36582470541`（分支 `feat/custom-avatar`，commit `64fb756`，2026-09-29） |
+| **本轮验收要用的 build** | GH Actions run `36582470541` ✅ **success**（分支 `feat/custom-avatar`，commit `64fb756`，2026-09-29，18m36s，artifact 62.7MB） |
 | 上一次成功的 build | GH Actions run `36443103752`（commit `67024c6`，2026-09-28，15 分钟） |
 | 更早的验收用 APK | run `35883827334`（commit `787b85d`，157MB，sha256 `43bcca81...d9fd0`，2026-09-27） |
 | 更早的 EAS Build（已不用） | `b3043661`（development，commit `1e06421`，2026-09-18） |
