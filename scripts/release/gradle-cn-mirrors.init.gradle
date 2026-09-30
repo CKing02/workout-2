@@ -1,0 +1,66 @@
+// 国内镜像 + 短超时，专治 `dl.google.com` 下载卡死。
+//
+// ## 为什么需要它
+//
+// 2026-10-01 本机 `:app:assembleRelease` 连续三次死在同一类问题上：
+//
+//   1. 第一次：`Could not download xxx.aar ... Read timed out`（compose / lint 一堆）
+//   2. 第二次：C++ 阶段 `clang++: error: unable to execute command ...
+//      系统资源不足 (0x5AA)` —— 16 核全开并行编译把 26GB 提交限额吃光
+//   3. 第三次：16 核问题解决后，卡在 `mergeReleaseNativeLibs` **11 分钟纹丝不动**。
+//      jstack 一看，Execution worker 是 RUNNABLE 但停在
+//      `sun.nio.ch.Net.poll → SSLSocketInputRecord.read` ——
+//      **是在等一个已经死掉的 HTTPS 连接**，既没 CPU 也没写文件。
+//      默认 socketTimeout 很大，Gradle 不会主动放弃，于是无限等下去。
+//
+// 所以这里一次治两件事：**镜像换源**（绕开 dl.google.com 的抖动）+
+// **短超时**（真卡住时 20 秒就放弃，而不是耗掉一个下午）。
+//
+// ## 用法
+//
+//   ./gradlew :app:assembleRelease --init-script ../scripts/release/gradle-cn-mirrors.init.gradle
+//
+// ## 为什么用 --init-script 而不是改 android/build.gradle
+//
+// `android/` 在 .gitignore 里，每次 `expo prebuild` 重新生成 ——
+// 手改的 repositories 活不过下一次 prebuild。init script 只在这次构建里生效，
+// 不动被生成的文件，也不改变「app.json 才是唯一杠杆」这条约定。
+//
+// ## 镜像只做兜底，不改原有顺序
+//
+// 这里只是**追加**阿里云源。google()/mavenCentral() 仍在前面，缓存命中的
+// 依赖照旧走缓存；只有「要新下载 + 原源卡死」时，才会因为短超时快速失败
+// 并落到镜像上。
+
+def ALIYUN_GOOGLE = 'https://maven.aliyun.com/repository/google'
+def ALIYUN_PUBLIC = 'https://maven.aliyun.com/repository/public'
+def ALIYUN_GRADLE_PLUGIN = 'https://maven.aliyun.com/repository/gradle-plugin'
+
+settingsEvaluated { settings ->
+    settings.pluginManagement.repositories {
+        maven { url ALIYUN_GRADLE_PLUGIN }
+        maven { url ALIYUN_GOOGLE }
+        maven { url ALIYUN_PUBLIC }
+    }
+    // dependencyResolutionManagement 在 Expo 模板里通常没启用
+    // （repositories 走 allprojects），启用时才补。
+    try {
+        settings.dependencyResolutionManagement.repositories {
+            maven { url ALIYUN_GOOGLE }
+            maven { url ALIYUN_PUBLIC }
+        }
+    } catch (Exception ignored) {
+        // 模板没开 dependencyResolutionManagement，忽略即可。
+    }
+}
+
+allprojects { p ->
+    p.buildscript.repositories {
+        maven { url ALIYUN_GOOGLE }
+        maven { url ALIYUN_PUBLIC }
+    }
+    p.repositories {
+        maven { url ALIYUN_GOOGLE }
+        maven { url ALIYUN_PUBLIC }
+    }
+}
