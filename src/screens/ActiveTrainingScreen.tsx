@@ -144,8 +144,21 @@ export function ActiveTrainingScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTraining?.id]);
 
-  // [DIAG] LastSetsPreview 内 s.id 重复嫌疑
+  /**
+   * G21 回归哨兵：训练中「上次数据」是否又出现重复 s.id。
+   *
+   * 红屏的真根因（`SELECT *` + JOIN 让 `trainings.id` 覆盖 `training_sets.id`）
+   * 已在 `f4bef66` 修掉，并有 8 个针对旧 SQL 会失败的回归测试 —— 所以这条**不是**
+   * 在排查某个已知问题，而是留一个便宜的现场哨兵：真机数据千奇百怪，
+   * 万一以后又冒出来，logcat 里能第一时间看到，不用再从头二分。
+   *
+   * ⚠️ 必须 `__DEV__` 守卫 —— 2026-09-30 之前它没有守卫，**生产包每次进训练
+   * 都会扫一遍并可能打日志**。更要命的是它的输出格式和真问题长得一样，
+   * 导致测试清单 §13.2 把「logcat 里出现过 `[DIAG:dup-key]`」当成了 bug 证据，
+   * 而当时同屏另一条诊断是**无条件打印**的 —— 拿诊断输出当症状是纯粹的误读。
+   */
   useEffect(() => {
+    if (!__DEV__) return;
     const entries = Object.entries(lastSetsByExerciseId);
     if (entries.length === 0) return;
     for (const [eid, sets] of entries) {
@@ -417,22 +430,6 @@ export function ActiveTrainingScreen() {
             })),
           })),
         });
-        // [DIAG] duplicate-key 病根定位:打印 plan 里动作的去重情况
-        const _ids = detail.exercises.map((pe) => pe.exercise.id);
-        const _unique = new Set(_ids);
-        const _dup: string[] = [];
-        const _seen = new Set<string>();
-        for (const id of _ids) {
-          if (_seen.has(id)) _dup.push(id);
-          else _seen.add(id);
-        }
-        // eslint-disable-next-line no-console
-        console.log(
-          '[DIAG:dup-key] plan=' + planId +
-          ' total=' + _ids.length +
-          ' unique=' + _unique.size +
-          ' duplicateIds=' + JSON.stringify(_dup),
-        );
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         Alert.alert('开始训练失败', msg, [
