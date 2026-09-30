@@ -2050,10 +2050,28 @@ G41 当时定 Cloudflare R2 做 CDN 托管，但 **R2 bucket 在大陆访问稳�
 
 ---
 
-## G45. 用户自定义头像（相册选图）⏳ 代码完成 / 待真机验收
+## G45. 用户自定义头像（相册选图）✅ 已完成
 
 **优先级**：P1  |  **依赖**：无（新引入原生依赖 `expo-image-picker`）  |  **阶段**：3
-**状态**：代码完成 + 测试全绿；**真机验收未跑**（卡点：必须重打 APK，见下）
+**状态**：代码完成 + 测试全绿 + **真机验收 10/10 通过**（2026-09-30，OPPO PBEM00 / Android 10）
+
+验收结果见 `docs/REAL_DEVICE_TEST_CHECKLIST.md` §9.10。三条值得单独记住的：
+
+- **45.3 全程没弹任何权限框** —— 证实 Action ② 的判断：`ACTION_GET_CONTENT` /
+  系统 Photo Picker **不需要**存储权限。装机后 `dumpsys` 里 `CAMERA`/`RECORD_AUDIO`
+  命中 **0**，`READ_EXTERNAL_STORAGE` 是 `granted=false`（从未申请）。
+- **45.4（连换两张图）过** —— 这条是「唯一名 + 扫目录清理」方案要顶住的唯一风险
+  （expo-image 按 URI 字符串做缓存键）。实测红 → 蓝立刻变，旧文件被扫掉。
+- **45.10 用「改过用户名的备份」导入**才验得出东西：原样导入一份与现状相同的备份，
+  「头像没变」排不掉「导入根本没跑」。把备份里的 `username` 改成 `zoe` 再导入，
+  用户名 `alice`→`zoe`（导入确实生效）而头像纹丝不动。
+
+**验收中发现并修掉 1 处（JS-only）**：`ProfileEditSheet` 的 `autoFocus`。
+合并前的用户名抽屉只有输入框，`autoFocus` 是体贴；合并成「头像 + 用户名」后变成
+「一点开头像就弹键盘」，键盘正好盖住头像预览和「从相册选择」这个**主操作**，
+而 `Sheet` 底下的 RN `Modal` 让返回键**整个关掉抽屉**、用户没有只收键盘的出口。
+这类问题 tsc 与单测都不会报，只有真机点一下才暴露 —— 合并两个入口时要重审
+每个 prop 的适用前提。
 
 ### 需求（用户已拍板，四条不再讨论）
 
@@ -2140,14 +2158,18 @@ GIF 缓存清理都在里面，两个屏各调一次。
 - `64fb756` feat(G45): 用户自定义头像（相册选图）+ 资料编辑抽屉去重
 - `ef6f30b` docs(G45): 补 GOALS 一节 + 真机验收清单 §9.10（10 条）
 - `ad48f73` docs(G45): 补 offline 权限核实证据（`tools:node="remove"`）
-- APK build：run `36582470541` ✅ success（18m36s，62.7MB，`64fb756`）
+- `da30a91` docs(G45): APK 已下载并离线核实（sha256 + 权限 + autolink）
+- `b980422` fix(G45): 资料抽屉去掉 autoFocus（真机验收发现）
+- APK build：run `36582470541` ✅ success（18m36s，APK 实为 164,693,741 B；
+  `62.7MB` 是 artifact zip 的大小，别混淆）。sha256 `2ef10987…` 与 CI 记录一致。
 
 > 分支从 master `35ee66f` 分出（**不是**原计划的 `fix/rest-timer-background` ——
 > 那条落后 master 两个 commit）。好处是本轮 APK 同时含 G42d，两个目标一次验完。
 
 ### 测试
 
-37 suites / 397 tests 全绿（改动前 31 / 328，本次 +6 suites / +69 tests），`tsc --noEmit` 干净。
+37 suites / 398 tests 全绿（改动前 31 / 328，本次 +6 suites / +70 tests），`tsc --noEmit` 干净
+（除了 `_diag/` 那 3400 条既有噪声，见 §13）。
 
 > 记一笔测试环境的坑：RN 0.86 里 `react-native` 导出的 `Pressable` 与树里那个同名
 > 组件**不是同一个对象引用**，`findAllByType(Pressable)` 永远返回 0 个 ——
