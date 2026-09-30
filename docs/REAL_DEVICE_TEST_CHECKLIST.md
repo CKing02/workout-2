@@ -861,7 +861,10 @@ EAS Build 页面：`https://expo.dev/accounts/cccking/projects/workout-2/builds/
 
 | 项 | 值 |
 |---|---|
-| **本轮验收要用的 build** | GH Actions run `36582470541` ✅ **success**（分支 `feat/custom-avatar`，commit `64fb756`，2026-09-29，18m36s，artifact 62.7MB） |
+| **本轮验收要用的 build** | GH Actions run `36582470541` ✅ **success**（分支 `feat/custom-avatar`，commit `64fb756`，2026-09-29，18m36s） |
+| 该 APK 的 sha256 | `2ef1098782725d194547ae08965df07589e39dda90eebcd6c22b78b015de2466`（164,693,741 B ≈ 164MB；artifact zip 是 62.7MB） |
+| 本地已就位 | `.tmp/apk/g45/app-debug.apk`（已核 sha256 = CI 记录值，`unzip -t` 干净） |
+| 该 APK 已离线核实 | ① `aapt dump permissions`：**无 CAMERA / RECORD_AUDIO** ② dex 里 `expo/modules/imagepicker` 51 处 → 原生模块确实 link 进去了 |
 | 上一次成功的 build | GH Actions run `36443103752`（commit `67024c6`，2026-09-28，15 分钟） |
 | 更早的验收用 APK | run `35883827334`（commit `787b85d`，157MB，sha256 `43bcca81...d9fd0`，2026-09-27） |
 | 更早的 EAS Build（已不用） | `b3043661`（development，commit `1e06421`，2026-09-18） |

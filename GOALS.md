@@ -2097,11 +2097,22 @@ G41 当时定 Cloudflare R2 做 CDN 托管，但 **R2 bucket 在大陆访问稳�
 > ⚠️ `android/` 在 `.gitignore` 里、CI 每次 `expo prebuild` 重新生成 ——
 > **手改本地 `android/app/src/main/AndroidManifest.xml` 没有任何用，`app.json` 才是唯一杠杆。**
 
-**配置已离线核实**（不用等 21 分钟打包括）：`npx expo config --type introspect` 会把
-config plugin 跑一遍并打印最终 manifest。结果里 `CAMERA` 与 `RECORD_AUDIO` **只以
-`tools:node="remove"` 的形式出现**、没有任何一条授权条目 —— 即 merger 会在打包时把它们
-剔掉，两个 `false` 生效。（expo 的 `withBlockedPermissions` 是**加一条 remove 指令**，
-不是删条目；所以光看权限名在不在会误判，必须看 `tools:node`。）
+**已在真实 APK 上核实**（两条，都不需要插真机）：
+
+1. **配置层**：`npx expo config --type introspect` 把 config plugin 跑一遍并打印最终
+   manifest —— `CAMERA` / `RECORD_AUDIO` **只以 `tools:node="remove"` 出现**、无授权条目。
+   （expo 的 `withBlockedPermissions` 是**加一条 remove 指令**而非删条目，所以光看权限名
+   在不在会得出相反结论，必须看 `tools:node`。）
+2. **产物层**（更强，证明 merger 真的执行了）：
+   `aapt dump permissions <apk>` 遍历实际装进 APK 的权限，**`CAMERA` / `RECORD_AUDIO` 命中数 = 0**。
+
+> **为什么这条值得单独验**：签名 URL 下载/断点续传踩过坑之后，我一度拿到过一个
+> 65MB 的**损坏 zip**（`unzip -t` 报 `End-of-central-directory signature not found`）。
+> 校验产物要用 **CI 自己记录的 sha256** 对比，别只看「文件大小差不多」。
+
+**原生依赖确实被 autolink 进去了**（排除「模块找不到」这个最可能的运行时失败模式）：
+反编译 `classes*.dex` 后 `grep -c "expo/modules/imagepicker"` = **51 处**
+（对照 `expo/modules/filesystem` = 180 处，同数量级，说明检索方法本身有效）。
 
 ### 顺带修好的既有缺口
 
