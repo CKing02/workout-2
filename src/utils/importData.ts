@@ -220,11 +220,25 @@ export async function importFromBackup(
     // 2. exercises
     const exercises = payload.exercises as Exercise[];
     if (exercises.length > 0) {
+      // ⚠️ G35 的 5 列必须一起写（2026-09-30 真机发现）。
+      //
+      // 导出端 dump 的是 `Exercise` 视图，**带** descriptionZh / stepsZh /
+      // gifUrl / targetZh / attribution（见 exportData.ts 的 `exercises: Exercise[]`
+      // 与备份 JSON）。而这里原来只 INSERT 9 列 —— 导出带了、导入不写。
+      // 又因为导入流程开头就 `DELETE FROM exercises`，所以「导出 → 导入」=
+      // **净破坏**：306 个动作的中文说明、步骤、GIF、版权归属全部落成 NULL。
+      //
+      // 症状极具迷惑性：动作名、肌群、器械都在（那 9 列有），只有详情页的
+      // 说明和动作库/训练页的 GIF 变空 → 看起来像「网络挂了 / CDN 挂了 /
+      // 缓存坏了」，实际是 DB 里 `gif_url` 整列为 NULL，App 压根没有 URL 可请求。
+      // 排查时值得记住的判据：`SELECT COUNT(*) FROM exercises WHERE gif_url IS NULL`
+      // 拿到全量数字（而不是少数几条），就该怀疑导入，而不是怀疑网络。
       const stmt = await db.prepareAsync(
         `INSERT INTO exercises
            (id, name, muscle_group, secondary_muscles, equipment,
-            metric_type, image_uri, is_custom, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+            metric_type, image_uri, is_custom, created_at,
+            description_zh, steps_zh, gif_url, target_zh, attribution)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
       );
       try {
         for (const e of exercises) {
@@ -238,6 +252,12 @@ export async function importFromBackup(
             e.imageUri ?? null,
             e.isCustom ? 1 : 0,
             e.createdAt,
+            // steps_zh 在 DB 里是 JSON 数组字符串（schema.ts 的 rowToExercise 反解）
+            e.descriptionZh ?? null,
+            e.stepsZh ? JSON.stringify(e.stepsZh) : null,
+            e.gifUrl ?? null,
+            e.targetZh ?? null,
+            e.attribution ?? null,
           ]);
         }
       } finally {
