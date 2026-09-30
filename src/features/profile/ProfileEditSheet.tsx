@@ -105,12 +105,19 @@ export function ProfileEditSheet({ visible, onClose }: ProfileEditSheetProps) {
 
         {/* 用户名 */}
         <View style={{ gap: spacing.md }}>
+          {/*
+            刻意**不**加 `autoFocus`（2026-09-30 真机验收发现）：
+            这个抽屉在只有用户名输入框的年代是 autoFocus 的，抽成「头像 + 用户名」之后
+            它变成了「一进来就弹键盘」，而键盘恰好盖住头像预览和「从相册选择」——
+            也就是点头像改头像这个入口的**主操作**。而且 `Sheet` 是 RN `Modal`，
+            真机上返回键会**整个关掉抽屉**（不是只收键盘），用户没有「只收键盘」的出口。
+            用户名只是次要操作，点一下输入框再弹键盘完全可接受。
+          */}
           <Input
             value={draft}
             onChangeText={setDraft}
             placeholder="请输入用户名"
             maxLength={20}
-            autoFocus
             accessibilityLabel="用户名输入"
           />
           <Pressable

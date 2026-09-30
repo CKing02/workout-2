@@ -231,11 +231,25 @@ describe('ProfileEditSheet', () => {
     act(() => tree.unmount());
   });
 
-  it('用户名输入 maxLength=20 且 autoFocus', () => {
+  it('用户名输入 maxLength=20', () => {
     const { tree } = renderSheet(true);
     const input = nodesByTestId(tree, 'input')[0];
     expect(input.props['data-maxLength']).toBe('20');
-    expect(input.props['data-autoFocus']).toBe('true');
+    act(() => tree.unmount());
+  });
+
+  /**
+   * 真机回归（2026-09-30，OPPO PBEM00 / Android 10 验收时发现）。
+   *
+   * 合并前的用户名抽屉是 autoFocus 的，照抄过来会变成「一打开就弹键盘」，
+   * 而键盘正好盖住头像预览 + 「从相册选择」。实测 `Sheet` 底下的 RN `Modal`
+   * 会让返回键**整个关掉抽屉**而不是只收键盘，所以用户没有出口。
+   * 这条用它把「不要再加回 autoFocus」钉住。
+   */
+  it('用户名输入不 autoFocus —— 键盘会盖住头像入口', () => {
+    const { tree } = renderSheet(true);
+    const input = nodesByTestId(tree, 'input')[0];
+    expect(input.props['data-autoFocus']).toBe('false');
     act(() => tree.unmount());
   });
 
