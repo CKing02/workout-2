@@ -752,16 +752,34 @@ adb -s 3c66de59 logcat -c && adb -s 3c66de59 logcat -v threadtime | grep -iE "im
   4. 设置 → 数据导入 → 选刚才 .json → 二次确认 → 完成
   5. 进计划编辑器 → 该动作组数 / 类型保留,但 weight / reps 变 0（处方丢）
 - **修法**（G33+ 待办）:回 G19 扩展导出字段 — `planExercises` 增 `restSeconds` 字段 + 新增 `planSets` 数组（`{planExerciseId, setIndex, setType, weight, reps}`）;导入端 `importData.ts` 跟着补 `plan_sets` 表 INSERT
-- **当前状态**（2026-09-30 复核）：**仍未修，且是导出端有意的范围限制** ——
-  实际文件是 `src/utils/exportData.ts` / `src/utils/importData.ts`
-  （本条原先写的 `src/db/exportBackup.ts` / `importRepo.ts` **两个都不存在**，已更正）；
-  两文件里搜不到 `planSets`，但 `importData.ts:21` 明确写着
-  「`plan_sets` 也不在 payload 里（G19 导出限制）—— 不写入」。
-  **所以这不是漏写，是 G19 当初划的范围**：导入导出功能本身完整可用，
-  训练历史 / 计划骨架 / 自定义动作 / 设置全部正常还原，只有「计划的处方」不回填。
-- ⚠️ **别把它和 13.15 混为一谈**：13.15 是同一条路径上的**另一个** bug，
-  性质完全不同 —— 那个是「导出带了、导入不写」的净破坏；本条是「一开始就没导」。
-  判决依据：看导出端 payload 里**有没有**这个字段。
+- **当前状态**（**2026-10-01 复核，定性已更正**）：**仍未修**。实际文件是
+  `src/utils/exportData.ts` / `src/utils/importData.ts`
+  （本条原先写的 `src/db/exportBackup.ts` / `importRepo.ts` **两个都不存在**，已更正）。
+
+  ⚠️ **更正**：本条原写「G19 的范围限制 → 导入端不写入」，**这是错的**。
+  导入端是**主动删除**，不是「没写」：
+
+  | 位置 | 代码 |
+  |---|---|
+  | `importData.ts:213` | `DELETE FROM plan_sets;` |
+  | `importData.ts:297-301` | `INSERT INTO plan_exercises (..., rest_seconds) VALUES (?, ?, ?, ?, 60)` —— **硬编码 60** |
+
+  所以后果比原先描述的更重：不只是「处方不回填」，
+  用户设的 **`plan_exercises.rest_seconds` 也会被抹成 60**。
+  `importData.ts:18-21` 那条「不写入」的注释**和同文件的 DELETE 自相矛盾**，注释该改。
+
+- **为什么难修（新会话必须先看这条）**：`plan_exercises.id` 在导入时是
+  `newId()` **重新生成的**（`importData.ts:305`），而 `plan_sets.plan_exercise_id`
+  指向它、payload 里又没带 —— 所以**不能原样插回，必须建映射**。
+  可用的连接键只有 `(planId, exerciseId, position)`。
+  建议的省事修法=**把 sets 内嵌进 payload 的 planExercises 条目**（带上 `restSeconds`），
+  导入时拿着刚生成的 UUID 立刻插，零映射。**要连带做 `schemaVersion` 1→2 + 老 payload 降级**。
+- ⚠️ **别把它和 13.15 混为一谈**：13.15 是「导出带了、导入不写」的净破坏（**已修** `9bc5118`）；
+  本条是「导出端一开始就没带」。判决依据：看导出端 payload 里**有没有**该字段。
+  **两者症状和排查直觉一样**：`SELECT COUNT(*) WHERE col IS NULL` 拿到全量数字就该怀疑导入。
+- 回归测试照抄 13.15 的模式：`src/utils/__tests__/importDataDbWrite.test.ts`
+  （真起 DB 走真实 `importFromBackup()`，断言落库值；**别只断言 payload 字段**，
+  那只测了导出端，bug 的另一半在导入端的 DELETE + 60）。
 
 #### 13.3 进度条着色：G42 三条 AC 未达成（产品决策项）
 
