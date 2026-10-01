@@ -26,10 +26,9 @@ import type { RootStackParamList, TabParamList } from '@/navigation/types';
 import { useAvatarStore } from '@/store/avatarStore';
 import { useSettingsStore } from '@/store/settingsStore';
 import { useTheme } from '@/theme';
+import { getAppVersion } from '@/utils/appVersion';
 import { exportBackup } from '@/utils/exportData';
 import { haptic } from '@/utils/haptics';
-
-const APP_VERSION = '0.1.0';
 
 type ProfileNav = BottomTabScreenProps<TabParamList, 'Profile'>['navigation'] &
   Pick<RootStackParamList, never>;
@@ -40,6 +39,8 @@ interface ProfileScreenProps {
 
 export function ProfileScreen({ navigation }: ProfileScreenProps) {
   const { colors, typography, spacing } = useTheme();
+  // 从 app.json 读，不再硬编码（见 utils/appVersion.ts）。
+  const appVersion = getAppVersion();
   const username = useSettingsStore((s) => s.username);
   const avatarUri = useAvatarStore((s) => s.uri);
 
@@ -232,14 +233,14 @@ export function ProfileScreen({ navigation }: ProfileScreenProps) {
                 'Showcase',
               );
             }}
-            accessibilityLabel={`锻炼2点零，版本 ${APP_VERSION}。长按进入组件 Showcase。`}
+            accessibilityLabel={`锻炼2点零，版本 ${appVersion}。长按进入组件 Showcase。`}
             accessibilityRole="button"
             style={[
               typography.caption,
               { color: colors.textTertiary, textAlign: 'center' },
             ]}
           >
-            锻炼2点零 · v{APP_VERSION}
+            锻炼2点零 · v{appVersion}
           </Text>
         </View>
       </ScrollView>

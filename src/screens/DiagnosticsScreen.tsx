@@ -39,6 +39,7 @@ import { errorLogRepo } from '@/db/repositories/errorLogRepo';
 import type { ErrorLog } from '@/db/schema';
 import type { RootStackParamList } from '@/navigation/types';
 import { useTheme } from '@/theme';
+import { getAppVersion } from '@/utils/appVersion';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Diagnostics'>;
 
@@ -81,7 +82,7 @@ export function DiagnosticsScreen({ navigation }: Props) {
       const json = JSON.stringify(
         {
           exportedAt: new Date().toISOString(),
-          appVersion: '0.1.0',
+          appVersion: getAppVersion(),
           count: logs.length,
           logs,
         },

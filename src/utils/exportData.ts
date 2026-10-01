@@ -30,6 +30,7 @@ import { listTrainings, type Training } from '@/db/repositories/trainingRepo';
 import { listSetsByTraining } from '@/db/repositories/trainingSetRepo';
 import { listSettings } from '@/db/repositories/settingsRepo';
 import type { BodyMeasurement, Exercise, ErrorLog, TrainingSet } from '@/db/schema';
+import { getAppVersion } from '@/utils/appVersion';
 
 export interface BackupPayload {
   /** Schema version — 后续字段增删可走迁移。 */
@@ -107,7 +108,9 @@ export async function buildBackupPayload(): Promise<BackupPayload> {
 
   return {
     schemaVersion: 1,
-    appVersion: '0.1.0',
+    // 从 app.json 读，原先硬编码了一个从不更新的版本号（见 utils/appVersion.ts）。
+    // 备份 JSON 的 appVersion 是将来做迁移/兼容判断的依据，不能停在旧值上。
+    appVersion: getAppVersion(),
     exportedAt: new Date().toISOString(),
     exportedAtMs: Date.now(),
     counts: {
