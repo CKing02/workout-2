@@ -75,11 +75,19 @@ export WORKOUT2_RELEASE_KEY_PASSWORD="$WORKOUT2_RELEASE_STORE_PASSWORD"
 `adb install` 会**无限挂起**，因为 ColorOS 弹出自己的安装确认页
 （`com.oplus.appdetail/.model.guide.ui.InstallGuideActivity`）等人点「继续安装」。
 `adb install` 和 `adb shell pm install` 都一样要等这个。
-而且该页设了 `FLAG_SECURE` —— `screencap` 截出来是纯白，`uiautomator dump` 也看不全，
-**从 adb 这边没法看到它、也没法安全地盲点**。
 
 判据：`dumpsys window | grep mFocusedApp` 看到 `InstallGuideActivity`，包却还没装上。
 解法：让用户看着手机点一下。
+
+> ⚠️ **更正（2026-10-01 二次装机时发现）**：第一次排障时把「`screencap` 截出来是纯白」
+> 归因成了这个页面的 `FLAG_SECURE`，**这是错的**。真正原因是**手机当时锁着屏**
+> （`dumpsys window` 的 `showing=true` + `mWakefulness=Dozing`），锁屏界面截出来就是纯白。
+> 解锁后同一张截图 192 KB、内容完整，我也就此点到了「继续安装」。
+> **筛查安装卡住的第一件事是看锁屏状态，不是怀疑 FLAG_SECURE。**
+>
+> 二次装机（同签名 `-r` 升级）时设备已解锁，`adb install -r` 直接返回 `Success`，
+> **没有弹确认页** —— 所以这条坑的真实触发条件还没完全摸清，不确定是 ColorOS
+> 记住了确认，还是 `-r` 升级路径本就不弹。
 
 （另：`adb install` 的**传输**是快的 —— 47 MB 用 1.7 s。挂的永远是在设备端。）
 如果 `adb install` 挂住，改用 `adb push` + `adb shell pm install -r <path>` 更好排查。
@@ -111,15 +119,35 @@ unzip -l "$APK" | grep -c "\.gif$"                   # 内置动作 GIF 数量
 
 ## 5. 本次（1.0.0 / versionCode 1）的核实结果
 
-- 签名：v2 scheme ✅，证书 SHA-256 与 keystore 一致 ✅
+出过两个包，**第二个才是最终产物**：第一个（commit `d0e41b4`）装到真机后发现「我的」页
+页脚写着 `v0.1.0` —— 三处硬编码版本号从没更新过（修于 `22c002b`，见 `src/utils/appVersion.ts`）。
+
+**最终包** —— sha256 `2021f99c6b07b1bc970aa6d5a7edf0c14eaf1d7be61bfc51867e6caf7a72ff3a`，47,006,810 B：
+
+- 签名：v2 scheme ✅（v1/v3 关，因为 `minSdk 24`），证书 SHA-256 与 keystore 一致 ✅
 - `versionCode=1` / `versionName=1.0.0` / `package=com.workout2.app` ✅
 - launcher = `com.workout2.app.MainActivity` ✅（不是 dev launcher）
 - `native-code: 'arm64-v8a'` 单 ABI ✅
-- **无 `CAMERA` / 无 `RECORD_AUDIO`** ✅（`expo-image-picker` 插件配了 `cameraPermission:false`
-  + `microphonePermission:false` 才拦得住；见 `app.json`）
-- `assets/index.android.bundle` 3,579,940 B 已内嵌 ✅；APK 内 `res/*.gif` 共 **52** 个 ✅
+- `aapt2 dump permissions | grep -icE "CAMERA|RECORD_AUDIO"` → **0** ✅
+  （`expo-image-picker` 插件配了 `cameraPermission:false` + `microphonePermission:false`
+  才拦得住；见 `app.json`）
+- `assets/index.android.bundle` 已内嵌 ✅；APK 内 `res/*.gif` 共 **52** 个 ✅
+- `assets/app.config` 里 `version: "1.0.0"` / `versionCode: 1` ✅
+  —— 这就是 `Constants.expoConfig` 的数据源，`getAppVersion()` 读的是它
 - `:app:lintVitalRelease` 通过 ✅
-- 大小 47,006,502 B（47 MB）；sha256 `71a2216624ea798cb62347a449adaccd7260a2b39bf6e7b581f0a8feab9137fd`
 
-> 未装机确认的一条：`READ_MEDIA_IMAGES` 不在权限表里 —— 这是对的，Android 13+ 走系统
-> Photo Picker 不需要它；API ≤32 才用 `READ_EXTERNAL_STORAGE`（`maxSdkVersion="32"`）。
+### 装机核实（OPPO PBEM00 / Android 10 / API 29，`3c66de59`）
+
+| # | 操作 | 结果 |
+|---|---|---|
+| 1 | `adb install -r`（同签名升级） | `Success`，**没卸载、没丢数据** —— 原地升级路径成立 ✅ |
+| 2 | 冷启动（无 Metro、`adb reverse --list` 为空） | 正常进首页 ✅ |
+| 3 | 我的 Tab | 页脚 **`锻炼2点零 · v1.0.0`** ✅（第一个包这里是 `v0.1.0`） |
+| 4 | 升级后用户名 | 仍是 `alice`，证明 `-r` 保住了数据 ✅ |
+
+> `READ_MEDIA_IMAGES` 不在权限表里 —— 这是对的，Android 13+ 走系统 Photo Picker
+> 不需要它；API ≤32 才用 `READ_EXTERNAL_STORAGE`（`maxSdkVersion="32"`）。
+
+> 备份 JSON 里的 `appVersion` 走的是同一个 `getAppVersion()`（`utils/exportData.ts`），
+> 但 release 包**不是 debuggable**，`run-as` 读不到导出文件，所以**没有单独抽查过 JSON 内容** ——
+> 那一环只有单测覆盖（`utils/__tests__/appVersion.test.ts`）。
