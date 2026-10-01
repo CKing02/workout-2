@@ -69,7 +69,7 @@
 
 ## 1.6 G14 清除数据安全网 + G31 导入回滚 🟡 P1
 
-> G14 真做 + G31 导入回滚。**G31 已落地**，导入路径已可用（除 plan_sets 处方以外，见 §13.1）。
+> G14 真做 + G31 导入回滚。**G31 已落地**，导入路径已可用（计划处方曾丢，2026-10-01 已修，见 §13.1 —— 待真机复验）。
 >
 > ⚠️ **1.6.3 是「导入」类验收里最容易漏的一条** —— 导入是**全表覆盖**，
 > 副作用波及所有域，而验的人往往只盯自己本次关心的那个。
@@ -81,7 +81,7 @@
 |---|------|------|------|
 | 1.6.1 | 设置 → 数据管理 → 清除全部数据 | 弹二次确认 | ☐ 通过 / ☐ 失败 |
 | 1.6.2 | 确认后 → 跳回设置首页 | DB 真清空（历史 / 计划 / 自定义动作都没了） | ☐ 通过 / ☐ 失败 |
-| 1.6.3 | 清除前导出 → 清除 → 导入同一文件 | 数据完整还原；**额外必查：动作库 GIF 全部还在、详情页中文说明非空**（**已知例外：plan_sets 处方会丢**，见 §13.1） | ☐ 通过 / ☐ 失败 |
+| 1.6.3 | 清除前导出 → 清除 → 导入同一文件 | 数据完整还原；**额外必查两处（都是导入吃过的血亏）：① 动作库 GIF 全部还在、详情页中文说明非空（§13.15）；② 计划编辑器的 weight / reps / 组类型 / 组间休息原样还在（§13.1）** | ☐ 通过 / ☐ 失败 |
 | 1.6.4 | 导入非法文件 / 错误版本号 | toast 报错，DB **不动** | ☐ 通过 / ☐ 失败 |
 | 1.6.5 | 导入二次确认弹窗点取消 | 不执行导入 | ☐ 通过 / ☐ 失败 |
 
@@ -740,47 +740,6 @@ adb -s 3c66de59 logcat -c && adb -s 3c66de59 logcat -v threadtime | grep -iE "im
 
 ### 🟡 待处理
 
-#### 13.1 G31 plan_sets 处方回滚缺口（待修）
-
-- **症状**: 导出计划（G24a 设过 10×10）→ G14 清除 → G31 导入同一文件 → plan_sets 处方数据丢失,计划变成"无预填的初始状态"
-- **根因**: G19 导出端没把 `plan_sets` 和 `plan_exercises.rest_seconds` 写到 `BackupPayload`,所以导入端严格遵循"还原导出端给的"原则无法还原处方
-- **影响范围**: 仅 G24a 之后设过处方的计划丢失处方;**训练历史 / 计划骨架 / 自定义动作 / 设置**全部正常还原
-- **真机验证脚本**:
-  1. 编辑计划 → 填 60kg × 10 → 保存（plan_sets 落库）
-  2. 设置 → 数据导出 → 保存 .json
-  3. 设置 → 清除全部数据 → 确认（plan_sets 清空）
-  4. 设置 → 数据导入 → 选刚才 .json → 二次确认 → 完成
-  5. 进计划编辑器 → 该动作组数 / 类型保留,但 weight / reps 变 0（处方丢）
-- **修法**（G33+ 待办）:回 G19 扩展导出字段 — `planExercises` 增 `restSeconds` 字段 + 新增 `planSets` 数组（`{planExerciseId, setIndex, setType, weight, reps}`）;导入端 `importData.ts` 跟着补 `plan_sets` 表 INSERT
-- **当前状态**（**2026-10-01 复核，定性已更正**）：**仍未修**。实际文件是
-  `src/utils/exportData.ts` / `src/utils/importData.ts`
-  （本条原先写的 `src/db/exportBackup.ts` / `importRepo.ts` **两个都不存在**，已更正）。
-
-  ⚠️ **更正**：本条原写「G19 的范围限制 → 导入端不写入」，**这是错的**。
-  导入端是**主动删除**，不是「没写」：
-
-  | 位置 | 代码 |
-  |---|---|
-  | `importData.ts:213` | `DELETE FROM plan_sets;` |
-  | `importData.ts:297-301` | `INSERT INTO plan_exercises (..., rest_seconds) VALUES (?, ?, ?, ?, 60)` —— **硬编码 60** |
-
-  所以后果比原先描述的更重：不只是「处方不回填」，
-  用户设的 **`plan_exercises.rest_seconds` 也会被抹成 60**。
-  `importData.ts:18-21` 那条「不写入」的注释**和同文件的 DELETE 自相矛盾**，注释该改。
-
-- **为什么难修（新会话必须先看这条）**：`plan_exercises.id` 在导入时是
-  `newId()` **重新生成的**（`importData.ts:305`），而 `plan_sets.plan_exercise_id`
-  指向它、payload 里又没带 —— 所以**不能原样插回，必须建映射**。
-  可用的连接键只有 `(planId, exerciseId, position)`。
-  建议的省事修法=**把 sets 内嵌进 payload 的 planExercises 条目**（带上 `restSeconds`），
-  导入时拿着刚生成的 UUID 立刻插，零映射。**要连带做 `schemaVersion` 1→2 + 老 payload 降级**。
-- ⚠️ **别把它和 13.15 混为一谈**：13.15 是「导出带了、导入不写」的净破坏（**已修** `9bc5118`）；
-  本条是「导出端一开始就没带」。判决依据：看导出端 payload 里**有没有**该字段。
-  **两者症状和排查直觉一样**：`SELECT COUNT(*) WHERE col IS NULL` 拿到全量数字就该怀疑导入。
-- 回归测试照抄 13.15 的模式：`src/utils/__tests__/importDataDbWrite.test.ts`
-  （真起 DB 走真实 `importFromBackup()`，断言落库值；**别只断言 payload 字段**，
-  那只测了导出端，bug 的另一半在导入端的 DELETE + 60）。
-
 #### 13.3 进度条着色：G42 三条 AC 未达成（产品决策项）
 
 → 详见 §9.5「已知限制」。`setProgressTintList` 需 API ≥ 31，验收机 Android 10 上进度条是系统 teal。
@@ -809,6 +768,51 @@ adb -s 3c66de59 logcat -c && adb -s 3c66de59 logcat -v threadtime | grep -iE "im
 - `src/store/exerciseStore.ts:7` 注释引用的 hook 不存在。exerciseStore/planStore 现在靠各自 screen 的 lazy `useEffect(() => load(), [])` 工作，没有 bug 但与注释不一致。本次不动。
 
 ### ✅ 已解决
+
+#### 13.1 G31 plan_sets 处方回滚缺口 → 已修（2026-10-01，代码 + 单测；**真机未复验**）
+
+- **症状**：导出计划（G24a 设过 60kg×10）→ G14 清除 → G31 导入同一文件 →
+  计划的组数 / 动作骨架还在，但 **weight / reps / setType 全变回默认**，
+  `plan_exercises.rest_seconds` 也被抹成 **60**。全程无任何报错。
+- **真根因**（比条目最初写的更重 —— 最初定性为「导出端没带 → 导入端不写」，
+  实际是**导入端主动删除**，属净破坏）：
+
+  | 位置 | 代码 |
+  |---|---|
+  | `importData.ts` 清表段 | `DELETE FROM plan_sets;` |
+  | `importData.ts` plan_exercises INSERT | `VALUES (?, ?, ?, ?, 60)` —— **rest_seconds 硬编码 60** |
+  | `exportData.ts` `BackupPayload` | 只 `SELECT plan_id, exercise_id, position`，`rest_seconds` / `plan_sets` 压根没导 |
+
+- **修法（v2 payload）**：把 sets **内嵌**进 `planExercises` 条目 ——
+  `{planId, exerciseId, position, restSeconds, sets:[{setIndex, setType, weight, reps, durationSeconds, distanceKm}]}`
+  - 为什么不用「旧 id → 新 id」映射表：`plan_exercises.id` 导入时是 `newId()`
+    **重新生成**的，而 `plan_sets.plan_exercise_id` 指向它、payload 里又没带。
+    内嵌之后导入端拿着刚生成的 UUID **立刻**写 sets —— 零映射、零查找。
+  - 导出端 SQL 改成 `plan_exercises LEFT JOIN plan_sets`
+    （`LEFT` 是为了「还没配过组」的 link 也仍出一行）。
+  - `schemaVersion` **1 → 2**；导入端 **1 / 2 都接受**，v1 老备份缺
+    `restSeconds` / `sets` 时降级成 60 / 空组，**不抛错**。
+  - `ImportCounts` 增 `planSets`，如实报告还原了多少组。
+- **回归测试**（都做过「撤掉修复看它红不红」的证伪）：
+  - `src/utils/__tests__/importDataDbWrite.test.ts` → 计划处方写库 8 条。
+    撤掉 `importData.ts` 的修复后 **6 / 8 失败**（另 2 条在老代码下也成立：
+    DELETE 本来就有、空 sets 本就无行为 —— 它们不是判别力来源，是防回归的钉子）。
+  - `src/utils/__tests__/exportData.test.ts`（本批新增）→ 导出端 8 条，
+    钉住「那条 SQL 必须 JOIN `plan_sets` 且带 `rest_seconds`」。
+    撤掉 `exportData.ts` 的修复后 **8 / 8 失败**。
+  - 全量 `npx jest`：**40 suites / 427 tests 通过**（改前 39 / 409）。
+- **真机验证脚本（待跑）**：
+  1. 编辑计划 → 某动作填 60kg × 10、组类型设「热身」、组间休息改 **90s** → 保存
+  2. 设置 → 数据导出 → 保存 .json
+  3. 设置 → 清除全部数据 → 确认
+  4. 设置 → 数据导入 → 选刚才 .json → 二次确认 → 完成
+  5. 进计划编辑器 → **weight 仍 60 / reps 仍 10 / 组类型仍「热身」/ 休息仍 90s**
+     （修复前此处会变成 0 / 0 / normal / 60s）
+  6. **向后兼容**：再拿一份**升级前导出的老 .json**（`schemaVersion: 1`）导一次 →
+     应正常导入，处方为空但**不报错**
+- ⚠️ **别把它和 13.15 混为一谈**：13.15 是「导出带了、导入不写」（已修 `9bc5118`）；
+  本条是「导出端一开始就没带」。判决依据：看导出端 payload 里**有没有**该字段。
+  **两者症状和排查直觉一样**：`SELECT COUNT(*) WHERE col IS NULL` 拿到全量数字就该怀疑导入。
 
 #### 13.2 G21 duplicate-key → 已修，原「残留观察」是误读（2026-09-30 复核）
 

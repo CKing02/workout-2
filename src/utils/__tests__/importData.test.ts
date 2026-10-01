@@ -66,6 +66,40 @@ describe('utils/importData — validateBackupPayload', () => {
       const result = validateBackupPayload(payload);
       expect(result.ok).toBe(true);
     });
+
+    it('schemaVersion=2 → ok（v2 是当前导出格式）', () => {
+      const result = validateBackupPayload({ ...validPayload, schemaVersion: 2 });
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.payload.schemaVersion).toBe(2);
+      }
+    });
+
+    it('v2 payload（planExercises 带 restSeconds + sets）→ ok', () => {
+      const result = validateBackupPayload({
+        ...validPayload,
+        schemaVersion: 2,
+        planExercises: [
+          {
+            planId: 'p1',
+            exerciseId: 'e1',
+            position: 1,
+            restSeconds: 90,
+            sets: [
+              {
+                setIndex: 1,
+                setType: 'normal',
+                weight: 60,
+                reps: 10,
+                durationSeconds: 0,
+                distanceKm: 0,
+              },
+            ],
+          },
+        ],
+      });
+      expect(result.ok).toBe(true);
+    });
   });
 
   describe('顶层结构错误', () => {
@@ -96,12 +130,12 @@ describe('utils/importData — validateBackupPayload', () => {
       }
     });
 
-    it('schemaVersion=2 → error（仅支持 v1）', () => {
-      const result = validateBackupPayload({ ...validPayload, schemaVersion: 2 });
+    it('schemaVersion=3 → error（只支持 1 / 2）', () => {
+      const result = validateBackupPayload({ ...validPayload, schemaVersion: 3 });
       expect(result.ok).toBe(false);
       if (!result.ok) {
         expect(result.error).toContain('不支持的备份版本');
-        expect(result.error).toContain('2');
+        expect(result.error).toContain('3');
       }
     });
 

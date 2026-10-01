@@ -1,7 +1,19 @@
 /**
  * G31/导入写库 —— `importFromBackup` 的**字段完整性**回归测。
  *
- * 这个文件存在的唯一理由，是 2026-09-30 真机踩到的一个静默数据破坏：
+ * 这个文件存在的唯一理由，是 2026-09-30 真机踩到的一个静默数据破坏
+ * （exercises 五字段）和 2026-10-01 修掉的同形第二个（计划处方）：
+ *
+ * ---
+ *
+ * 第二个（§13.1，本次）：`plan_exercises.rest_seconds` 被写成**常量 60**，
+ * `plan_sets`（weight / reps / setType）压根没写，而流程开头就
+ * `DELETE FROM plan_sets` —— 用户配的「60kg × 10」和组间休息在
+ * 「导出 → 导入」后静默变回默认值。下面是它的用例。
+ *
+ * ---
+ *
+ * 第一个（2026-09-30 真机踩到）：
  *
  *   导出端 dump 的是 `Exercise` 视图，**带** G35 的 5 个字段
  *   （descriptionZh / stepsZh / gifUrl / targetZh / attribution），
@@ -173,5 +185,139 @@ describe('importFromBackup — exercises 写库字段完整性', () => {
     await importFromBackup(makePayload());
     const deletes = mockExecSql.join('\n');
     expect(deletes).toContain('DELETE FROM exercises');
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* §13.1 — 计划处方（plan_exercises.rest_seconds + plan_sets）                 */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * ⚠️ 这些用例的写法是刻意的：断言**绑定进 SQL 的值**，不是「函数被调过」，
+ * 也不是「payload 里有 sets 字段」。后者只测导出端，而本 bug 的另一半
+ * 恰在导入端（硬编码 60 + 主动 DELETE）—— 只测 payload 形状的话，
+ * 把导入端改回 `VALUES (?, ?, ?, ?, 60)` 这条测试照样绿。
+ */
+describe('importFromBackup — 计划处方写库', () => {
+  /** plan_exercises 的 INSERT（这个文件里通常只有一条）。 */
+  function peInserts() {
+    return mockStatements.filter((s) => s.sql.includes('INSERT INTO plan_exercises'));
+  }
+  function setInserts() {
+    return mockStatements.filter((s) => s.sql.includes('INSERT INTO plan_sets'));
+  }
+
+  /** 用户配的处方：90s 休息 + 热身组 20kg×12 + 正式组 60kg×10。 */
+  const LINK_WITH_SETS = {
+    planId: 'p1',
+    exerciseId: 'e1',
+    position: 1,
+    restSeconds: 90,
+    sets: [
+      { setIndex: 1, setType: 'warmup', weight: 20, reps: 12, durationSeconds: 0, distanceKm: 0 },
+      { setIndex: 2, setType: 'normal', weight: 60, reps: 10, durationSeconds: 0, distanceKm: 0 },
+    ],
+  };
+
+  function planPayload(planExercises: unknown[], schemaVersion: 1 | 2 = 2) {
+    return {
+      ...makePayload(),
+      schemaVersion,
+      plans: [{ id: 'p1', name: '推日', createdAt: 1, updatedAt: 2 }],
+      planExercises,
+    };
+  }
+
+  it('rest_seconds 绑 payload 的值，不是硬编码 60', async () => {
+    await importFromBackup(planPayload([LINK_WITH_SETS]));
+
+    const pe = peInserts();
+    expect(pe).toHaveLength(1);
+    // 列顺序：(id, plan_id, exercise_id, position, rest_seconds)
+    expect(pe[0]!.params).toHaveLength(5);
+    expect(pe[0]!.params[4]).toBe(90);
+    // 老写法把 60 写死在 VALUES 里 —— 那种 SQL 只有 4 个占位符
+    expect(pe[0]!.sql).not.toMatch(/VALUES\s*\(\s*\?\s*,\s*\?\s*,\s*\?\s*,\s*\?\s*,\s*60\s*\)/i);
+  });
+
+  it('plan_sets 组处方按 payload 原值写入（setType / weight / reps / setIndex）', async () => {
+    await importFromBackup(planPayload([LINK_WITH_SETS]));
+
+    const rows = setInserts();
+    expect(rows).toHaveLength(2);
+    // 列顺序：(id, plan_exercise_id, set_index, set_type, weight, reps, duration, distance)
+    expect(rows[0]!.params.slice(2)).toEqual([1, 'warmup', 20, 12, 0, 0]);
+    expect(rows[1]!.params.slice(2)).toEqual([2, 'normal', 60, 10, 0, 0]);
+  });
+
+  it('⋯ durationSeconds / distanceKm 也原样还原（time / km 类动作）', async () => {
+    await importFromBackup(
+      planPayload([
+        {
+          ...LINK_WITH_SETS,
+          sets: [
+            { setIndex: 1, setType: 'normal', weight: 0, reps: 0, durationSeconds: 45, distanceKm: 0 },
+          ],
+        },
+      ]),
+    );
+
+    const row = setInserts();
+    expect(row).toHaveLength(1);
+    expect(row[0]!.params.slice(6)).toEqual([45, 0]);
+  });
+
+  it('每个 link 的组挂在它自己新生成的 id 上（顺序对齐，不串行）', async () => {
+    await importFromBackup(
+      planPayload([
+        LINK_WITH_SETS,
+        {
+          planId: 'p1',
+          exerciseId: 'e2',
+          position: 2,
+          restSeconds: 45,
+          sets: [
+            { setIndex: 1, setType: 'failure', weight: 80, reps: 6, durationSeconds: 0, distanceKm: 0 },
+          ],
+        },
+      ]),
+    );
+
+    const peIds = peInserts().map((s) => s.params[0]);
+    expect(peIds).toHaveLength(2);
+    // 两个 link 各有独立的新 UUID（payload 里本来就没有 id）
+    expect(new Set(peIds).size).toBe(2);
+
+    // 前两组 → 第一个 link 的 id，第三组 → 第二个 link 的 id
+    expect(setInserts().map((s) => s.params[1])).toEqual([peIds[0], peIds[0], peIds[1]]);
+  });
+
+  it('v1 老备份（无 restSeconds / sets）→ 回落 60、不写组，且不抛错', async () => {
+    const legacy = planPayload([{ planId: 'p1', exerciseId: 'e1', position: 1 }], 1);
+
+    await expect(importFromBackup(legacy)).resolves.toBeDefined();
+
+    expect(peInserts()[0]!.params[4]).toBe(60);
+    expect(setInserts()).toHaveLength(0);
+  });
+
+  it('组数为 0 的 link（新建计划还没配组）不影响其它 link', async () => {
+    await importFromBackup(
+      planPayload([{ planId: 'p1', exerciseId: 'e9', position: 3, restSeconds: 60, sets: [] }]),
+    );
+
+    expect(peInserts()).toHaveLength(1);
+    expect(setInserts()).toHaveLength(0);
+  });
+
+  it('动手前也 DELETE plan_sets —— 所以漏写组是「净破坏」而不是「没还原」', async () => {
+    await importFromBackup(planPayload([LINK_WITH_SETS]));
+    expect(mockExecSql.join('\n')).toContain('DELETE FROM plan_sets');
+  });
+
+  it('ImportCounts 如实报告还原了多少组', async () => {
+    const counts = await importFromBackup(planPayload([LINK_WITH_SETS]));
+    expect(counts.planExercises).toBe(1);
+    expect(counts.planSets).toBe(2);
   });
 });

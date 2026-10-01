@@ -15,11 +15,15 @@
  *   `导入失败:{msg}`。
  *
  * 设计决策记录：
- * - `plan_exercises.id` / `rest_seconds` 不在 G19 的 payload 里（payload 只
- *   带 planId / exerciseId / position），导入时生成新 id，rest_seconds
- *   默认 60（与 `createPlan` 一致）。
- * - `plan_sets` 也不在 payload 里（G19 导出限制）—— 不写入，让用户
- *   重新训练时由 `ActiveTrainingScreen` 落库。
+ * - `plan_exercises.id` 始终是新生成的 UUID（v1/v2 都一样）—— 它是纯代理键，
+ *   除了被 plan_sets 引用之外没有对外含义，重建比映射便宜。
+ * - **计划处方（v2，2026-10-01 修 §13.1）**：`rest_seconds` 和该 link 的
+ *   `plan_sets` 组处方内嵌在 `payload.planExercises[].sets` 里，导入端拿着
+ *   刚 `newId()` 出来的 id 立刻写进去 —— 零 id 映射、零查找。
+ *   v2 之前这两样压根不在 payload 里，而本流程开头就 `DELETE FROM plan_sets`
+ *   → 「导出 → 导入」把用户配的 60kg×10 和休息时间静默抹成默认值（净破坏）。
+ * - **v1 老备份仍可导入**：`restSeconds` / `sets` 缺字段就降级 ——
+ *   rest_seconds 落 60、该 link 不写组，不抛错。
  * - `settings` 走全表覆盖：遍历 `Record<string, string>` 写入。
  *   注意内置默认值（kg / 90s 等）如果备份里没带，会被恢复成"用户导出
  *   时的真实值"，与 G14 清除后回到 defaults 不同 —— 这是用户期望的。
@@ -36,7 +40,12 @@ import type {
   TrainingSet,
 } from '@/db/schema';
 
-export type { BackupPayload } from './exportData';
+import type { BackupPlanSet } from './exportData';
+
+export type { BackupPayload, BackupPlanSet } from './exportData';
+
+/** 创建计划时的默认组间休息（与 planRepo.DEFAULT_REST_SECONDS 一致）。 */
+const DEFAULT_REST_SECONDS = 60;
 
 export interface ImportCounts {
   exercises: number;
@@ -44,6 +53,8 @@ export interface ImportCounts {
   trainings: number;
   trainingSets: number;
   planExercises: number;
+  /** 还原回来的计划处方组数（v2 payload 才 > 0）。 */
+  planSets: number;
   settings: number;
   errorLogs: number;
   bodyMeasurements: number;
@@ -60,7 +71,12 @@ export interface ImportCounts {
  * / counts）即使存在也忽略 —— 它们是 metadata，对还原无影响。
  */
 export interface ValidatablePayload {
-  schemaVersion: 1;
+  /**
+   * v1 = G19 原始格式（planExercises 只有 planId/exerciseId/position）。
+   * v2 = 2026-10-01 起，planExercises 每项带 restSeconds + sets[]。
+   * 两种都接受 —— 老备份文件必须还能导入。
+   */
+  schemaVersion: 1 | 2;
   exercises: unknown;
   plans: unknown;
   planExercises: unknown;
@@ -78,6 +94,20 @@ export interface ValidatablePayload {
 export type ValidationResult =
   | { ok: true; payload: ValidatablePayload }
   | { ok: false; error: string };
+
+/**
+ * `plan_exercises` 的一条 link + 它的计划处方。
+ *
+ * `restSeconds` / `sets` 都是**可选**的：v1 老备份没有这两个键，
+ * 导入端降级成 60 / 空组，不抛错（见下方第 4 步）。
+ */
+interface PlanExercisePayload {
+  planId: string;
+  exerciseId: string;
+  position: number;
+  restSeconds?: number;
+  sets?: BackupPlanSet[];
+}
 
 /** 顶层 7 个数据键 — 全部必须存在（值可以是空数组）。body_measurements 单独可选。 */
 const REQUIRED_KEYS = [
@@ -100,10 +130,12 @@ export function validateBackupPayload(input: unknown): ValidationResult {
   }
   const obj = input as Record<string, unknown>;
 
-  if (obj.schemaVersion !== 1) {
+  // 严格 === 数字（'1' 这种字符串不算）。v2 是当前的导出格式，v1 保留兼容：
+  // 用户手里可能还存着升级前导出的 .json，不能因为版本号旧就拒收。
+  if (obj.schemaVersion !== 1 && obj.schemaVersion !== 2) {
     return {
       ok: false,
-      error: `不支持的备份版本（schemaVersion=${String(obj.schemaVersion)}，当前仅支持 1）`,
+      error: `不支持的备份版本（schemaVersion=${String(obj.schemaVersion)}，当前支持 1 / 2）`,
     };
   }
 
@@ -172,10 +204,10 @@ function describe(v: unknown): string {
  * 把 payload 全量还原到 SQLite。
  *
  * 流程（单事务）：
- *   1. 清 7 张表（按 children-first 安全顺序）
+ *   1. 清 8 张表（按 children-first 安全顺序）
  *   2. INSERT exercises
  *   3. INSERT plans
- *   4. INSERT plan_exercises（生成新 id，rest_seconds 默认 60）
+ *   4. INSERT plan_exercises（生成新 id，rest_seconds 取 payload）+ 同轮 INSERT plan_sets
  *   5. INSERT trainings
  *   6. INSERT training_sets（按 payload 里既有的 id / trainingId）
  *   7. INSERT settings（遍历 Record<string, string>）
@@ -188,10 +220,16 @@ export async function importFromBackup(
 ): Promise<ImportCounts> {
   const db = await getDatabase();
 
+  const planExercises = (payload.planExercises as unknown[]).map(
+    (pe) => pe as PlanExercisePayload,
+  );
+
   const counts: ImportCounts = {
     exercises: (payload.exercises as unknown[]).length,
     plans: (payload.plans as unknown[]).length,
-    planExercises: (payload.planExercises as unknown[]).length,
+    planExercises: planExercises.length,
+    // v1 老备份没有 sets 字段 → 0。
+    planSets: planExercises.reduce((sum, pe) => sum + (pe.sets?.length ?? 0), 0),
     trainings: (payload.trainings as unknown[]).length,
     trainingSets: (payload.trainingSets as Array<{ sets: unknown[] }>).reduce(
       (sum, t) => sum + t.sets.length,
@@ -203,8 +241,9 @@ export async function importFromBackup(
   };
 
   await db.withTransactionAsync(async () => {
-    // 1. 清表（children first，避免 FK 检查失败）。plan_sets / body_measurements
-    //    不在旧 payload 里但也要清，避免残留。
+    // 1. 清表（children first，避免 FK 检查失败）。
+    //    plan_sets 也在 payload 里（v2 内嵌在 planExercises），但仍然是「先清后写」：
+    //    全表覆盖语义要求旧数据不能残留 —— 第 4 步会把 payload 里的组重新插回去。
     await db.execAsync(`
       DELETE FROM error_logs;
       DELETE FROM settings;
@@ -287,29 +326,59 @@ export async function importFromBackup(
       }
     }
 
-    // 4. plan_exercises — payload 没带 id，生成新 UUID；rest_seconds 默认 60。
-    const planExercises = payload.planExercises as Array<{
-      planId: string;
-      exerciseId: string;
-      position: number;
-    }>;
+    // 4. plan_exercises + plan_sets — id 是新生成的 UUID，组处方内嵌在 pe 上。
+    //
+    // ⚠️ 2026-10-01 之前这里有两处净破坏（§13.1）：
+    //   a) `VALUES (..., 60)` 把 rest_seconds 写死成常量，用户改过的休息时间被抹平；
+    //   b) 内嵌组处方压根没写，而流程开头就 `DELETE FROM plan_sets`
+    //      → 用户配的「60kg × 10」和组类型全丢，且全程无报错。
+    // 现在 rest_seconds 取 payload 值、sets 跟着新 id 一起插。改动前先看
+    // importDataDbWrite.test.ts 的 plan_sets 用例。
     if (planExercises.length > 0) {
-      const stmt = await db.prepareAsync(
+      const peStmt = await db.prepareAsync(
         `INSERT INTO plan_exercises
            (id, plan_id, exercise_id, position, rest_seconds)
-         VALUES (?, ?, ?, ?, 60);`,
+         VALUES (?, ?, ?, ?, ?);`,
+      );
+      const setStmt = await db.prepareAsync(
+        `INSERT INTO plan_sets
+           (id, plan_exercise_id, set_index, set_type, weight, reps,
+            duration_seconds, distance_km)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?);`,
       );
       try {
         for (const pe of planExercises) {
-          await stmt.executeAsync([
-            newId(),
+          // 新 id 先生成出来，同一轮里立刻用来写这个 link 的组 ——
+          // 顺序天然对齐，不需要「旧 id → 新 id」映射表。
+          const planExerciseId = newId();
+          await peStmt.executeAsync([
+            planExerciseId,
             pe.planId,
             pe.exerciseId,
             pe.position,
+            // v1 老备份没有这个字段 → 回落到 createPlan 的默认值。
+            pe.restSeconds ?? DEFAULT_REST_SECONDS,
           ]);
+
+          const sets = pe.sets ?? [];
+          for (let i = 0; i < sets.length; i++) {
+            const s = sets[i];
+            await setStmt.executeAsync([
+              newId(),
+              planExerciseId,
+              // set_index 缺失时按数组下标补 1..N，保证组序连续。
+              s.setIndex ?? i + 1,
+              s.setType ?? 'normal',
+              s.weight ?? 0,
+              s.reps ?? 0,
+              s.durationSeconds ?? 0,
+              s.distanceKm ?? 0,
+            ]);
+          }
         }
       } finally {
-        await stmt.finalizeAsync();
+        await peStmt.finalizeAsync();
+        await setStmt.finalizeAsync();
       }
     }
 

@@ -1075,6 +1075,33 @@ G19 实现 JSON 导出，用于备份和数据迁移。但 G14「清除全部数
 - [ ] 真机：导入非法文件 → toast 报错，无 DB 写入
 - [ ] 真机：导入确认弹窗取消 → 不执行
 
+### G31 补丁 — 计划处方回滚缺口（2026-10-01，代码 + 单测；真机待复验）
+
+> 出自 `docs/REAL_DEVICE_TEST_CHECKLIST.md` §13.1。
+> **导入是净破坏**，不是「没还原」—— 这条差别决定了排查方向。
+
+- **症状**：用户设过处方的计划（某动作 60kg × 10）走「导出 → 清除全部 → 导入」后，
+  组数 / 动作骨架还在，但 **weight / reps / 组类型全变回默认**，
+  `plan_exercises.rest_seconds` 被抹成 **60**。全程无任何报错。
+- **根因**（导出端一处，导入端两处）：
+  1. 导出端 `BackupPayload.planExercises` 只有 `{planId, exerciseId, position}` ——
+     `rest_seconds` 和 `plan_sets` 压根没导；
+  2. 导入端 `INSERT INTO plan_exercises (..., rest_seconds) VALUES (?, ?, ?, ?, 60)` ——
+     **硬编码 60**；
+  3. 导入端清表段有 `DELETE FROM plan_sets`，却没有任何回写。
+- **修法**：`schemaVersion` **1 → 2**，把 sets **内嵌**进 `planExercises` 条目
+  （`restSeconds` + `sets[]`），导入端拿着刚 `newId()` 出来的
+  `plan_exercises.id` **立刻**写组 —— 零 id 映射、零查找。
+  导出端 SQL 改 `plan_exercises LEFT JOIN plan_sets`（`LEFT` 保证没配组的 link 仍出一行）。
+  导入端 **1 / 2 都接受**：v1 老备份缺 `restSeconds` / `sets` 时降级成 60 / 空组，不抛错。
+- **为什么不建「旧 id → 新 id」映射表**：`plan_exercises.id` 每次导入都是重新生成的
+  UUID，`plan_sets.plan_exercise_id` 指向它而 payload 里没带。与其维护一张映射，
+  不如让 id 依赖消失 —— 复杂度放在错的地方就是下次 bug 的温床。
+- **测试**：`importDataDbWrite.test.ts` 计划处方 8 条（撤掉修复 **6 条红**）
+  + 新增 `exportData.test.ts` 8 条（撤掉修复 **8 条红**）；
+  全量 `npx jest` **40 suites / 427 tests 通过**（改前 39 / 409）。
+- **未做**：真机复验 —— 脚本见 §13.1 第 5 / 6 步（含 v1 老备份向后兼容那一跑）。
+
 ---
 
 ## G32. 数据可视化下钻（G18 升级）
