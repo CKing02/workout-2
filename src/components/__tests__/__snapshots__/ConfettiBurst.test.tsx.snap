@@ -1,0 +1,36 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`G46 ConfettiBurst AC-8 snapshot 验证粒子结构 粒子结构 snapshot（testID + style 静态部分） 1`] = `
+[
+  {
+    "hasBackgroundColor": true,
+    "hasStyle": true,
+    "hasTransform": true,
+    "testID": "confetti-particle-0",
+  },
+  {
+    "hasBackgroundColor": true,
+    "hasStyle": true,
+    "hasTransform": true,
+    "testID": "confetti-particle-1",
+  },
+  {
+    "hasBackgroundColor": true,
+    "hasStyle": true,
+    "hasTransform": true,
+    "testID": "confetti-particle-2",
+  },
+  {
+    "hasBackgroundColor": true,
+    "hasStyle": true,
+    "hasTransform": true,
+    "testID": "confetti-particle-3",
+  },
+  {
+    "hasBackgroundColor": true,
+    "hasStyle": true,
+    "hasTransform": true,
+    "testID": "confetti-particle-4",
+  },
+]
+`;

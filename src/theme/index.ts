@@ -17,3 +17,8 @@ export { radius } from './radius';
 export type { RadiusKey } from './radius';
 export { lightShadows, darkShadows } from './shadows';
 export type { ShadowScale } from './shadows';
+/**
+ * G46 — 动效 token（duration / easing / springs）。详见 motion.ts 顶部说明。
+ */
+export { duration, easing, springs, motion } from './motion';
+export type { DurationKey, EasingKey, SpringKey } from './motion';
