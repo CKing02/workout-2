@@ -7,10 +7,9 @@
 
 | 项 | 位置 |
 |---|---|
-| keystore | `<REDACTED-KEYS-PATH>/workout2-release.keystore` —— **故意放在仓库外**，不要 commit |
-| 口令 | `<REDACTED-KEYS-PATH>/workout2-release.password.txt` |
-| alias | `workout2` |
-| 证书 SHA-256 | `<REDACTED-CERT-SHA256>` |
+| keystore | `$KEYS_DIR/workout2-release.keystore` -- **故意放在仓库外**，不要 commit |
+| 口令 | `$KEYS_DIR/workout2-release.password.txt` |
+| alias | `workout2`（**SHA-256 指纹和 alias 别提交公网，自己离线留底**）|
 
 > ⚠️ **丢了这两个文件 = 这个 App 永远无法原地升级**，只能让用户卸载重装（数据全没）。
 > 请自行离线备份（U 盘 / 密码管理器）。
@@ -29,10 +28,12 @@ node scripts/release/patch-android-signing.mjs
 
 # ③ 编译
 cd android
-export JAVA_HOME="/d/Program Files/Eclipse Adoptium/jdk-17.0.20.101-hotspot"
+# 改成你本机实际 JDK 17 安装路径（Windows / Git Bash 风格）
+export JAVA_HOME="/d/Program Files/Eclipse Adoptium/jdk-17"
 export CMAKE_BUILD_PARALLEL_LEVEL=2
-export WORKOUT2_RELEASE_STORE_FILE="<REDACTED-KEYS-PATH>/workout2-release.keystore"
-export WORKOUT2_RELEASE_STORE_PASSWORD="$(tr -d '\r\n' < <REDACTED-KEYS-PATH>/workout2-release.password.txt)"
+export WORKOUT2_RELEASE_STORE_FILE="$KEYS_DIR/workout2-release.keystore"
+# 密码从密码文件读，路径由 $KEYS_DIR 控制（自己改成实际位置）
+export WORKOUT2_RELEASE_STORE_PASSWORD="$(tr -d '\r\n' < "$KEYS_DIR/workout2-release.password.txt")"
 export WORKOUT2_RELEASE_KEY_ALIAS="workout2"
 export WORKOUT2_RELEASE_KEY_PASSWORD="$WORKOUT2_RELEASE_STORE_PASSWORD"
 

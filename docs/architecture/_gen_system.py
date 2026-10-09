@@ -548,7 +548,7 @@ output = (
     '</mxfile>\n'
 )
 
-OUT_PATH = r"E:\\私人DIV\\idea项目\\锻炼2点零\\docs\\architecture\\system-architecture.drawio"
+OUT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'system-architecture.drawio')
 with open(OUT_PATH, "w", encoding="utf-8") as f:
     f.write(output)
 

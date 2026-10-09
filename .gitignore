@@ -49,3 +49,9 @@ _diag/
 # (modules/*/android 是源码要跟踪,只有 build/ 和 .gradle 是产物)
 modules/*/android/build/
 modules/*/android/.gradle/
+
+# Windows Internet Shortcut files (right-click "Create shortcut" artifacts)
+*.url
+
+# Claude Code IDE config (personal machine state, not project config)
+.claude/

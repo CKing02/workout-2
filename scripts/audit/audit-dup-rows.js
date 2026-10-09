@@ -1,4 +1,3 @@
-// E:/私人DIV/idea项目/锻炼2点零/_diag/audit-dup-rows.js
 // 用法: node _diag/audit-dup-rows.js <path-to-backup.json>
 const fs = require('fs');
 const file = process.argv[2];

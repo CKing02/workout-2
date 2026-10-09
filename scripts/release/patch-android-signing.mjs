@@ -67,7 +67,7 @@ android {
     signingConfigs {
         release {
             // 从环境变量读，密钥文件本身不在仓库里
-            // （keystore 放在仓库外的 <REDACTED-KEYS-PATH>/）。
+            // （keystore 放在仓库外的 $KEYS_DIR/ 下，路径由环境变量 WORKOUT2_RELEASE_STORE_FILE 注入）。
             def requireEnv = { name ->
                 def v = System.getenv(name)
                 if (v == null || v.isEmpty()) {
