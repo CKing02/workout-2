@@ -2416,6 +2416,76 @@ file 都非本节 scope,且与 G46 设计决策无关。
 
 ---
 
+## G47. 动效统一收口 —— 把现有 21 处 `withTiming`/`withSpring` 硬编码换成 `motion.*` token
+
+**优先级**：P2(体验层)  |  **依赖**：G46(✅ 已完)  |  **阶段**：4
+**状态**：🟡 **范围已锁定 / 待开工**(2026-10-09)
+
+### 为什么单开一节
+
+G46 已经把动效 token(duration / easing / springs)落到 `@/theme/motion.ts`,
+但**未替换任何业务代码**(Scope Lock 守住)。G47 做的是把现有 21 处散落的
+`withTiming(value, { duration: 180, ... })` / `withSpring(v, { damping: 15, stiffness: 300 })`
+硬编码统一换成 `motion.duration.fast` / `motion.springs.snappy` 等 token。
+
+一次性扫一遍是因为:分散改各组件容易漏;统一改能让 G48 业务接入
+(CountUp + Confetti 进 TrainingCompleteScreen、训练页沉浸感)拿到一致手感。
+
+### 范围控制(Scope Lock)
+
+**只替换硬编码,不动业务逻辑**:
+
+- ✅ 替换 `src/components/{Dialog, SegmentedControl, Sheet, Skeleton, TimerRing, Toast}.tsx` 中的 `withTiming` 数字字面量
+- ✅ 替换 `src/screens/{HomeScreen, PlanEditorScreen}.tsx` 中的 `withTiming` 数字字面量
+- ✅ 替换 `src/features/training/RestTimerOverlay.tsx` 中的 `withTiming` 数字字面量
+- ❌ 不动 `src/screens/TrainingCompleteScreen.tsx`(留给 **G48**:CountUp + Confetti 业务接入)
+- ❌ 不动 `src/components/brand/BootSplash.tsx`(brand WIP 工作,真机依赖)
+- ❌ 不动 G46 已交付文件(CountUp / ConfettiBurst 已用 motion token)
+- ❌ 不动测试 mock(jest mock 自己管)
+- ❌ 不动 `motion.ts` / `haptics.ts` token 定义本身
+
+### 映射规则(spec 已锁定 2026-10-09)
+
+| 字面 ms | → `motion.*` token | 用途 |
+| --- | --- | --- |
+| 100 | `duration.instant` | 状态切换 |
+| 140 | `duration.instant` | 同上 |
+| 160 | `duration.fast` | 通用按钮按压 |
+| 180 | `duration.fast` | 同上 |
+| 200 | `duration.fast` | 同上,或保留作特殊场景 |
+| 260 | `duration.base` | 标准过渡 |
+| 400 | `duration.slow` | 强调 |
+| 600 | `duration.emphasis` | 横幅/对话框 |
+
+### Easing 映射
+
+- `Easing.out(Easing.cubic)` → `motion.easing.standard`(cubic-bezier(0.2, 0, 0, 1))
+- `Easing.inOut(Easing.quad)` → TrainingCompleteScreen 专用,**留给 G48**
+
+### Spring 映射
+
+- `{ damping: 15, stiffness: 300 }` → `motion.springs.snappy`
+- `{ damping: 20, stiffness: 180 }` → `motion.springs.gentle`
+- `{ damping: 12, stiffness: 180, mass: 0.9 }` → **不匹配 spec** token,保留原值(BootSplash 不动,G47 不碰)
+
+### 验收标准(AC)
+
+- AC-1 `src/components/{Dialog, SegmentedControl, Sheet, Skeleton, TimerRing, Toast}.tsx` 不再有裸 `duration: [0-9]+` 字面量
+- AC-2 `src/screens/{HomeScreen, PlanEditorScreen}.tsx` 不再有裸 `duration: [0-9]+` 字面量
+- AC-3 `src/features/training/RestTimerOverlay.tsx` 不再有裸 `duration: [0-9]+` 字面量
+- AC-4 全项目 `npm run typecheck` 0 错(连同 typecheck baseline 一起)
+- AC-5 全项目 `npm test` 全绿(无回归,既有 522 tests 不退步)
+
+### 配套:Typecheck Baseline(独立 commit)
+
+把 G46 留下的 19 个 pre-existing typecheck 错一并修掉,放到独立 commit 里
+(与 G47 动效统一解耦,便于回滚),具体见 GOALS.md §G46 "AC-9 备注" 表里的修复方案。
+
+### 下一阶段入口
+
+- **G48** = C/D 阶段(CountUp + Confetti 接入 TrainingCompleteScreen + PR 弹板 + 训练页沉浸强化)
+- **G49** = 设计参考集对齐(视觉参考 + Lottie 评估 + 空状态插画)
+
 ## 附录 A：数据库表结构（草图，Agent 可微调）
 
 ```sql
