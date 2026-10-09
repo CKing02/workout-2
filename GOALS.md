@@ -2213,6 +2213,142 @@ GIF 缓存清理都在里面，两个屏各调一次。
 
 ---
 
+## G46. 质感打磨 · 第一阶段（动效 Token + 触感分层 + 数字视觉组件）
+
+**优先级**：P2（体验层）  |  **依赖**：G3（设计系统组件库）  |  **阶段**：4
+**状态**：🟡 **范围已锁定 / 待开工**（2026-10-09）
+
+### 为什么单开一节
+
+PRD MVP / Phase 2 / Phase 3 全部完成后，"看不见的"自动调整是项目下一个
+质量台阶。本节不引入新功能，只把已经能用的体验打磨到位：
+
+- 统一动效手感（21 处硬编码 `withTiming`/`withSpring` 全无规范）
+- 统一触感语义（目前 `haptics.ts` 只有一档 `selection`）
+- 把"训练完成"的数字翻起来（CountUp）
+- 把"达成 PR"用物理粒子砸出来（Confetti）
+
+### 范围控制（Scope Lock）
+
+本节（**第一阶段**）**只交付底层 + 2 个新组件**，**不接入任何页面**：
+
+- ✅ 新建 `motion.ts`（动效 token）
+- ✅ 升级 `haptics.ts`（6 个语义化 API）
+- ✅ 新建 `CountUp.tsx` 组件
+- ✅ 新建 `ConfettiBurst.tsx` 组件
+- ❌ 不接入 `TrainingCompleteScreen` 等业务页 → **留给 G48**
+- ❌ 不替换现有 21 处硬编码 → **留给 G47**
+- ❌ 不做 Lottie 评估 → **留给 G49**
+- ❌ 不做空状态插画 → **留给 G49**
+
+### 设计决策（2026-10-09 与 PM 敲定，不再讨论）
+
+#### 1. 动效调性：Material 3 克制专业
+
+| Token | 值 | 用途 |
+|---|---|---|
+| `duration.instant` | `100` ms | 状态切换 |
+| `duration.fast` | `180` ms | 按钮按下 |
+| `duration.base` | `260` ms | **标准过渡** |
+| `duration.slow` | `400` ms | 强调动作 |
+| `duration.emphasis` | `600` ms | 横幅/对话 |
+| `easing.standard` | `cubic-bezier(0.2, 0, 0, 1)` | 默认 |
+| `easing.decelerate` | `cubic-bezier(0, 0, 0, 1)` | 入场 |
+| `easing.accelerate` | `cubic-bezier(0.3, 0, 1, 1)` | 离场 |
+| `springs.gentle` | `{damping: 20, stiffness: 180}` | 默认，无 bounce |
+| `springs.snappy` | `{damping: 15, stiffness: 300}` | 按钮按下 |
+
+> 健身场景特殊性：用户手上有汗/粉/戴手套，弹性动画干扰判断，**响应要快、
+> 回弹要稳**。这就是为什么没选 iOS HIG 的 bounce 风。
+
+#### 2. 触感分层语义
+
+| API | 调用场景 | 底层 |
+|---|---|---|
+| `tick()` | 切组、按钮按下 | `Haptics.selectionAsync()` |
+| `success()` | 完成一组 | `Haptics.notificationAsync(Success)` |
+| `warning()` | 重复键、超时前 | `Haptics.notificationAsync(Warning)` |
+| `error()` | 删除、清空 | `Haptics.notificationAsync(Error)` |
+| `heavy()` | PR 达成 | `Haptics.impactAsync(Heavy)` |
+| `restComplete()` | 休息结束 | `Haptics.impactAsync(Medium)` + 二次轻触 |
+
+所有 API 必须**读取 `settingsStore.hapticsEnabled`**，关闭时返回 no-op（不报错）。
+沿用现有 `haptics.ts` 的 `selection()` 签名（不破坏现有调用点）。
+
+#### 3. CountUp 组件
+
+- `useSharedValue + withTiming(target, { duration: motion.duration.base })`
+- props：`value: number`、`duration?: number`、`format?: (n) => string`、`onComplete?: () => void`
+- 支持 0 / 正 / 负整数与小数
+- 默认 `format`：`n => n.toFixed(0)`
+
+#### 4. ConfettiBurst 组件
+
+- 0 依赖，纯 RN View + Reanimated worklet
+- 40 个粒子，3 种品牌色（`primary / primaryPressed / primary`），宽度 6-10 dp 随机
+- 起始：屏幕顶部 y=0；终止：散落到 `screenHeight * 0.6`，受 0.6g 重力
+- 总时长 2200 ms；完成回调 `onComplete()`
+- `pointerEvents="none"` 不阻塞交互
+- `trigger` prop 控制触发；trigger 变化 → 重新播一次
+
+### 验收标准（AC）
+
+- AC-1 `motion.ts` 通过 typecheck，导出 `duration / easing / springs` 三个 namespace
+- AC-2 `motion.ts` 自测：`duration.base === 260`、`springs.gentle.damping === 20`
+- AC-3 `haptics.ts` 6 个 API 全部存在；`hapticsEnabled === false` 时全部 no-op
+- AC-4 `haptics.ts` 自测：mock `Haptics.notificationAsync` 验证 success/warning/error 路由
+- AC-5 `CountUp.tsx` props 完整，类型签名稳定
+- AC-6 `CountUp.test.tsx` 验证从 0→100 后最终值渲染正确
+- AC-7 `ConfettiBurst.tsx` 渲染 40 个粒子，`trigger` prop 控制触发
+- AC-8 `ConfettiBurst.test.tsx` snapshot 验证粒子结构
+- AC-9 全项目 `npm run typecheck` 0 错误
+- AC-10 全项目 `npm test` 全绿，新增 4 个测试文件
+
+### 自检清单
+
+- [ ] `npm run typecheck` 通过
+- [ ] `npm test` 通过，新增测试覆盖 AC-2 / AC-4 / AC-6 / AC-8
+- [ ] 未触碰 `src/screens/**` 任何业务页（git diff 验证）
+- [ ] 未引入新依赖（`package.json` 无变更）
+- [ ] `motion.ts` 顶部有动机注释（为何选 260 ms 标准值，引用 Material 3 motion spec）
+- [ ] `haptics.ts` 顶部有动机注释（为何 success 用 NotificationAsync 而非 ImpactAsync）
+- [ ] 两个新组件顶部有动机注释 + 设计决策
+
+### 文件清单
+
+新增：
+- `src/theme/motion.ts`
+- `src/components/CountUp.tsx`
+- `src/components/ConfettiBurst.tsx`
+- `src/theme/__tests__/motion.test.ts`
+- `src/utils/__tests__/haptics.test.ts`
+- `src/components/__tests__/CountUp.test.tsx`
+- `src/components/__tests__/ConfettiBurst.test.tsx`
+
+改造：
+- `src/utils/haptics.ts`（保留 `selection()` 签名；新增 6 个语义 API）
+
+### 提交记录
+
+_（待完工后填写）_
+
+### 测试
+
+_（待完工后填写）_
+
+### 验收
+
+_（待完工后填写）_
+
+### 下一阶段入口
+
+- **G47** = 替换现有 21 处 `withTiming`/`withSpring` 硬编码为 `motion.*`
+- **G48** = C/D 阶段（CountUp + Confetti 接入 TrainingCompleteScreen + PR 弹板 +
+  训练页沉浸强化：焦点脉冲 / 顶部进度条 / ✓ 落版）
+- **G49** = 设计参考集对齐（视觉参考 + Lottie 评估 + 空状态插画）
+
+---
+
 ## Phase 2 路线（P2+，待评估优先级）
 
 > 下列项目 PRD 列入但未排期，是否纳入 Phase 2 视用户偏好决定。
