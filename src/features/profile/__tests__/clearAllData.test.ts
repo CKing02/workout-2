@@ -27,7 +27,7 @@ const mockWipeAllData = jest.fn(async () => {
 
 jest.mock('@/db', () => ({
   __esModule: true,
-  wipeAllData: (...a: unknown[]) => mockWipeAllData(...a),
+  wipeAllData: mockWipeAllData as unknown as jest.Mock,
 }));
 
 jest.mock('@/screens/exerciseGifCache', () => ({

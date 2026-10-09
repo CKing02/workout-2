@@ -34,6 +34,7 @@ import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withTiming,
+  type SharedValue,
 } from 'react-native-reanimated';
 
 import { Button } from '@/components/Button';
@@ -282,7 +283,7 @@ interface CollapsedBarProps {
   onTap: () => void;
   onSkip: () => void;
   onExtend: () => void;
-  animValue: Animated.SharedValue<number>;
+  animValue: SharedValue<number>;
 }
 
 function CollapsedBar({

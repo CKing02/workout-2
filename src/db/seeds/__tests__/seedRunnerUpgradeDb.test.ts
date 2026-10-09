@@ -35,7 +35,7 @@ function makeMockDb(existingNames: string[]): MockDb {
   return {
     // 必须 throw — 如果 upgradeExerciseSeedIfMissing 误调了它,
     // 我们立刻知道,且 jest 用例 fail。
-    withTransactionAsync: jest.fn(async () => {
+    withTransactionAsync: jest.fn<Promise<void>, [() => Promise<void>]>(async () => {
       throw new Error(
         'NESTED TRANSACTION DETECTED: upgradeExerciseSeedIfMissing 必须依赖' +
           ' caller 的事务,不能再 db.withTransactionAsync。',

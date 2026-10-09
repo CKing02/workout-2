@@ -31,7 +31,7 @@ function makeMockDb(changesPerUpdate: number): MockDb {
   return {
     // 必须 throw — 如果 upgradeExerciseCdnUrls 误调了它,
     // 我们立刻知道,且 jest 用例 fail(同 G41 闪退回归)。
-    withTransactionAsync: jest.fn(async () => {
+    withTransactionAsync: jest.fn<Promise<void>, [() => Promise<void>]>(async () => {
       throw new Error(
         'NESTED TRANSACTION DETECTED: upgradeExerciseCdnUrls 必须依赖' +
           ' caller 的事务,不能再 db.withTransactionAsync。',
@@ -81,8 +81,8 @@ describe('G44 upgradeExerciseCdnUrls — R2 placeholder → 腾讯云 COS', () =
     // 跳过的 bundled=true 行一次都不该被 UPDATE
     // 简单校验:bundled=true mapping 的 seedName 不应该出现在 executeAsync 调用里
     const executedSeedNames = calls
-      .map((c) => (c[0] as [string, string])[1])
-      .filter((n): n is string => typeof n === 'string');
+      .map((c: [string, string]) => c[1])
+      .filter((n: unknown): n is string => typeof n === 'string');
     const bundledSeedNames = EXERCISE_G35_MAPPING.filter((m) => m.bundled)
       .map((m) => m.seedName);
     for (const bs of bundledSeedNames) {
