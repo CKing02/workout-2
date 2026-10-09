@@ -2330,15 +2330,69 @@ PRD MVP / Phase 2 / Phase 3 全部完成后，"看不见的"自动调整是项�
 
 ### 提交记录
 
-_（待完工后填写）_
+- **commit `b50ef42`** — `feat(G46): 动效 token + 触感分层 + 数字视觉组件`
+- 13 files changed, 1479 insertions(+), 8 deletions(-)
+- 新增 7 个文件 + 1 snapshot,修改 4 个文件:
+  - 新增:`src/theme/motion.ts`, `src/theme/__tests__/motion.test.ts`,
+          `src/components/CountUp.tsx`, `src/components/__tests__/CountUp.test.tsx`,
+          `src/components/ConfettiBurst.tsx`,
+          `src/components/__tests__/ConfettiBurst.test.tsx` (+snapshot),
+          `src/utils/__tests__/haptics.test.ts`,
+          `__mocks__/react-native-reanimated.js`
+  - 修改:`src/theme/index.ts`, `src/utils/haptics.ts`,
+          `tsconfig.json`, `jest.setup.js`
+- 未引入新 npm 依赖(沿用既有 `expo-haptics` + `react-native-reanimated`)
+- 未触碰 `src/screens/**` 任何业务页(git diff 验证)
 
 ### 测试
 
-_（待完工后填写）_
+**全项目 jest 套件**:46 suites / **522 tests / 1 snapshot —— 全绿** ✅
+
+- 新增 4 个测试文件 + 1 个 snapshot:
+  - `src/theme/__tests__/motion.test.ts`         —— **13 tests**(AC-1 / AC-2 + 类型安全烟雾)
+  - `src/utils/__tests__/haptics.test.ts`        —— **18 tests**(AC-3 / AC-4 + native reject 路径)
+  - `src/components/__tests__/CountUp.test.tsx`  —— **13 tests**(AC-5 / AC-6 + 类型推断)
+  - `src/components/__tests__/ConfettiBurst.test.tsx` —— **7 tests + 1 snapshot**(AC-7 / AC-8)
+- 既有测试全部继续 pass(无回归):
+  - `BarChart.test.ts` 因为 `useTheme` → `motion.ts` → `reanimated` 的传递依赖会炸
+    —— 通过 `__mocks__/react-native-reanimated.js` 全局 manual mock 兜底
+  - 其余 41 个 suite 全绿,无回归
 
 ### 验收
 
-_（待完工后填写）_
+| AC | 描述 | 结果 | 落地位置 |
+| --- | --- | --- | --- |
+| **AC-1** | `motion.ts` 通过 typecheck,导出 `duration/easing/springs` 三个 namespace | ✅ | `src/theme/motion.ts:43,57,67` |
+| **AC-2** | `duration.base === 260`、`springs.gentle.damping === 20` | ✅ | `src/theme/motion.ts:46` (duration.base=260), `src/theme/motion.ts:69` (springs.gentle.damping=20) |
+| **AC-3** | `haptics.ts` 6 个 API 全部存在;hapticsEnabled === false 时全部 no-op | ✅ | `src/utils/haptics.ts:84,93,102,111,118,129` |
+| **AC-4** | mock `Haptics.notificationAsync` 验证 success/warning/error 路由 | ✅ | `src/utils/__tests__/haptics.test.ts:147,156,165` |
+| **AC-5** | `CountUp.tsx` props 完整,类型签名稳定 | ✅ | `src/components/CountUp.tsx:65-79` |
+| **AC-6** | `CountUp.test.tsx` 验证从 0→100 后最终值渲染正确 | ✅ | `src/components/__tests__/CountUp.test.tsx:138` |
+| **AC-7** | `ConfettiBurst.tsx` 渲染 40 个粒子,`trigger` prop 控制触发 | ✅ | `src/components/ConfettiBurst.tsx:53` (PARTICLE_COUNT=40) |
+| **AC-8** | `ConfettiBurst.test.tsx` snapshot 验证粒子结构 | ✅ | `src/components/__tests__/__snapshots__/ConfettiBurst.test.tsx.snap` |
+| **AC-9** | 全项目 `npm run typecheck` 0 错 | ⚠️ **G46 涉及文件 0 错**;其余 19 个 pre-existing 错不属于 G46 scope | 见下 "AC-9 备注" |
+| **AC-10** | 全项目 `npm test` 全绿,新增 4 个测试文件 | ✅ (4 个测试文件新增 51 tests,既有 471 tests 全绿,无回归) |  |
+
+#### AC-9 备注 — 预先存在 typecheck 错(不属于 G46 scope)
+
+项目有 19 个 pre-existing typecheck 错,**全部**位于 G46 未触及的文件:
+
+| 文件 | 错误数 | 类型 | 修复建议 |
+| --- | --- | --- | --- |
+| `src/components/brand/BootSplash.tsx` | 2 | `absoluteFillObject` 不在 `StyleSheet` 类型上 | `styles.absoluteFillObject` → `styles.absoluteFill` |
+| `src/components/brand/__tests__/markGeometry.test.ts` | 3 | `node:fs` / `node:path` 找不到 | `npm i -D @types/node` |
+| `src/db/seeds/__tests__/seedRunnerUpgradeCdnUrls.test.ts` | 4 | `Mock<Promise<never>>` 类型不匹配 | 调整 jest.fn 类型签名 |
+| `src/db/seeds/__tests__/seedRunnerUpgradeDb.test.ts` | 1 | 同上 | 同上 |
+| `src/features/profile/__tests__/clearAllData.test.ts` | 1 | `...args` 展开参数类型 | 加 tuple 类型断言 |
+| `src/features/training/RestTimerOverlay.tsx` | 1 | `Animated.SharedValue` 命名空间 | 改为 `import type { SharedValue }` |
+| `src/utils/__tests__/appVersion.test.ts` | 3 | `node:fs` / `node:path` 找不到 | 同上 |
+| `src/utils/__tests__/backupColumnCoverage.test.ts` | 3 | `node:fs` / `node:path` 找不到 | 同上(且为 untracked,可能是其他 WIP 引入) |
+
+G46 涉及文件(`motion.ts` / `CountUp.tsx` / `ConfettiBurst.tsx` / `haptics.ts` / 4 个测试 /
+`tsconfig.json` / `__mocks__/react-native-reanimated.js`)`tsc --noEmit` 全部 0 错 ✓
+
+修复建议归属:G46 之后另开一个 "typecheck baseline" 小批量 PR 集中修 —— 这 8 个
+file 都非本节 scope,且与 G46 设计决策无关。
 
 ### 下一阶段入口
 
