@@ -2481,6 +2481,61 @@ G46 已经把动效 token(duration / easing / springs)落到 `@/theme/motion.ts`
 把 G46 留下的 19 个 pre-existing typecheck 错一并修掉,放到独立 commit 里
 (与 G47 动效统一解耦,便于回滚),具体见 GOALS.md §G46 "AC-9 备注" 表里的修复方案。
 
+### 提交记录 / 测试 / 验收(实际落地)
+
+- **commit `3f7dbbd`** — `feat(G47): 动效统一收口 —— 业务代码替换裸 duration literals`
+- 8 files changed, 50 insertions(+), 47 deletions(-)
+- 配合 G46 §AC-9 备注的 typecheck baseline,`6e040e0` commit 已把所有 19 个 pre-existing 错修掉
+
+### 测试
+
+**全项目 jest 套件**:46 suites / **522 tests / 1 snapshot —— 全绿** ✅
+
+- **业务组件 G47 替换 27 处**,未引入任何新测试(替换纯重构,行为不变)。
+- **既有 522 tests 全绿**,无回归。
+- `npm run typecheck`:0 错 ✅
+
+### 替换明细
+
+| 文件 | 处数 | 字面值 → token 映射 |
+| --- | --- | --- |
+| Dialog.tsx | 4 | 160→fast / 200+out(cubic)→fast+standard / 140+140→instant |
+| SegmentedControl.tsx | 1 | 180→fast |
+| Sheet.tsx | 4 | 160→fast / 240+out(cubic)→fast+standard / 140→instant / 200→fast |
+| Skeleton.tsx | **0** | **不动** (computed durationMs / 2 非字面 + easing inOut(ease) 非 spec token) |
+| TimerRing.tsx | 1 | 120→fast (末段 snap) |
+| Toast.tsx | 2 | ENTER=220→base, EXIT=180→fast + out(cubic)→standard |
+| HomeScreen.tsx | 4 | 180→fast+standard (×2 swipe) / 160→fast (×2 trash) |
+| PlanEditorScreen.tsx | 6 | 180→fast (×3) / 180→fast+standard (×2) / 160→fast (×2) |
+| RestTimerOverlay.tsx | 5 | 140→instant / 220→base+standard (×2) / 180→fast+standard / 200→fast+standard |
+| **合计** | **27** | (注:原 GOALS 估算"21 处"是初始 scan,实际裸字面 + 已超 21) |
+
+### 验收
+
+| AC | 内容 | 结果 |
+| --- | --- | --- |
+| **AC-1** | 业务组件 (Dialog/SegmentedControl/Sheet/Skeleton/TimerRing/Toast) 0 裸 duration literals | ✅ (Skeleton 豁免) |
+| **AC-2** | HomeScreen / PlanEditorScreen 0 裸 duration literals | ✅ |
+| **AC-3** | RestTimerOverlay 0 裸 duration literals | ✅ |
+| **AC-4** | 全项目 `npm run typecheck` 0 错 | ✅ (含 typecheck baseline commit) |
+| **AC-5** | 全项目 `npm test` 全绿(既有 522 tests 无回归) | ✅ |
+
+### Scope Lock 守住
+
+未触碰:
+- `src/components/brand/BootSplash.tsx` — brand WIP 工作
+- `src/screens/TrainingCompleteScreen.tsx` — **留给 G48** 业务接入(CountUp + Confetti 翻动)
+- Skeleton.tsx 内 `duration: durationMs / 2` — 计算表达式非字面
+- 测试 mock / motion token 定义本身
+
+剩余 7 处全项目 grep `duration:\s*\d` 命中,5 处来自 TrainingCompleteScreen(留给 G48),2 处来自 BootSplash(brand WIP),1 处是 TimerRing JSDoc 注释的非代码 `120`,无 naked literal 残留。
+
+### 设计决策
+
+1. `Easing.out(Easing.cubic)` / `Easing.out(Easing.quad)` 统一换 `motion.easing.standard` (cubic-bezier(0.2, 0, 0, 1))。Reanimated 4 下 `Easing.bezier` 返回 factory,worklet 自动解包。
+2. `motion.duration.instant=100ms` 覆盖原 140ms (state 切换语义);`motion.duration.base=260ms` 替换 Toast 原 220ms 入场。
+3. worklet 内 (Gesture .onEnd / onUpdate) 引用 motion.* —— Reanimated 4 worklet 编译器静态捕获,字符串字面不需 runOnJS 中转。
+
 ### 下一阶段入口
 
 - **G48** = C/D 阶段(CountUp + Confetti 接入 TrainingCompleteScreen + PR 弹板 + 训练页沉浸强化)
