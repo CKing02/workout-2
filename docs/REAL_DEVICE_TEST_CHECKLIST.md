@@ -369,7 +369,7 @@
 | **每秒谁来重画** | ⚠️ **原生前台服务 `RestTimerTickerService`**（1s Handler ticker），**不是 JS** —— 2026-09-28 G42d 改的，详见下方说明 |
 | JS 侧的角色 | 只「同步权威状态」：`showOrUpdate(rem, total, name, colorHex)`，由原生 `matches()` 去重成 no-op（1.5s 容差） |
 | 到点靠谁 | **AlarmManager** `setExactAndAllowWhileIdle`（服务**不持 wake lock**，Doze 下 ticker 会停） |
-| 进度条颜色 | ⚠️ **Android 10 上着色无效**（`setProgressTintList` 需 API ≥ 31），显示为系统 teal —— 见下方「已知限制」 |
+| 进度条颜色 | ☐ **待复验**（2026-10-02 已改 `android:progressTint` 兜底，见下方「已知限制」）—— 出包前 Android 10 上是系统 teal |
 | channel id | `rest_timer`（与旧实现同 id，Android 建 channel 幂等） |
 | 通知 id | 固定 int `1001` |
 | 通知小图标 | ⚠️ 当前是系统占位 `ic_menu_recent_history`（灰白时钟），**不是 App 图标** —— 见到不要当 bug 报 |
@@ -426,10 +426,16 @@
 | 42.27 | 完成页文案 | **没有**「已写入训练历史 · #xxx」这一行（已删） | ✅ 通过（代码可查：该行已删） |
 
 **已知限制**（不阻塞通过）：
-- **进度条着色在 Android 10 上做不到** ❌ —— `setProgressTintList` 走 `RemoteViews.setColorStateList` 需 **API ≥ 31**。
-  验收机 OPPO PBEM00 是 Android 10（API 29），进度条是**系统 teal 而非主题橙**。代码里已注释。
-  所以 42.5 / 42.6 / 42.7 三条判 ❌，**不是没测，是该方案在这个 API 级别上无解**。
-  产品上若必须着色 → 换 RemoteViews 自绘 ProgressBar widget，或放弃系统 ProgressBar。
+- **进度条着色在 Android 10 上曾做不到 —— 2026-10-02 已改判** ☐ 待复验。
+  原先的结论是「`setProgressTintList` 走 `RemoteViews.setColorStateList` 需 API ≥ 31
+  → 在 Android 10 上**无解**，要拍板换自绘控件」。**这个结论下早了**：
+  `setProgressTintList` 只是**运行时更新**通道受限，而进度条在**我们自己的 layout**
+  里（`modules/.../res/layout/notification_rest_timer.xml`），layout 属性是
+  inflate 时解析的，不受该 API 限制 —— 加 `android:progressTint`（API 21+ 属性）
+  即可，不需要自绘 widget。颜色见同模块 `values/colors.xml`（#FF6B35）与
+  `values-night/colors.xml`（#FF7A4D），与 `src/theme/colors.ts` 对齐；
+  API 31+ 仍由 Kotlin 用 JS 传来的主题色覆盖（两层并存，XML 是兜底）。
+  **但这条改动尚未上过机** —— 42.5 / 42.6 / 42.7 在出包复验前仍判 ❌。
 - **息屏后进度条会停**（G42d 后的新限制，取代旧的「锁屏 60s 秒数停」）——
   秒数由原生 `Chronometer` 自走**会继续**；进度条靠前台服务 ticker，而服务**不持 wake lock**，
   Doze 下 CPU 睡、ticker 停。**这是有意取舍**：进度条只在亮屏时有意义，**到点始终准**（靠 AlarmManager）。
@@ -637,6 +643,76 @@ adb -s 3c66de59 logcat -c && adb -s 3c66de59 logcat -v threadtime | grep -iE "im
 
 ---
 
+## 9.11 G47 动效统一收口 — 手感一致性专项 🟡 P1
+
+> 真机验:`2729f73`(范围锁定)+ `6e040e0`(typecheck baseline)+ `3f7dbbd`(27 处替换)+ `ab819f2`(报告)
+>
+> **重点不是测行为,是测手感**——G47 不改任何业务逻辑,只把硬编码 100/140/160/180/200ms 替换成 motion.duration.{instant, fast, base} token + motion.easing.standard。
+> 如果手感一致("同套动效"),即过;如果出现某个弹层"快进慢出"或"一抖一抖"之类异常,就是 token 没真正"接住"。
+
+### 9.11.1 同档节奏抽查(关键 4 件)
+
+> `motion.duration.fast = 180ms` 是 G47 用得最多的 token。如果 8 个 case 的快进/快退时长感都"差不多",即过。
+
+| # | 步骤 | 期望手感 | 结果 |
+|---|------|----------|------|
+| 9.11.1.1 | 锻炼 Tab → 训练中按 × → 取消训练确认 Dialog | 入场 ~180ms 不急但不拖 | ☐ 通过 / ☐ 失败 |
+| 9.11.1.2 | 我的 → 动作库 → + 新建动作 → Sheet 从下往上推 | 上推顺畅,不快不慢 | ☐ 通过 / ☐ 失败 |
+| 9.11.1.3 | 计划编辑器一行动作左滑到 trash 区域松手 | 卡片回弹到 trash 露出 + 回弹到原位都 ~180ms | ☐ 通过 / ☐ 失败 |
+| 9.11.1.4 | 训练中页设置 → 弹 Toast"已保存 XXX" | Toast 滑动入场 ~260ms (base),比 Dialog 慢一档,有读时间 | ☐ 通过 / ☐ 失败 |
+
+### 9.11.2 离场节奏抽查(instant = 100ms 应"快进快出")
+
+> 离场比入场应明显快——140ms → instant=100ms 的小变化凑快看。
+
+| # | 步骤 | 期望手感 | 结果 |
+|---|------|----------|------|
+| 9.11.2.1 | Dialog / Sheet 关闭 | 离场 ~100ms,干练不拖 | ☐ 通过 / ☐ 失败 |
+| 9.11.2.2 | RestTimer 折叠窄条(倒计时 0 → 折叠到窄条) | 折叠出现快,窄条归位(~140ms) | ☐ 通过 / ☐ 失败 |
+
+### 9.11.3 easing.standard 抽查(cubic-bezier(0.2, 0, 0, 1))
+
+> 原本 `Easing.out(Easing.cubic)` 和 `Easing.out(Easing.quad)` 的气息都很"ease-out",
+> 统一换 standard 后,应该感觉"开头快,收尾稳"——其实标准 Material 3 节奏,无 overshoot。
+
+| # | 步骤 | 期望手感 | 结果 |
+|---|------|----------|------|
+| 9.11.3.1 | 看 Dialog 入场 | 卡片"从内弹出",尾部平稳停顿 | ☐ 通过 / ☐ 失败 |
+| 9.11.3.2 | 看 Sheet 从底部推上来 | 上推带"减速到顶",无回弹/bounce | ☐ 通过 / ☐ 失败 |
+| 9.11.3.3 | 看 ProfileScreen/profileEditSheet 抽屉 | 同上 | ☐ 通过 / ☐ 失败 |
+| 9.11.3.4 | 计划编辑器行左滑到 trash 露出的过程 | 滑出曲线一致,无尾段抖动 | ☐ 通过 / ☐ 失败 |
+
+### 9.11.4 训练中页沉浸回归 — 受 G47 触动点
+
+> RestTimerOverlay 折叠/展开动效在 G47 替换里改动最大(140→instant / 220→base+standard / 180→fast+standard / 200→fast+standard)。
+> 真机:开始一个训练 → 启动休息计时器 → 看窄条折入折出,有无手感异常。
+
+| # | 步骤 | 期望手感 | 结果 |
+|---|------|----------|------|
+| 9.11.4.1 | 训练中 → 完成一组 → 自动启动休息 → 倒计时跑 | 倒计时数字 ring 平滑,无视觉跳变 | ☐ 通过 / ☐ 失败 |
+| 9.11.4.2 | 休息中点窄条 → 展开成大窗口 | 展开 ~220ms 起步入场(慢一档让用户看见) | ☐ 通过 / ☐ 失败 |
+| 9.11.4.3 | 展开态点背景 / 关闭按钮 | 折叠 ~100ms instant(快一档,不挡做事) | ☐ 通过 / ☐ 失败 |
+| 9.11.4.4 | 倒计时归零 → 自动 skip | 进度 ring 用 200ms ease-out 收尾到 0,不"撞停" | ☐ 通过 / ☐ 失败 |
+| 9.11.4.5 | Haptic 震动触感 | 三档(quick / fast / instant)振动长度不同,但**不替代**手指滑动的手感 | ☐ 通过 / ☐ 失败 |
+
+### 9.11.5 静态回归 — 不得退步
+
+| # | 步骤 | 期望 | 结果 |
+|---|------|------|------|
+| 9.11.5.1 | 全项目截图对比 commit 2121f30 之前 | 字体 / 间距 / 颜色 / 圆角都相同;**只**动效时长和 ease 一致;无错位 | ☐ 通过 / ☐ 失败 |
+| 9.11.5.2 | 全部 §1.5(主题 + 沉浸式)和 §9.5(休息通知)冒烟一遍 | 全过,无行为退步(G47 是 token 替换,不应改变功能) | ☐ 通过 / ☐ 失败 |
+
+### 9.11.6 ❌ 这不该出现 — 排查清单
+
+> 任何一项发现立即圈档,**说明 token 没接住**:
+
+- [ ] 出现 overshoot / bounce(回弹超过终点)→ motion.springs.gentle 配置被某个文件错用了;
+- [ ] 出现"抖"一下 → 多个 withTiming 链式累积导致进度叠加;
+- [ ] 一个弹层明显比另一个慢/快 50% 以上 → 字面 duration 漏写或 token 拼错;
+- [ ] 颜色闪一下 / 文字抖一下 / 卡片跳一下 → 依赖其它副作用,跟 G47 无关,另开 bug。
+
+---
+
 ## 10. G13–G43 增量 AC 速查表 🟡 P1
 
 > 每个目标至少跑一条核心 AC 即可，详细见对应章节。
@@ -665,7 +741,7 @@ adb -s 3c66de59 logcat -c && adb -s 3c66de59 logcat -v threadtime | grep -iE "im
 | **G39** GIF 三态资源层 | `asset:` 前缀 bundled 秒开；remote 走 skeleton → 淡入 | 见 §9.7 | ☐ 通过 / ☐ 失败 |
 | **G40** 52 张全 bundled | 动作库 52 个动作缩略图**全部**秒开，无 blank | 见 §9.7 | ☐ 通过 / ☐ 失败 |
 | **G41** 动作库 306 | 动作库总数 = 306（含 254 CDN 缩略图 skeleton） | 见 §9.8 | ☐ 通过 / ☐ 失败 |
-| **G42** 通知栏原生 ProgressBar | 系统 ProgressBar 推进（**着色项除外**，见 §9.5 已知限制） | 见 §9.5 | ⚠️ 通过（着色 ❌，其余 ✅，2026-09-27/28） |
+| **G42** 通知栏原生 ProgressBar | 系统 ProgressBar 推进（**着色项待复验**，见 §9.5 已知限制） | 见 §9.5 | ⚠️ 通过（推进 ✅ 2026-09-27/28；着色 ❌→☐ 2026-10-02 改 `android:progressTint` 兜底，**未上机**） |
 | **G42a** 训练完成 save flow | 通知无残留 + 双按钮保存 / 不保存 | 见 §9.5（42.19–42.27） | ✅ 通过（2026-09-18） |
 | **G42d** 后台进度条不冻结 | 按 Home 后进度条继续推进 + 前台服务起来 | 见 §9.5（42.28–42.33） | ✅ 通过（2026-09-28，`67024c6`） |
 | **G43** dev-client 工程链路 | 装 dev APK → 连 Metro → 不红屏 | 见 §14 | ✅ 通过（2026-09-27） |
@@ -740,10 +816,26 @@ adb -s 3c66de59 logcat -c && adb -s 3c66de59 logcat -v threadtime | grep -iE "im
 
 ### 🟡 待处理
 
-#### 13.3 进度条着色：G42 三条 AC 未达成（产品决策项）
+#### 13.3 进度条着色：G42 三条 AC ☐ 待出包复验（2026-10-02 重新定性）
 
-→ 详见 §9.5「已知限制」。`setProgressTintList` 需 API ≥ 31，验收机 Android 10 上进度条是系统 teal。
-不是工程 bug，是要拍板：换 RemoteViews 自绘 widget，还是放弃系统 ProgressBar。
+**原定性是错的。** 原文写「`setProgressTintList` 需 API ≥ 31 → 在 Android 10 上无解，
+要拍板换 RemoteViews 自绘 widget 或放弃系统 ProgressBar」—— 把它挂在「待处理」当**产品决策项**。
+
+实际上受限的只是**运行时更新**通道（`RemoteViews.setColorStateList` 反射重载）。
+进度条在**我们自己的 layout** 里（`modules/expo-rest-timer-progress/android/src/main/res/layout/notification_rest_timer.xml`），
+layout 属性是 **inflate 时**解析的，跟那条 API 限制毫无关系 —— 加一个
+`android:progressTint`（API 21+ 属性）就够了，**不需要自绘控件**。
+
+- 改法：`android:progressTint="@color/rest_timer_progress_tint"`，
+  颜色见同模块 `values/colors.xml`（`#FF6B35`）/ `values-night/colors.xml`（`#FF7A4D`），
+  与 `src/theme/colors.ts` 的品牌色对齐
+- API 31+ 仍由 Kotlin 用 JS 传来的 `colorHex` 覆盖（两层并存，XML 是兜底，不冲突）
+- **未上机** —— 属 `modules/` 下资源改动，必须重打 APK（见 13.6）。三次 AC（42.5/42.6/42.7）
+  在复验前仍判 ❌
+
+> 教训与 13.2 同源：把一个「没验过的推断」写成了「无解」的结论，于是它变成了一个
+> 占注意力的产品决策项。**「这个方案在这个 API 级别上做不到」和「我用的这条 API
+> 做不到」是两回事** —— 下结论前先问一句：限制是作用在这条通道上，还是这个问题上？
 
 #### 13.4 `_diag/` 让 `tsc --noEmit` 报错（噪音）
 
