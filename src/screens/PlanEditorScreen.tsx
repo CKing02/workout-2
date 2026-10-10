@@ -57,7 +57,6 @@ import {
 } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Animated, {
-  Easing,
   runOnJS,
   useAnimatedStyle,
   useSharedValue,
@@ -89,6 +88,7 @@ import {
 } from '@/store/planStore';
 import { useExerciseStore } from '@/store/exerciseStore';
 import { useTheme } from '@/theme';
+import { motion } from '@/theme/motion';
 import { haptic } from '@/utils/haptics';
 import type { Exercise } from '@/db/schema';
 
@@ -944,7 +944,7 @@ function SetRow({
   const translateX = useSharedValue(0);
 
   const handleTrashPress = useCallback(() => {
-    translateX.value = withTiming(0, { duration: 180 }, (finished) => {
+    translateX.value = withTiming(0, { duration: motion.duration.fast }, (finished) => {
       if (finished) runOnJS(onRemove)();
     });
   }, [onRemove, translateX]);
@@ -964,13 +964,13 @@ function SetRow({
         .onEnd(() => {
           if (translateX.value < -SWIPE_THRESHOLD) {
             translateX.value = withTiming(-REVEAL_WIDTH, {
-              duration: 180,
-              easing: Easing.out(Easing.cubic),
+              duration: motion.duration.fast,
+              easing: motion.easing.standard,
             });
           } else {
             translateX.value = withTiming(0, {
-              duration: 180,
-              easing: Easing.out(Easing.cubic),
+              duration: motion.duration.fast,
+              easing: motion.easing.standard,
             });
           }
         }),
@@ -980,7 +980,7 @@ function SetRow({
   const tap = useMemo(
     () =>
       Gesture.Tap().onEnd(() => {
-        translateX.value = withTiming(0, { duration: 180 });
+        translateX.value = withTiming(0, { duration: motion.duration.fast });
       }),
     [translateX],
   );
@@ -1437,12 +1437,12 @@ function ReorderRow({ pe, index, onDrop }: ReorderRowProps) {
         .onEnd((e) => {
           isActive.value = 0;
           runOnJS(onDrop)(pe.id, e.translationY);
-          translateY.value = withTiming(0, { duration: 160 });
+          translateY.value = withTiming(0, { duration: motion.duration.fast });
         })
         .onFinalize(() => {
           // 兜底:手势被中途取消(Modal 关闭 / 焦点丢失等)也要归位。
           isActive.value = 0;
-          translateY.value = withTiming(0, { duration: 160 });
+          translateY.value = withTiming(0, { duration: motion.duration.fast });
         }),
     [pe.id, translateY, isActive, onDrop],
   );

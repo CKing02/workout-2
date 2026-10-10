@@ -30,7 +30,6 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
-  Easing,
   useAnimatedStyle,
   useSharedValue,
   withTiming,
@@ -41,6 +40,7 @@ import { Button } from '@/components/Button';
 import { Sheet } from '@/components/Sheet';
 import { TimerRing } from '@/components/TimerRing';
 import { useTheme } from '@/theme';
+import { motion } from '@/theme/motion';
 import { haptic } from '@/utils/haptics';
 
 import { useRestTimerStore } from './restTimerStore';
@@ -86,7 +86,7 @@ export function RestTimerOverlay() {
       autoCloseRef.current = null;
     }
     // 切到 expanded 时让窄条退场(如果还在)
-    collapseAnim.value = withTiming(0, { duration: 140 });
+    collapseAnim.value = withTiming(0, { duration: motion.duration.instant });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runId]);
 
@@ -99,8 +99,8 @@ export function RestTimerOverlay() {
     haptic.success();
     setExpanded(false);
     collapseAnim.value = withTiming(1, {
-      duration: 220,
-      easing: Easing.out(Easing.cubic),
+      duration: motion.duration.base,
+      easing: motion.easing.standard,
     });
 
     if (autoCloseRef.current) clearTimeout(autoCloseRef.current);
@@ -146,8 +146,8 @@ export function RestTimerOverlay() {
   const handleCollapse = useCallback(() => {
     setExpanded(false);
     collapseAnim.value = withTiming(1, {
-      duration: 220,
-      easing: Easing.out(Easing.cubic),
+      duration: motion.duration.base,
+      easing: motion.easing.standard,
     });
   }, [collapseAnim]);
 
@@ -155,8 +155,8 @@ export function RestTimerOverlay() {
   const handleExpand = useCallback(() => {
     setExpanded(true);
     collapseAnim.value = withTiming(0, {
-      duration: 180,
-      easing: Easing.out(Easing.cubic),
+      duration: motion.duration.fast,
+      easing: motion.easing.standard,
     });
   }, [collapseAnim]);
 
@@ -328,8 +328,8 @@ function CollapsedBar({
   useEffect(() => {
     if (!isCompleted) return;
     progress.value = withTiming(0, {
-      duration: 200,
-      easing: Easing.out(Easing.quad),
+      duration: motion.duration.fast,
+      easing: motion.easing.standard,
     });
   }, [isCompleted, progress]);
 

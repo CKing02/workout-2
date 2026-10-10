@@ -22,7 +22,6 @@ import {
   type ViewStyle,
 } from 'react-native';
 import Animated, {
-  Easing,
   useAnimatedStyle,
   useSharedValue,
   withTiming,
@@ -30,6 +29,7 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useTheme } from '@/theme';
+import { motion } from '@/theme/motion';
 
 export interface SheetProps {
   visible: boolean;
@@ -59,14 +59,14 @@ export function Sheet({
 
   useEffect(() => {
     if (visible) {
-      backdrop.value = withTiming(1, { duration: 160 });
+      backdrop.value = withTiming(1, { duration: motion.duration.fast });
       translateY.value = withTiming(0, {
-        duration: 240,
-        easing: Easing.out(Easing.cubic),
+        duration: motion.duration.fast,
+        easing: motion.easing.standard,
       });
     } else {
-      backdrop.value = withTiming(0, { duration: 140 });
-      translateY.value = withTiming(800, { duration: 200 });
+      backdrop.value = withTiming(0, { duration: motion.duration.instant });
+      translateY.value = withTiming(800, { duration: motion.duration.fast });
     }
   }, [backdrop, translateY, visible]);
 

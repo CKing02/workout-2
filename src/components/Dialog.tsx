@@ -14,11 +14,12 @@
 import React, { useEffect } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View, type ViewStyle } from 'react-native';
 import Animated, {
-  Easing,
   useAnimatedStyle,
   useSharedValue,
   withTiming,
 } from 'react-native-reanimated';
+
+import { motion } from '@/theme/motion';
 
 import { Button } from './Button';
 import { useTheme } from '@/theme';
@@ -52,11 +53,11 @@ export function Dialog({
 
   useEffect(() => {
     if (visible) {
-      backdrop.value = withTiming(1, { duration: 160 });
-      scale.value = withTiming(1, { duration: 200, easing: Easing.out(Easing.cubic) });
+      backdrop.value = withTiming(1, { duration: motion.duration.fast });
+      scale.value = withTiming(1, { duration: motion.duration.fast, easing: motion.easing.standard });
     } else {
-      backdrop.value = withTiming(0, { duration: 140 });
-      scale.value = withTiming(0.94, { duration: 140 });
+      backdrop.value = withTiming(0, { duration: motion.duration.instant });
+      scale.value = withTiming(0.94, { duration: motion.duration.instant });
     }
   }, [backdrop, scale, visible]);
 

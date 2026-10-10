@@ -31,6 +31,7 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import { useTheme } from '@/theme';
+import { motion } from '@/theme/motion';
 
 export interface SegmentedOption<T extends string> {
   label: string;
@@ -70,7 +71,7 @@ export function SegmentedControl<T extends string>({
     if (idx < 0) return;
     const offset = widths.slice(0, idx).reduce((a, b) => a + b, 0);
     if (Number.isFinite(offset)) {
-      thumbX.value = withTiming(offset, { duration: 180 });
+      thumbX.value = withTiming(offset, { duration: motion.duration.fast });
     }
   }, [value, widths, options, thumbX]);
 

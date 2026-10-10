@@ -20,7 +20,6 @@
 import React, { useEffect } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, {
-  Easing,
   useAnimatedStyle,
   useSharedValue,
   withTiming,
@@ -29,9 +28,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useToast, type ToastVariant } from '@/hooks/useToast';
 import { useTheme } from '@/theme';
+import { motion } from '@/theme/motion';
 
-const ENTER_DURATION = 220;
-const EXIT_DURATION = 180;
+// 用 motion token (G47):入场给用户读时间,出场快一点让 toast 不挡事
+const ENTER_DURATION = motion.duration.base;
+const EXIT_DURATION = motion.duration.fast;
 
 interface VariantStyle {
   /** Background fill (full opacity). */
@@ -131,12 +132,12 @@ export function Toast() {
     if (state.visible) {
       progress.value = withTiming(1, {
         duration: ENTER_DURATION,
-        easing: Easing.out(Easing.cubic),
+        easing: motion.easing.standard,
       });
     } else {
       progress.value = withTiming(0, {
         duration: EXIT_DURATION,
-        easing: Easing.in(Easing.cubic),
+        easing: motion.easing.standard,
       });
     }
   }, [state.visible, state.id, progress]);

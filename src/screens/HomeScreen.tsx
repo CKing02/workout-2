@@ -34,7 +34,6 @@ import {
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
-  Easing,
   runOnJS,
   useAnimatedStyle,
   useSharedValue,
@@ -48,6 +47,7 @@ import { toast } from '@/hooks/useToast';
 import { useSettingsStore } from '@/store/settingsStore';
 import { useTrainingStore } from '@/store/trainingStore';
 import { useTheme } from '@/theme';
+import { motion } from '@/theme/motion';
 import {
   type HistoryGroup,
   displayExerciseCount,
@@ -402,13 +402,13 @@ function SwipeableTrainingCard(props: SwipeableTrainingCardProps) {
           'worklet';
           if (translateX.value < -SWIPE_THRESHOLD) {
             translateX.value = withTiming(-SWIPE_REVEAL, {
-              duration: 180,
-              easing: Easing.out(Easing.cubic),
+              duration: motion.duration.fast,
+              easing: motion.easing.standard,
             });
           } else {
             translateX.value = withTiming(0, {
-              duration: 180,
-              easing: Easing.out(Easing.cubic),
+              duration: motion.duration.fast,
+              easing: motion.easing.standard,
             });
           }
         }),
@@ -419,7 +419,7 @@ function SwipeableTrainingCard(props: SwipeableTrainingCardProps) {
     () =>
       Gesture.Tap().onEnd(() => {
         'worklet';
-        translateX.value = withTiming(0, { duration: 160 });
+        translateX.value = withTiming(0, { duration: motion.duration.fast });
       }),
     [translateX],
   );
@@ -435,7 +435,7 @@ function SwipeableTrainingCard(props: SwipeableTrainingCardProps) {
   }));
 
   const handleTrashPress = useCallback(() => {
-    translateX.value = withTiming(0, { duration: 160 }, () => {
+    translateX.value = withTiming(0, { duration: motion.duration.fast }, () => {
       runOnJS(props.onRequestDelete)();
     });
   }, [props, translateX]);

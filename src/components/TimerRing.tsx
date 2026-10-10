@@ -40,7 +40,6 @@ import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import Svg, { Circle, G } from 'react-native-svg';
 import Animated, {
-  Easing,
   cancelAnimation,
   useAnimatedProps,
   useSharedValue,
@@ -48,6 +47,7 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import { useTheme } from '@/theme';
+import { motion } from '@/theme/motion';
 
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
@@ -112,10 +112,10 @@ export function TimerRing({
     progress.value = fraction;
     if (remainingMs <= 0 && !firedRef.current) {
       firedRef.current = true;
-      // 收尾:120ms ease-out 让 ring"落入"零点而不是撞停(细节,让完成感柔和)
+      // 末段 ease-out snap:让 ring"落入"零点而不是撞停(细节,让完成感柔和)
       progress.value = withTiming(0, {
-        duration: 120,
-        easing: Easing.out(Easing.quad),
+        duration: motion.duration.fast,
+        easing: motion.easing.standard,
       }, () => {
         // Use runOnJS through setImmediate for safety.
         setImmediate(() => onCompleteRef.current?.());
