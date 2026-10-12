@@ -2540,7 +2540,7 @@ G46 已经把动效 token(duration / easing / springs)落到 `@/theme/motion.ts`
 ## G48. 业务接入 + 训练页沉浸(CountUp + ConfettiBurst + 触感进训练闭环)
 
 **优先级**:P2(体验层)  |  **依赖**:G46(✅ 已完) + G47(✅ 已完)  |  **阶段**:4
-**状态**:🟡 **范围已锁定 / 待开工**(2026-10-12)
+**状态**:🟡 **实现已提交 / 云 APK 已装机 / 真机验收未完成，按用户下班要求停止本轮工作**(2026-10-12)
 
 ### 为什么单开一节
 
@@ -2626,6 +2626,18 @@ G29 已经把顶部进度条做了,G38.1 已经把"完成一组后焦点光带"�
 - 9.12.3 训练完成页 - 本次最佳组展示
 - 9.12.4 训练中 - ✓ 落版手感
 - 9.12.5 静态对比 (无功能退步)
+
+### 提交记录 / 测试 / 验收（2026-10-12 下班交接）
+
+- **实现提交**：`bbb49ed2048281ee5240f39314a6403dad3662af`，已推送 `master`。实现总结页三处 CountUp、负重庆祝及一次 heavy、最佳组卡片与 Sheet、完成组按钮落版。
+- **统计口径**：总结页入场前通过 `prepareTrainingSummary()` 冻结统计，显式保存时才写训练组；保留保存 / 不保存流程。容量与最佳组只计已完成、非热身、重量及次数均有限且为正的组；总组数含未完成与热身组。
+- **Scope Lock 例外**：用户明确允许最小修复 `CountUp.tsx`，保持 props 签名；将 UI worklet 的中间值与完成回调经 `runOnJS` 桥接到 JS，并使用 standard easing。同步补充 CountUp 测试及计划内 store / screen 测试。其余禁改文件、品牌 WIP、依赖及 schema 未纳入本批。
+- **自动验证**：当前工作区 `npm run typecheck` 0 错；全量 Jest **49 suites / 554 tests / 1 snapshot 全绿**（原基线 47 / 528 / 1）。AC-8 已满足。
+- **AC-7 限制**：纯 checkout 仍有两条既有 TS2307：已跟踪的 `brand/BootSplash.tsx` 引用未提交的 `BarbellMark` / `markGeometry`。当前工作区有对应 WIP 文件，因此 typecheck 通过；不能宣称干净 checkout 全绿。按约定不修改品牌目录。
+- **APK**：[GitHub Actions #38230045322](https://github.com/CKing02/workout-2/actions/runs/38230045322) 成功，源码 `bbb49ed`，arm64 debug dev-client，已同证书覆盖安装到 OPPO PBEM00 / Android 10。SDK 已被用户删除，构建使用 GitHub 云端，无需恢复本地 SDK。此包需 Metro，不是独立 release 包。
+- **真机现状**：原有计划 / 历史保留；已实际新建测试计划、添加 T 杠划船、录入四组及热身类型、保存计划、进入训练。最后截图显示前三组完成、第四组未完成，休息 Sheet 30 秒；原生 `RestTimerTickerService` 已观察到 `isForeground=true / foregroundId=1001`。这些仅为局部验证，不能据此判定 §2 / §9.5 / §9.11.4 / §9.12 全过。
+- **待验收**：AC-1～6 有实现与自动测试依据，真机总结页、数字中间帧、庆祝一次性、无重量安静完成、保存 / 丢弃与历史核对、按钮 ≤200ms 及主观触感仍待复验；AC-9 未完成。设备不提供 `screenrecord` 命令，逐帧验收需另选录屏方式。
+- **续做入口**：详见 [G48 下班交接](docs/G48_HANDOFF_2026-10-12.md)，包含 APK 路径 / SHA256、Metro 启动方式、测试数据、证据位置及待办。先恢复测试环境及确认未保存训练状态，再继续验收；不要重新实现或重新构建已有 APK，也不要混入品牌与通知着色 WIP。
 
 ### 下一阶段入口
 
