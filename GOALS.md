@@ -2540,7 +2540,7 @@ G46 已经把动效 token(duration / easing / springs)落到 `@/theme/motion.ts`
 ## G48. 业务接入 + 训练页沉浸(CountUp + ConfettiBurst + 触感进训练闭环)
 
 **优先级**:P2(体验层)  |  **依赖**:G46(✅ 已完) + G47(✅ 已完)  |  **阶段**:4
-**状态**:🟡 **实现已提交 / 云 APK 已装机 / 真机验收未完成，按用户下班要求停止本轮工作**(2026-10-12)
+**状态**:🟡 **实现与自动验证完成 / 最终云 APK 已装机 / 核心真机取证完成；AC-7 与 AC-9 保留验收限制，未判九条全部通过**(2026-10-13)
 
 ### 为什么单开一节
 
@@ -2564,7 +2564,7 @@ G29 已经把顶部进度条做了,G38.1 已经把"完成一组后焦点光带"�
 - ✅ 加 `docs/REAL_DEVICE_TEST_CHECKLIST.md §9.12` 真机手感测试专项
 - ❌ 不动 `src/features/training/RestTimerOverlay.tsx` (G47 改完)
 - ❌ 不动 `src/screens/PlanEditorScreen.tsx` (G47 改完)
-- ❌ 不动 `src/components/CountUp.tsx` / `ConfettiBurst.tsx` (G46 已交付, 签名稳定)
+- ❌ 原约定不动 `src/components/CountUp.tsx` / `ConfettiBurst.tsx`；**用户已批准 CountUp 最小桥接及 easing 修复，保持 props 签名**。ConfettiBurst 仍禁改。
 - ❌ 不动 `src/utils/haptics.ts` / `src/theme/motion.ts` (G46 已交付)
 - ❌ 不动 G3 设计系统组件 (Sheet / Dialog / Button)
 - ❌ 不引入新依赖
@@ -2627,17 +2627,20 @@ G29 已经把顶部进度条做了,G38.1 已经把"完成一组后焦点光带"�
 - 9.12.4 训练中 - ✓ 落版手感
 - 9.12.5 静态对比 (无功能退步)
 
-### 提交记录 / 测试 / 验收（2026-10-12 下班交接）
+### 提交记录 / 测试 / 验收（2026-10-12 / 13）
 
-- **实现提交**：`bbb49ed2048281ee5240f39314a6403dad3662af`，已推送 `master`。实现总结页三处 CountUp、负重庆祝及一次 heavy、最佳组卡片与 Sheet、完成组按钮落版。
-- **统计口径**：总结页入场前通过 `prepareTrainingSummary()` 冻结统计，显式保存时才写训练组；保留保存 / 不保存流程。容量与最佳组只计已完成、非热身、重量及次数均有限且为正的组；总组数含未完成与热身组。
-- **Scope Lock 例外**：用户明确允许最小修复 `CountUp.tsx`，保持 props 签名；将 UI worklet 的中间值与完成回调经 `runOnJS` 桥接到 JS，并使用 standard easing。同步补充 CountUp 测试及计划内 store / screen 测试。其余禁改文件、品牌 WIP、依赖及 schema 未纳入本批。
-- **自动验证**：当前工作区 `npm run typecheck` 0 错；全量 Jest **49 suites / 554 tests / 1 snapshot 全绿**（原基线 47 / 528 / 1）。AC-8 已满足。
-- **AC-7 限制**：纯 checkout 仍有两条既有 TS2307：已跟踪的 `brand/BootSplash.tsx` 引用未提交的 `BarbellMark` / `markGeometry`。当前工作区有对应 WIP 文件，因此 typecheck 通过；不能宣称干净 checkout 全绿。按约定不修改品牌目录。
-- **APK**：[GitHub Actions #38230045322](https://github.com/CKing02/workout-2/actions/runs/38230045322) 成功，源码 `bbb49ed`，arm64 debug dev-client，已同证书覆盖安装到 OPPO PBEM00 / Android 10。SDK 已被用户删除，构建使用 GitHub 云端，无需恢复本地 SDK。此包需 Metro，不是独立 release 包。
-- **真机现状**：原有计划 / 历史保留；已实际新建测试计划、添加 T 杠划船、录入四组及热身类型、保存计划、进入训练。最后截图显示前三组完成、第四组未完成，休息 Sheet 30 秒；原生 `RestTimerTickerService` 已观察到 `isForeground=true / foregroundId=1001`。这些仅为局部验证，不能据此判定 §2 / §9.5 / §9.11.4 / §9.12 全过。
-- **待验收**：AC-1～6 有实现与自动测试依据，真机总结页、数字中间帧、庆祝一次性、无重量安静完成、保存 / 丢弃与历史核对、按钮 ≤200ms 及主观触感仍待复验；AC-9 未完成。设备不提供 `screenrecord` 命令，逐帧验收需另选录屏方式。
-- **续做入口**：详见 [G48 下班交接](docs/G48_HANDOFF_2026-10-12.md)，包含 APK 路径 / SHA256、Metro 启动方式、测试数据、证据位置及待办。先恢复测试环境及确认未保存训练状态，再继续验收；不要重新实现或重新构建已有 APK，也不要混入品牌与通知着色 WIP。
+- **提交**：`bbb49ed` 业务实现；`07cb811` 修总结统计卡为 2×2 并保留 mm:ss / h:mm:ss，消除拥挤截断；`e06a82f` 等原生 opening transitionEnd 后再计数与庆祝。均已推送 master；`202e0fe` 为此前下班交接，状态已更新。
+- **统计口径**：`prepareTrainingSummary()` 入场冻结统计，显式保存才写训练组；容量/最佳组只取已完成、非热身、有限正数重量与次数，总组数包含全部组。真机40×10、60×8、热身100×10、未完成100×20得到容量880 / 最佳480 / 总组4；历史完成组3。
+- **Scope Lock 例外**：用户明确允许最小修复 CountUp，保持 props；中间值与完成回调经 runOnJS 桥接，使用 standard easing，补充对应测试。其余禁改文件、品牌WIP、依赖及schema未纳入本批。
+- **自动验证**：当前工作区typecheck exit0；全量Jest **49 suites / 555 tests / 1 snapshot，exit0**，包括工作区已有未提交测试，不能把此数量当成干净checkout结果。新增store/CountUp/screen测试，AC-8有全量验证依据。日志 `.tmp/g48/typecheck-entry.log` / `jest-entry-retry.log`。
+- **AC-7 限制**：干净checkout仍有两条基线TS2307，BootSplash引用未提交BarbellMark / markGeometry；工作区有WIP所以通过。按约定不修改品牌目录，不能宣称干净checkout全绿。
+- **最终 APK**：[GitHub Actions 38269640863](https://github.com/CKing02/workout-2/actions/runs/38269640863)，源码e06a82f，arm64-v8a / x86_64 debug dev-client；ZIP CRC及产物SHA256核对通过。SHA256 `db1e33734c6550066449f38ff8fde59a2dde1c4e4dc7c54d88d455afefe8c6c4`。2026-10-13 00:09覆盖安装Success，首页正常且原历史保留。SDK已删除，构建使用GitHub云端；此包仍需Metro。
+- **真机证据来源**：核心录屏为bbb49ed原生包+干净e06a82f Metro JS，两次修复仅改JS/测试；最终e06a82f原生包另做覆盖安装及启动确认，未重复整套。
+- **AC-1～6核心证据**：三项计数中间帧可见；一次粒子与一次heavy；Sheet/滚动/继续不重复；无重量及仅热身安静完成，震动关闭仍播放粒子；best卡/Sheet正确；按钮492→529→492、≤184ms、未见overshoot，快速点只完成一组。CountUp配置260ms，debug录屏约300ms，不判精确物理260ms。
+- **冻结与数据**：总结停留约2分钟后保存，历史仍415秒/880容量/3完成组，保存前未写训练组；保存、不保存二次确认/继续/确认及取消均走通。设备最终停首页，kg/震动开/跟随系统/默认休息90已恢复，原历史960及另两条2880/880保留。
+- **AC-9边界**：§2 / §9.5 / §9.11.4 / §9.12核心流程已有证据，休息续时/跳过/折叠展开/后台到点正常；后台与锁屏仅约10秒，严格30秒、若干§2细项、每段休息动画精确耗时及主观手持触感未全验。API29非首次授权，不冒充API33+权限测试。
+- **基线发现**：§2.7.4切lb只换单位不换数字（DB60kg显示60lb），已核实d07360c存在；Scope Lock内仅记问题未修。通知teal着色旧失败保留，未混入通知资源WIP。
+- **收口**：按用户指出的重复测试问题停止扩展和重跑；如实保留AC-7/AC-9等限制，不标九条全满足。完整证据、未验项和数据追溯见 [真机验收报告](docs/G48_REAL_DEVICE_2026-10-12.md)；[交接记录](docs/G48_HANDOFF_2026-10-12.md) 已更新，勿按旧断点重复测试。
 
 ### 下一阶段入口
 
