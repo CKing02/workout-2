@@ -66,7 +66,7 @@ describe('G48 completion integration', () => {
     const counters = tree.root.findAllByType(CountUp);
     expect(counters.map((n) => n.props.value)).toEqual([120, 400, 3]);
     expect(counters.every((n) => n.props.duration === 260)).toBe(true);
-    for (const [id, value] of [['summary-duration', '2 分 00 秒'], ['summary-volume', '400'], ['summary-sets', '3']]) {
+    for (const [id, value] of [['summary-duration', '02:00'], ['summary-volume', '400'], ['summary-sets', '3']]) {
       const node = tree.root.findAllByType(Text).find((n) => n.props.testID === id);
       expect(node?.props.children).toBe(value);
     }

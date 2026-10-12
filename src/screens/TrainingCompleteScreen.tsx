@@ -534,7 +534,7 @@ interface StatCardProps {
 function StatCard({ icon, label, value, animatedValue, format, testID, unit, accessibilityHint }: StatCardProps) {
   const { colors, spacing, typography } = useTheme();
   return (
-    <Card padding="md" style={{ flex: 1, minWidth: 0 }}>
+    <Card padding="md" style={{ flexBasis: '45%', flexGrow: 1, minWidth: 0 }}>
       <View
         accessible
         accessibilityRole="text"
@@ -557,7 +557,7 @@ function StatCard({ icon, label, value, animatedValue, format, testID, unit, acc
         <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: spacing.xxs }}>
           {animatedValue !== undefined ? (
             <CountUp value={animatedValue} duration={motion.duration.base} format={format} testID={testID}
-              style={[typography.h2, { color: colors.text, fontVariant: ['tabular-nums'] }]} />
+              style={[typography.h2, { color: colors.text, fontVariant: ['tabular-nums'], flexShrink: 1 }]} />
           ) : <Text
             style={[
               typography.h2,
@@ -591,12 +591,9 @@ function formatDuration(totalSeconds: number): string {
   const minutes = Math.floor((s % 3600) / 60);
   const seconds = s % 60;
   if (hours > 0) {
-    return `${hours} 小时 ${pad(minutes)} 分 ${pad(seconds)} 秒`;
+    return `${hours}:${pad(minutes)}:${pad(seconds)}`;
   }
-  if (minutes > 0) {
-    return `${minutes} 分 ${pad(seconds)} 秒`;
-  }
-  return `${seconds} 秒`;
+  return `${pad(minutes)}:${pad(seconds)}`;
 }
 
 function formatKg(kg: number): string {
