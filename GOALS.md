@@ -2536,6 +2536,102 @@ G46 已经把动效 token(duration / easing / springs)落到 `@/theme/motion.ts`
 2. `motion.duration.instant=100ms` 覆盖原 140ms (state 切换语义);`motion.duration.base=260ms` 替换 Toast 原 220ms 入场。
 3. worklet 内 (Gesture .onEnd / onUpdate) 引用 motion.* —— Reanimated 4 worklet 编译器静态捕获,字符串字面不需 runOnJS 中转。
 
+
+## G48. 业务接入 + 训练页沉浸(CountUp + ConfettiBurst + 触感进训练闭环)
+
+**优先级**:P2(体验层)  |  **依赖**:G46(✅ 已完) + G47(✅ 已完)  |  **阶段**:4
+**状态**:🟡 **范围已锁定 / 待开工**(2026-10-12)
+
+### 为什么单开一节
+
+G46 交付了底层三个组件(`CountUp` / `ConfettiBurst` / `haptics`) 但严格 Scope Lock 守住"不接业务页"。G47 把业务组件硬编码动效统一收口到 `motion.*` token,但也只动了 Dialog / Sheet / Toast / SegmentedControl / Skeleton / TimerRing / 训练中-折叠展开。
+
+**G48 的存在理由是兑现这两层的价值** —— 训练完成页翻起来、完成感撒一波、训练中主按钮落版回弹, 这些是用户最直观的"完成感"感官。
+
+G29 已经把顶部进度条做了,G38.1 已经把"完成一组后焦点光带"做了 —— **G48 不能再做这些"重叠项", 只能做 G29 / G38.1 没碰的部分**:
+- 训练完成页数字翻动 (`CountUp`)
+- 训练完成页庆祝 (`ConfettiBurst` + `haptic.heavy`)
+- "本次最佳一组"突出展示
+- 主 CheckButton 落版回弹 (`motion.springs.gentle`)
+
+### 范围控制 (Scope Lock)
+
+**只动 4 个文件 + 1 文档**:
+
+- ✅ 改 `src/store/trainingStore.ts` —— 新增 `bestSet: { weight, reps, value } | null` 字段, `completeTraining` 时计算
+- ✅ 改 `src/screens/TrainingCompleteScreen.tsx` —— 替换 3 处数字为 `CountUp`, 加 `ConfettiBurst` + `haptic.heavy`, 展示 bestSet
+- ✅ 改 `src/screens/ActiveTrainingScreen.tsx` —— 主 CheckButton 加 ✓ 落版缩放动效 (motion.springs.gentle)
+- ✅ 加 `docs/REAL_DEVICE_TEST_CHECKLIST.md §9.12` 真机手感测试专项
+- ❌ 不动 `src/features/training/RestTimerOverlay.tsx` (G47 改完)
+- ❌ 不动 `src/screens/PlanEditorScreen.tsx` (G47 改完)
+- ❌ 不动 `src/components/CountUp.tsx` / `ConfettiBurst.tsx` (G46 已交付, 签名稳定)
+- ❌ 不动 `src/utils/haptics.ts` / `src/theme/motion.ts` (G46 已交付)
+- ❌ 不动 G3 设计系统组件 (Sheet / Dialog / Button)
+- ❌ 不引入新依赖
+- ❌ 不引入新 schema / migration (PR 持久化留给 G49 或后续, 这次只做内存临时数据)
+- ❌ 不做"真 PR 与历史最大比较" (历史最大查询需要新 SQL JOIN, 超 G48 范围)
+- ❌ 不做 Lottie 训练完成动画 (留 G49)
+- ❌ 不做"训练中 PR 实时弹板" (训练中不弹, 完成时统一展示)
+
+### 设计决策
+
+#### 1. "PR" 在 G48 范围内的简化: 突出"本次最佳组"而非"对比历史最大新 PR"
+
+**理由**: 真 PR 检测需要读 G9 history + 跨表 SQL JOIN group by, 是新数据层 + UI 双向工作。G48 不引入新 schema, 不展开 SQL。简化方案 —— 训练完成时, store 计算本次训练中**单组 weight × reps 最高值**作为 "bestSet", 弹板展示该组详情。
+
+**后续 G49 或新 G**: 真正持久化 PR 表 (新 schema + history 加载期比较), 这次 G48 不踩。
+
+#### 2. 庆祝 (ConfettiBurst) 触发条件: 有重量训练即撒
+
+不区分"新 PR vs 没新 PR",**所有有重量数据的训练完成都撒** + `haptic.heavy()`。理由:
+- 健身场景用户完成一次训练的"成就感"远比"是否打破历史"重要, 阈值定太高会让人失望
+- 自由训练 (无重量) 跳过: 没有"最佳组"概念, ConfettiBurst 也不撒
+- `haptic.heavy()`: G46 已交付, 仅训后 `completeTraining` 触发一次
+
+#### 3. CheckButton 落版: motion.springs.gentle (无 overshoot)
+
+跟 G46 spec 顶层立场一致: "iOS HIG bounce 会让用户怀疑 '它没停稳' —— 我们用临界阻尼 (damping=20, stiffness=180) 无 bounce"。
+- 触发时机: set 标 completed + focus 跳到下一组前一帧
+- 动效: scale 1.0 → 1.08 → 1.0, spring gentle, 约 200ms
+- 用 `motion.springs.gentle` token (G46 定义的临界阻尼 spring)
+
+#### 4. CountUp 三个数字: 用 motion.duration.base (260ms)
+
+- 总组数: `totalAllSets` (= sum of all exercises' sets.length)
+- 总时长: `durationSeconds` (训练用时)
+- 总容量: 总 sum(weight × reps), 跨所有负重非热身组
+- 三者统一用 `motion.duration.base` 翻动 (260ms 慢一档, 让用户读时间)
+
+#### 5. PR 弹板 (训练完成页内): Sheet 复用, 不引入 Dialog
+
+跟 G47 训练完成页 Style 一致: 用 `Sheet` (从底部推上来)。Sheet 复用 G3 已交付组件, 跟 G47 §9.11.1 Sheet 入场手感统一。
+
+### 验收标准 (AC,详细)
+
+- AC-1 `trainingStore.completeTraining` 后 `bestSet` 字段被填上 (weight × reps 最大那组) 或 null (无重量)
+- AC-2 `TrainingCompleteScreen` 三个统计数字用 `CountUp` 组件, 最终值与 store 一致
+- AC-3 `TrainingCompleteScreen` 在 `bestSet != null` 时, 进首页 `motion.duration.base + motion.easing.standard` 翻 0 → 目标值
+- AC-4 `TrainingCompleteScreen` 在 `bestSet != null` 时, 触发 `ConfettiBurst trigger={bestSet.value}` + `haptic.heavy()`
+- AC-5 `bestSet == null` (自由训练无重量) 时, 不撒 ConfettiBurst, 不 haptic.heavy (安静完成)
+- AC-6 `ActiveTrainingScreen` 主 CheckButton 在 set 标 completed 时, 用 `motion.springs.gentle` 做 1.0 → 1.08 → 1.0 缩放落版 (200ms 内)
+- AC-7 全项目 `npm run typecheck` 0 错
+- AC-8 全项目 `npm test` 全绿, 新增 trainingStore (bestSet 逻辑) + TrainingCompleteScreen (CountUp 集成) 测试, 既有 528 tests 不退步
+- AC-9 真机回归: docs/REAL_DEVICE_TEST_CHECKLIST.md §9.12 (新增) + §2 训练闭环 + §9.5 休息通知 + §9.11.4 训练页沉浸
+
+### 配套:真机测试专项 §9.12
+
+新增到 `docs/REAL_DEVICE_TEST_CHECKLIST.md`:
+- 9.12.1 训练完成页 - 数字翻动
+- 9.12.2 训练完成页 - ConfettiBurst 庆祝
+- 9.12.3 训练完成页 - 本次最佳组展示
+- 9.12.4 训练中 - ✓ 落版手感
+- 9.12.5 静态对比 (无功能退步)
+
+### 下一阶段入口
+
+- **G49** = 设计参考集对齐 (视觉参考 + Lottie 评估 + 空状态插画)
+
+---
 ### 下一阶段入口
 
 - **G48** = C/D 阶段(CountUp + Confetti 接入 TrainingCompleteScreen + PR 弹板 + 训练页沉浸强化)
