@@ -22,13 +22,12 @@
  *   - 不接入任何业务页 —— 留给 G48。
  *   - 不做 disabled 状态的视觉变体 —— 默认总展示。
  *   - 不做千分位 / 千位格式化 —— 留给业务调 format。
- *   - 不做 per-frame 中间帧显示 —— 当前实现提交最终值；中间帧如有视觉需求留给
- *     G48 在接入页时按需引入 `useAnimatedReaction` + `runOnJS`。
+ * G48 经用户授权修复：中间帧通过 useAnimatedReaction + runOnJS 发布。
  *
  * **实现**：
  * `useSharedValue` + `withTiming` 触发 `sharedProgress` 由 0 走到 `value`。
- * `withTiming` 完成回调（finished=true）在 JS 线程同步触发，
- * 直接 `setText(format(value))` —— 不需要 `runOnJS`。
+ * UI worklet 只读取/传递数值；format、setText 和 onComplete 经 runOnJS
+ * 回 JS 线程执行。卸载时取消动画并忽略排队中的回调。
  *
  * **为什么 onComplete 不放进 useEffect deps？**
  * `onComplete` 是父组件渲染时新建的函数引用，React 每次 re-render 都会是新身份。
@@ -37,9 +36,9 @@
  * 绕过这个 React 闭包陷阱，同时保持 setText 单独跑的 useEffect 不依赖它。
  */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Text, type StyleProp, type TextStyle } from 'react-native';
-import { useSharedValue, withTiming } from 'react-native-reanimated';
+import { cancelAnimation, runOnJS, useAnimatedReaction, useSharedValue, withTiming } from 'react-native-reanimated';
 
 import { motion } from '@/theme/motion';
 
@@ -60,11 +59,7 @@ export interface CountUpProps {
 
 const defaultFormat = (n: number): string => n.toFixed(0);
 
-/**
- * G46 CountUp: sharedProgress + withTiming 驱动，最简化实现。
- *
- * 完成回调在 JS 线程同步触发 —— 直接 setState，不需要 runOnJS 中转。
- */
+/** sharedProgress + withTiming 驱动；保持 G46 的 props 签名。 */
 export function CountUp({
   value,
   duration = motion.duration.base,
@@ -75,34 +70,59 @@ export function CountUp({
 }: CountUpProps) {
   const sharedProgress = useSharedValue(0);
 
-  // 当前显示文本：初始 format(0)，withTiming 完成回调里同步替换为 format(value)。
+  // 显示文本在 JS 线程由中间帧和最终帧更新。
   const [text, setText] = useState<string>(format(0));
 
   // 用 ref 持"最新的 onComplete"—— 避免把它放进 useEffect deps（每次父组件 re-render
   // onComplete 身份变，会触发 withTiming 重跑、回调被叫 2 次）。
   const onCompleteRef = useRef<(() => void) | undefined>(onComplete);
+  const formatRef = useRef(format);
+  const activeRef = useRef(false);
+  formatRef.current = format;
   useEffect(() => {
     onCompleteRef.current = onComplete;
   }, [onComplete]);
 
+  // G48 授权最小修复：worklet 只传数值，格式化与 React 更新都回 JS 线程。
+  const publish = useCallback((n: number) => {
+    if (activeRef.current) setText(formatRef.current(n));
+  }, []);
+  const finish = useCallback((n: number) => {
+    if (!activeRef.current) return;
+    setText(formatRef.current(n));
+    onCompleteRef.current?.();
+  }, []);
+  useAnimatedReaction(
+    () => sharedProgress.value,
+    (current, previous) => {
+      if (current !== previous) runOnJS(publish)(current);
+    },
+    [publish],
+  );
+
   useEffect(() => {
-    let cancelled = false;
+    activeRef.current = true;
+    setText(formatRef.current(0));
     sharedProgress.value = 0;
+    if (duration <= 0) {
+      sharedProgress.value = value;
+      finish(value);
+      return () => { activeRef.current = false; };
+    }
     sharedProgress.value = withTiming(
       value,
-      { duration: Math.max(0, duration) },
+      { duration, easing: motion.easing.standard },
       (finished) => {
         // finished: false 通常是组件已 unmount 或 value 被快速重置；
         // 不调 onComplete，避免"假完成"漏到业务。
-        if (cancelled || !finished) return;
-        setText(format(value));
-        onCompleteRef.current?.();
+        if (finished) runOnJS(finish)(value);
       },
     );
     return () => {
-      cancelled = true;
+      activeRef.current = false;
+      cancelAnimation(sharedProgress);
     };
-  }, [value, duration, sharedProgress]);
+  }, [value, duration, sharedProgress, finish]);
 
   return (
     <Text

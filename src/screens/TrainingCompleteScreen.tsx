@@ -29,7 +29,7 @@
  *   - 数值/单位显示格式化为本地习惯(中文千分位、kg 保留 0 位小数)。
  */
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Platform,
@@ -61,7 +61,11 @@ import { haptic } from '@/utils/haptics';
 import { Button } from '@/components/Button';
 import { Card } from '@/components/Card';
 import { Dialog } from '@/components/Dialog';
+import { CountUp } from '@/components/CountUp';
+import { ConfettiBurst } from '@/components/ConfettiBurst';
+import { Sheet } from '@/components/Sheet';
 import { useTheme } from '@/theme';
+import { motion } from '@/theme/motion';
 import { useTrainingStore } from '@/store/trainingStore';
 import type { RootStackParamList } from '@/navigation/types';
 
@@ -79,6 +83,9 @@ export function TrainingCompleteScreen() {
   const insets = useSafeAreaInsets();
   const { colors, spacing, typography, radius } = useTheme();
 
+  const params = route.params;
+  const summary = useTrainingStore((s) => s.completionSummary);
+  const currentSummary = summary?.trainingId === params.trainingId ? summary : null;
   const {
     trainingId,
     durationSeconds,
@@ -86,7 +93,11 @@ export function TrainingCompleteScreen() {
     exerciseCount,
     setCount,
     planNameSnapshot,
-  } = route.params;
+  } = { ...params, ...currentSummary };
+  const bestSet = currentSummary?.bestSet ?? null;
+  const totalAllSets = currentSummary?.totalAllSets ?? setCount;
+  const [showBestSet, setShowBestSet] = useState(false);
+  const celebratedRef = useRef<string | null>(null);
 
   const completeTraining = useTrainingStore((s) => s.completeTraining);
   const cancelTraining = useTrainingStore((s) => s.cancelTraining);
@@ -95,8 +106,11 @@ export function TrainingCompleteScreen() {
   // Entry haptic — celebration when the screen opens.
   // ----------------------------------------------------------------
   useEffect(() => {
-    haptic.success();
-  }, []);
+    if (bestSet && celebratedRef.current !== trainingId) {
+      celebratedRef.current = trainingId;
+      haptic.heavy();
+    }
+  }, [bestSet, trainingId]);
 
   // ----------------------------------------------------------------
   // Save state machine: idle → saving → saved
@@ -256,12 +270,18 @@ export function TrainingCompleteScreen() {
             icon="⏱"
             label="时长"
             value={formattedDuration}
+            animatedValue={durationSeconds}
+            format={formatDuration}
+            testID="summary-duration"
             accessibilityHint={`本次训练总时长 ${formattedDuration}`}
           />
           <StatCard
             icon="💪"
             label="训练量"
             value={formattedVolume}
+            animatedValue={totalVolume}
+            format={formatKg}
+            testID="summary-volume"
             unit="kg"
             accessibilityHint={`总训练量 ${totalVolume.toFixed(0)} 公斤`}
           />
@@ -274,12 +294,26 @@ export function TrainingCompleteScreen() {
           />
           <StatCard
             icon="✓"
-            label="完成组数"
-            value={String(setCount)}
+            label="总组数"
+            value={String(totalAllSets)}
+            animatedValue={totalAllSets}
+            testID="summary-sets"
             unit="组"
             accessibilityHint={`共完成 ${setCount} 组`}
           />
         </View>
+        {bestSet ? (
+          <Card padding="md" style={{ alignSelf: 'stretch' }}>
+            <Text accessibilityRole="header" style={[typography.h3, { color: colors.primary }]}>本次最佳组</Text>
+            <Text style={[typography.h2, { color: colors.text, marginVertical: spacing.sm }]}>
+              {formatKg(bestSet.weight)} kg × {bestSet.reps} 次
+            </Text>
+            <Text style={[typography.bodySmall, { color: colors.textSecondary, marginBottom: spacing.sm }]}>
+              单组容量 {formatKg(bestSet.value)} kg · 次
+            </Text>
+            <Button variant="ghost" onPress={() => setShowBestSet(true)} accessibilityLabel="查看本次最佳组">查看详情</Button>
+          </Card>
+        ) : null}
       </ScrollView>
 
       {/* ====== Bottom CTA: 双按钮(主:保存 / 副:不保存) ====== */}
@@ -317,6 +351,19 @@ export function TrainingCompleteScreen() {
           不保存
         </Button>
       </View>
+
+      {bestSet ? <ConfettiBurst trigger={bestSet.value} testID="training-confetti" /> : null}
+      {bestSet ? (
+        <Sheet visible={showBestSet} onClose={() => setShowBestSet(false)} title="本次最佳组" testID="best-set-sheet">
+          <Text style={[typography.h2, { color: colors.text, marginBottom: spacing.md }]}>
+            {formatKg(bestSet.weight)} kg × {bestSet.reps} 次
+          </Text>
+          <Text style={[typography.body, { color: colors.textSecondary, marginBottom: spacing.md }]}>
+            本次已完成的非热身负重组中，重量 × 次数最高的一组。
+          </Text>
+          <Button onPress={() => setShowBestSet(false)}>继续查看</Button>
+        </Sheet>
+      ) : null}
 
       {/* ====== 不保存二次确认 ====== */}
       <Dialog
@@ -477,11 +524,14 @@ interface StatCardProps {
   icon: string;
   label: string;
   value: string;
+  animatedValue?: number;
+  format?: (n: number) => string;
+  testID?: string;
   unit?: string;
   accessibilityHint?: string;
 }
 
-function StatCard({ icon, label, value, unit, accessibilityHint }: StatCardProps) {
+function StatCard({ icon, label, value, animatedValue, format, testID, unit, accessibilityHint }: StatCardProps) {
   const { colors, spacing, typography } = useTheme();
   return (
     <Card padding="md" style={{ flex: 1, minWidth: 0 }}>
@@ -505,7 +555,10 @@ function StatCard({ icon, label, value, unit, accessibilityHint }: StatCardProps
           {label}
         </Text>
         <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: spacing.xxs }}>
-          <Text
+          {animatedValue !== undefined ? (
+            <CountUp value={animatedValue} duration={motion.duration.base} format={format} testID={testID}
+              style={[typography.h2, { color: colors.text, fontVariant: ['tabular-nums'] }]} />
+          ) : <Text
             style={[
               typography.h2,
               { color: colors.text, fontVariant: ['tabular-nums'] },
@@ -513,7 +566,7 @@ function StatCard({ icon, label, value, unit, accessibilityHint }: StatCardProps
             accessibilityElementsHidden
           >
             {value}
-          </Text>
+          </Text>}
           {unit ? (
             <Text
               style={[typography.bodySmall, { color: colors.textSecondary }]}

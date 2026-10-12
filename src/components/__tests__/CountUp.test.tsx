@@ -15,7 +15,7 @@
  *   withTiming(v, _, cb) — 把 v 写到共享值、调 cb(true)、返回 v
  *   Easing.bezier(...)   — 4 参数 sentinel
  *
- * 不再 mock useAnimatedReaction / runOnJS —— CountUp 已不依赖它们。
+ * G48: 模拟 UI 回调与 JS 桥接，并可手动推进中间帧。
  */
 
 import React from 'react';
@@ -24,6 +24,11 @@ import TestRenderer, { act } from 'react-test-renderer';
 
 // 顶层变量前缀必须是 `mock`（jest.mock factory 闭包白名单规则）
 const mockSharedRef: { value: number } = { value: 0 };
+let mockUI = false;
+let mockDeferred = false;
+let mockReaction: (current: number, previous: number | null) => void;
+let mockCompletion: (finished: boolean) => void;
+let mockTimingConfig: unknown;
 
 jest.mock('react-native-reanimated', () => ({
   __esModule: true,
@@ -33,11 +38,25 @@ jest.mock('react-native-reanimated', () => ({
     return mockSharedRef;
   },
   withTiming: (toValue: number, _cfg: unknown, callback?: (finished: boolean) => void) => {
+    mockTimingConfig = _cfg;
     // 同步把目标值写到 mock 共享值，然后触发完成回调。
     mockSharedRef.value = toValue;
-    if (callback) callback(true);
+    if (callback) {
+      mockCompletion = callback;
+      if (!mockDeferred) {
+        mockUI = true;
+        try { callback(true); } finally { mockUI = false; }
+      }
+    }
     return toValue;
   },
+  useAnimatedReaction: (_prepare: unknown, reaction: typeof mockReaction) => { mockReaction = reaction; },
+  runOnJS: (fn: (...args: unknown[]) => unknown) => (...args: unknown[]) => {
+    const wasUI = mockUI;
+    mockUI = false;
+    try { return fn(...args); } finally { mockUI = wasUI; }
+  },
+  cancelAnimation: jest.fn(),
   Easing: {
     bezier: (x1: number, y1: number, x2: number, y2: number) => ({
       __mockEasing: true,
@@ -51,6 +70,7 @@ jest.mock('react-native-reanimated', () => ({
 }));
 
 import { CountUp } from '@/components/CountUp';
+import { motion } from '@/theme/motion';
 
 function render(props: React.ComponentProps<typeof CountUp>): TestRenderer.ReactTestRenderer {
   let tree!: TestRenderer.ReactTestRenderer;
@@ -77,6 +97,57 @@ describe('G46 CountUp', () => {
   beforeEach(() => {
     // 每个用例前重置 mock 共享值
     mockSharedRef.value = 0;
+    mockUI = false;
+    mockDeferred = false;
+  });
+
+  describe('G48 UI→JS 与逐帧回归', () => {
+    it('中间帧可见，format 与 onComplete 在 JS 执行，使用 standard easing', () => {
+      mockDeferred = true;
+      const format = jest.fn((n: number) => {
+        expect(mockUI).toBe(false);
+        return `${n.toFixed(0)}kg`;
+      });
+      const onComplete = jest.fn(() => expect(mockUI).toBe(false));
+      const tree = render({ value: 100, format, onComplete });
+      expect(mockTimingConfig).toEqual({ duration: 260, easing: motion.easing.standard });
+      expect(getText(tree)).toBe('0kg');
+      act(() => {
+        mockUI = true;
+        try { mockReaction(45, 0); } finally { mockUI = false; }
+      });
+      expect(getText(tree)).toBe('45kg');
+      expect(onComplete).not.toHaveBeenCalled();
+      act(() => {
+        mockUI = true;
+        try { mockCompletion(true); } finally { mockUI = false; }
+      });
+      expect(getText(tree)).toBe('100kg');
+      expect(onComplete).toHaveBeenCalledTimes(1);
+      act(() => tree.unmount());
+    });
+
+    it('卸载取消动画，迟到的 UI 回调不格式化也不完成', () => {
+      mockDeferred = true;
+      const format = jest.fn((n: number) => String(n));
+      const onComplete = jest.fn();
+      const tree = render({ value: 100, format, onComplete });
+      act(() => tree.unmount());
+      format.mockClear();
+      act(() => { mockReaction(50, 0); mockCompletion(true); });
+      expect(format).not.toHaveBeenCalled();
+      expect(onComplete).not.toHaveBeenCalled();
+      expect(require('react-native-reanimated').cancelAnimation).toHaveBeenCalledWith(mockSharedRef);
+    });
+
+    it('动画中断 finished=false 不触发完成', () => {
+      mockDeferred = true;
+      const onComplete = jest.fn();
+      const tree = render({ value: 100, onComplete });
+      act(() => mockCompletion(false));
+      expect(onComplete).not.toHaveBeenCalled();
+      act(() => tree.unmount());
+    });
   });
 
   // ---------------- AC-5 props 类型签名 ----------------

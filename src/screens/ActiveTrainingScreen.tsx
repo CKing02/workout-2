@@ -54,6 +54,7 @@ import {
   type RouteProp,
 } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import Animated, { cancelAnimation, useAnimatedStyle, useSharedValue, withSequence, withSpring } from 'react-native-reanimated';
 
 import { Badge } from '@/components/Badge';
 import { Button } from '@/components/Button';
@@ -76,6 +77,7 @@ import { usePlanStore, type PlanSetDraft } from '@/store/planStore';
 import { useSettingsStore } from '@/store/settingsStore';
 import { useTrainingStore, type ActiveSet, type ActiveTraining } from '@/store/trainingStore';
 import { useTheme } from '@/theme';
+import { motion } from '@/theme/motion';
 import { haptic } from '@/utils/haptics';
 import { formatWeight } from '@/utils/units';
 import type { TrainingSet } from '@/db/schema';
@@ -186,6 +188,7 @@ export function ActiveTrainingScreen() {
   // -----------------------------------------------------------------
   const [pendingFinish, setPendingFinish] = useState(false);
   const [finishing, setFinishing] = useState(false);
+  const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // -----------------------------------------------------------------
   // G29: Set-type sheet state — targets an explicit (exIdx, setIdx)
@@ -484,20 +487,24 @@ export function ActiveTrainingScreen() {
     if (finishing) return;
     setFinishing(true);
     try {
+      if (feedbackTimerRef.current) {
+        clearTimeout(feedbackTimerRef.current);
+        feedbackTimerRef.current = null;
+      }
       // 1) 强制收尾通知栏 + rest timer(必须在 navigation 之前同步执行)
       // dismissRestTimerNotification 直调一道兜底 —— bridge 的 useEffect 在
       // unmount 时只跑 cleanup 不重跑 body,跳 idle 后再 unmount 会漏 dismiss。
       useRestTimerStore.getState().skip();
       void dismissRestTimerNotification();
 
-      // 2) 同步算 stats —— 公式与 trainingStore.computeStats 一致,
-      //    这里复制一份避免循环依赖 + 让本屏不必 import 私有函数。
+      // 2) 定格 store 的内存统计，保存时复用；不计总结页停留时间。
       const at = useTrainingStore.getState().activeTraining;
       if (!at) {
         setFinishing(false);
         return;
       }
-      const stats = computeStatsFromActive(at);
+      const stats = useTrainingStore.getState().prepareTrainingSummary();
+      if (!stats) return;
 
       // 3) 跳转。activeTraining 仍驻留内存,等用户在 TrainingComplete
       //    显式 tap「保存训练记录」(→ completeTraining) 或「不保存」
@@ -639,8 +646,17 @@ export function ActiveTrainingScreen() {
   // -----------------------------------------------------------------
   // Complete-set handler — the main CTA
   // -----------------------------------------------------------------
+  const checkScale = useSharedValue(1);
+  const checkStyle = useAnimatedStyle(() => ({ transform: [{ scale: checkScale.value }] }));
+  const [completingSet, setCompletingSet] = useState(false);
+  const completingSetRef = useRef(false);
+  useEffect(() => () => {
+    if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current);
+    cancelAnimation(checkScale);
+  }, [checkScale]);
+
   const handleCompleteSet = useCallback(() => {
-    if (!activeTraining) {
+    if (!activeTraining || completingSetRef.current) {
       return;
     }
     const ex = activeTraining.exercises[currentExerciseIndex];
@@ -674,6 +690,19 @@ export function ActiveTrainingScreen() {
     );
     if (!didAdvance) return;
 
+    completingSetRef.current = true;
+    setCompletingSet(true);
+    // duration-based spring 保留 gentle 的阻尼含义，并限制为临界阻尼。
+    // Reanimated 的实际 settling duration 是配置的 1.5 倍：两段共 200ms。
+    const spring = {
+      duration: motion.duration.instant / 1.5,
+      dampingRatio: Math.max(1, motion.springs.gentle.damping /
+        (2 * Math.sqrt(motion.springs.gentle.stiffness))),
+      overshootClamping: true,
+    };
+    checkScale.value = 1;
+    checkScale.value = withSequence(withSpring(1.08, spring), withSpring(1, spring));
+
     haptic.success();
 
     // G12: 完成一组 → 轻量 toast 反馈（不阻断）。
@@ -689,33 +718,41 @@ export function ActiveTrainingScreen() {
     // 让用户在系统抽屉就能识别"休息的是哪个动作"。
     const activeEx = activeTraining?.exercises[currentExerciseIndex];
     const restSeconds = activeEx?.restSeconds ?? defaultRestSeconds;
-    triggerRestTimer(restSeconds, activeEx?.exercise.name ?? null);
+    // 保留已完成的 CTA 一拍，避免休息遮罩或下一页吞掉落版反馈。
+    feedbackTimerRef.current = setTimeout(() => {
+      feedbackTimerRef.current = null;
+      checkScale.value = 1;
+      completingSetRef.current = false;
+      setCompletingSet(false);
+      triggerRestTimer(restSeconds, activeEx?.exercise.name ?? null);
 
-    // G29: 跨动作跳转 / 整体收尾。当前动作做完后：
-    //   1. 找下一个还有未完成组的动作 → 跳过去（store 自动把 currentSetIndex 重置为 0）
-    //   2. 找不到 → 整体收尾（→ TrainingComplete 总结页）
-    // 注意：wasLastUncompletedInExercise=true 在单动作训练 + 最后一组 时也会触发，
-    // 自然走到分支 2，无需单独的 wouldAllBeDone 判断。
-    if (wasLastUncompletedInExercise) {
-      let jumpedTo = -1;
-      for (let i = currentExerciseIndex + 1; i < activeTraining.exercises.length; i++) {
-        const nextEx = activeTraining.exercises[i];
-        if (nextEx.sets.some((s) => !s.completed)) {
-          setCurrentExerciseIndex(i);
-          jumpedTo = i;
-          break;
+      // G29: 跨动作跳转 / 整体收尾。当前动作做完后：
+      //   1. 找下一个还有未完成组的动作 → 跳过去（store 自动把 currentSetIndex 重置为 0）
+      //   2. 找不到 → 整体收尾（→ TrainingComplete 总结页）
+      // 注意：wasLastUncompletedInExercise=true 在单动作训练 + 最后一组 时也会触发，
+      // 自然走到分支 2，无需单独的 wouldAllBeDone 判断。
+      if (wasLastUncompletedInExercise) {
+        let jumpedTo = -1;
+        for (let i = currentExerciseIndex + 1; i < activeTraining.exercises.length; i++) {
+          const nextEx = activeTraining.exercises[i];
+          if (nextEx.sets.some((s) => !s.completed)) {
+            setCurrentExerciseIndex(i);
+            jumpedTo = i;
+            break;
+          }
+        }
+        if (jumpedTo < 0) {
+          // 没找到下一个 → 整体收尾。直接跳，不再二次确认（用户主动点的 CTA）。
+          void completeAndNavigate();
         }
       }
-      if (jumpedTo < 0) {
-        // 没找到下一个 → 整体收尾。直接跳，不再二次确认（用户主动点的 CTA）。
-        void completeAndNavigate();
-      }
-    }
+    }, motion.duration.instant * 2);
   }, [
     activeTraining,
     currentExerciseIndex,
     currentSetIndex,
     completeAndAdvance,
+    checkScale,
     defaultRestSeconds,
     completeAndNavigate,
     setCurrentExerciseIndex,
@@ -1036,19 +1073,21 @@ export function ActiveTrainingScreen() {
             },
           ]}
         >
-          <Button
-            variant={set.completed ? 'secondary' : 'primary'}
-            size="lg"
-            disabled={set.completed}
-            onPress={handleCompleteSet}
-            accessibilityLabel={set.completed ? '本组已完成' : '完成本组'}
-            accessibilityHint={
-              set.completed ? undefined : '保存数据并开始休息计时'
-            }
-            style={{ alignSelf: 'stretch' }}
-          >
-            {set.completed ? '已完成 ✓' : '完成本组 ✓'}
-          </Button>
+          <Animated.View style={checkStyle} testID="complete-set-feedback">
+            <Button
+              variant={set.completed ? 'secondary' : 'primary'}
+              size="lg"
+              disabled={set.completed || completingSet}
+              onPress={handleCompleteSet}
+              accessibilityLabel={set.completed || completingSet ? '本组已完成' : '完成本组'}
+              accessibilityHint={
+                set.completed ? undefined : '保存数据并开始休息计时'
+              }
+              style={{ alignSelf: 'stretch' }}
+            >
+              {set.completed || completingSet ? '已完成 ✓' : '完成本组 ✓'}
+            </Button>
+          </Animated.View>
         </View>
       ) : null}
 
@@ -1818,38 +1857,6 @@ function formatActiveSetSummary(
 }
 
 /* ---------- G29: legacy SetChip removed — replaced by SetRow ---------- */
-
-/* ---------- stats 计算 ----------
- * 与 trainingStore.computeStats 完全一致的公式,放在本屏避免循环依赖
- * (trainingStore 不该 import screens/)。任何公式变动两边必须同步。
- */
-function computeStatsFromActive(active: ActiveTraining): {
-  durationSeconds: number;
-  totalVolume: number;
-  exerciseCount: number;
-  setCount: number;
-} {
-  let totalVolume = 0;
-  let setCount = 0;
-  for (const ex of active.exercises) {
-    for (const s of ex.sets) {
-      if (s.completed) {
-        setCount += 1;
-        if (s.weight && s.reps) totalVolume += s.weight * s.reps;
-      }
-    }
-  }
-  return {
-    durationSeconds: Math.max(
-      0,
-      Math.floor((Date.now() - active.startedAt) / 1000),
-    ),
-    totalVolume,
-    exerciseCount: active.exercises.length,
-    setCount,
-  };
-}
-
 
 /* ============================================================================
  * Styles

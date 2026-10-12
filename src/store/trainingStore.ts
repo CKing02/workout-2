@@ -66,9 +66,29 @@ export interface ActiveTraining {
   exercises: ActiveExercise[];
 }
 
+export interface BestSet {
+  weight: number;
+  reps: number;
+  value: number;
+}
+
+export interface TrainingSummary {
+  trainingId: string;
+  durationSeconds: number;
+  totalVolume: number;
+  exerciseCount: number;
+  setCount: number;
+  totalAllSets: number;
+  bestSet: BestSet | null;
+}
+
 export interface TrainingStoreState {
   history: Training[];
   activeTraining: ActiveTraining | null;
+  /** G48: 仅内存；总结页入场时定格，显式保存复用同一份统计。 */
+  bestSet: BestSet | null;
+  completionSummary: TrainingSummary | null;
+  prepareTrainingSummary: () => TrainingSummary | null;
   loading: boolean;
   error: string | null;
 
@@ -222,23 +242,30 @@ export interface TrainingStoreState {
   removeFromHistory: (id: string) => Promise<void>;
 }
 
-function computeStats(active: ActiveTraining): {
-  durationSeconds: number;
-  totalVolume: number;
-  exerciseCount: number;
-  setCount: number;
-} {
+function computeStats(active: ActiveTraining): TrainingSummary {
   let totalVolume = 0;
   let setCount = 0;
+  let totalAllSets = 0;
+  let bestSet: BestSet | null = null;
   for (const ex of active.exercises) {
+    totalAllSets += ex.sets.length;
     for (const s of ex.sets) {
       if (s.completed) {
         setCount += 1;
-        if (s.weight && s.reps) totalVolume += s.weight * s.reps;
+        if (s.setType !== 'warmup' && s.weight != null && s.reps != null &&
+            Number.isFinite(s.weight) && Number.isFinite(s.reps) &&
+            s.weight > 0 && s.reps > 0) {
+          const value = s.weight * s.reps;
+          totalVolume += value;
+          if (!bestSet || value > bestSet.value) {
+            bestSet = { weight: s.weight, reps: s.reps, value };
+          }
+        }
       }
     }
   }
   return {
+    trainingId: active.id,
     durationSeconds: Math.max(
       0,
       Math.floor((Date.now() - active.startedAt) / 1000),
@@ -246,6 +273,8 @@ function computeStats(active: ActiveTraining): {
     totalVolume,
     exerciseCount: active.exercises.length,
     setCount,
+    totalAllSets,
+    bestSet,
   };
 }
 
@@ -256,11 +285,23 @@ function genClientId(): string {
 export const useTrainingStore = create<TrainingStoreState>((set, get) => ({
   history: [],
   activeTraining: null,
+  bestSet: null,
+  completionSummary: null,
   currentExerciseIndex: 0,
   currentSetIndex: 0,
   lastSetsByExerciseId: {},
   loading: false,
   error: null,
+
+  prepareTrainingSummary: () => {
+    const active = get().activeTraining;
+    if (!active) return null;
+    const existing = get().completionSummary;
+    if (existing?.trainingId === active.id) return existing;
+    const summary = computeStats(active);
+    set({ bestSet: summary.bestSet, completionSummary: summary });
+    return summary;
+  },
 
   loadLastSetsForExercises: async (exerciseIds, limit = 3) => {
     if (exerciseIds.length === 0) return [];
@@ -374,6 +415,8 @@ export const useTrainingStore = create<TrainingStoreState>((set, get) => ({
     };
     set({
       activeTraining: active,
+      bestSet: null,
+      completionSummary: null,
       currentExerciseIndex: 0,
       currentSetIndex: 0,
     });
@@ -630,7 +673,13 @@ export const useTrainingStore = create<TrainingStoreState>((set, get) => ({
   completeTraining: async () => {
     const active = get().activeTraining;
     if (!active) return null;
-    const stats = computeStats(active);
+    const summary = get().prepareTrainingSummary()!;
+    const stats = {
+      durationSeconds: summary.durationSeconds,
+      totalVolume: summary.totalVolume,
+      exerciseCount: summary.exerciseCount,
+      setCount: summary.setCount,
+    };
     const db = await getDatabase();
     const allSets: CreateTrainingSetInput[] = [];
     for (const ex of active.exercises) {
@@ -705,6 +754,7 @@ export const useTrainingStore = create<TrainingStoreState>((set, get) => ({
 
     set((state) => ({
       activeTraining: null,
+      bestSet: summary.bestSet,
       currentExerciseIndex: 0,
       currentSetIndex: 0,
       // G17: 训练结束后清缓存，下次进入是新鲜查询。
@@ -717,6 +767,8 @@ export const useTrainingStore = create<TrainingStoreState>((set, get) => ({
     const { activeTraining } = get();
     set({
       activeTraining: null,
+      bestSet: null,
+      completionSummary: null,
       currentExerciseIndex: 0,
       currentSetIndex: 0,
       // G17: 同上。
