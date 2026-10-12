@@ -165,12 +165,22 @@ async function countPlanExercises(
   return row?.count ?? 0;
 }
 
-/** Default per-exercise rest interval (seconds). */
-const DEFAULT_REST_SECONDS = 60;
+/** Default per-exercise rest interval (seconds). 
+ * Exported so tests + handleRestSecondsCommit fallback can reference the same value. */
+export const DEFAULT_REST_SECONDS = 60;
 
 export async function createPlan(
   db: SQLiteDatabase,
-  input: { name: string; exerciseIds?: string[] },
+  input: {
+    name: string;
+    exerciseIds?: string[];
+    /**
+     * per-exercise 休息时长覆盖(秒)。key = plan_exercises.exercise_id。
+     * 缺省回落 60(planRepo.DEFAULT_REST_SECONDS)。
+     * 修 G47x bug：用户改完 30s 保存,createPlan() 此前硬编码 60 写 DB → 训练时仍 60。
+     */
+    restSecondsByExerciseId?: Record<string, number>;
+  },
 ): Promise<PlanWithCount> {
   const id = newId();
   const now = nowMs();
@@ -190,8 +200,11 @@ export async function createPlan(
       );
       try {
         for (let i = 0; i < exIds.length; i++) {
+          // G47x fix: 优先取 caller 传的 restSecondsByExerciseId,否则回落 60
+          const restSeconds =
+            input.restSecondsByExerciseId?.[exIds[i]] ?? DEFAULT_REST_SECONDS;
           const planExerciseId = newId();
-          await stmt.executeAsync([planExerciseId, id, exIds[i], i, DEFAULT_REST_SECONDS]);
+          await stmt.executeAsync([planExerciseId, id, exIds[i], i, restSeconds]);
           createdPairs.push({ exerciseId: exIds[i], planExerciseId });
         }
       } finally {

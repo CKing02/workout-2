@@ -99,7 +99,7 @@ export interface PlanStoreState {
   load: () => Promise<void>;
   reload: () => Promise<void>;
   fetch: (id: string) => Promise<PlanWithExercises | null>;
-  create: (input: { name: string; exerciseIds?: string[] }) => Promise<Plan>;
+  create: (input: { name: string; exerciseIds?: string[]; restSecondsByExerciseId?: Record<string, number> }) => Promise<Plan>;
   update: (
     id: string,
     patch: { name?: string; exerciseIds?: string[] },
@@ -260,7 +260,22 @@ export const usePlanStore = create<PlanStoreState>((set, get) => ({
 
   create: async (input) => {
     const db = await getDatabase();
-    const plan = await createPlan(db, input);
+    // G47x fix: 新建计划时如果 caller 没显式传 restSecondsByExerciseId,
+    // 自动从内存 detailById 草稿里收集(PlanEditorScreen.handleRestSecondsCommit
+    // 在新建分支已经写到 STUB_NEW_PLAN_ID 的 detailById 里)。这保证用户改的
+    // 休息时长能传到 createPlan 写 DB,不再被硬编码 60 覆盖。
+    let enrichedInput = input;
+    if (input.restSecondsByExerciseId === undefined) {
+      const stubDetail = get().detailById[STUB_NEW_PLAN_ID];
+      if (stubDetail && stubDetail.exercises.length > 0) {
+        const map: Record<string, number> = {};
+        for (const e of stubDetail.exercises) {
+          map[e.exerciseId] = e.restSeconds;
+        }
+        enrichedInput = { ...input, restSecondsByExerciseId: map };
+      }
+    }
+    const plan = await createPlan(db, enrichedInput);
     set((state) => ({ plans: [plan, ...state.plans] }));
 
     // v1.0.0-rc1 bug fix: 新建计划时,PlanEditorScreen 用 `tmp_${id}_${...}`
