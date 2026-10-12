@@ -7,8 +7,17 @@ const mockPop = jest.fn();
 const mockSave = jest.fn();
 const mockCancel = jest.fn();
 let mockSummary: TrainingSummary | null = null;
+let mockTransitionEnd: (event: { data: { closing: boolean } }) => void;
+const mockUnsubscribe = jest.fn();
+const mockNavigation = {
+  popToTop: mockPop,
+  addListener: jest.fn((_name: string, callback: typeof mockTransitionEnd) => {
+    mockTransitionEnd = callback;
+    return mockUnsubscribe;
+  }),
+};
 jest.mock('@react-navigation/native', () => ({
-  useNavigation: () => ({ popToTop: mockPop }),
+  useNavigation: () => mockNavigation,
   useRoute: () => ({ params: { trainingId: 'session', durationSeconds: 120,
     totalVolume: 400, exerciseCount: 1, setCount: 2, planNameSnapshot: '测试训练' } }),
 }));
@@ -50,7 +59,11 @@ const mockHeavy = haptic.heavy as jest.Mock;
 const screen = () => <ThemeProvider initialMode="light"><TrainingCompleteScreen /></ThemeProvider>;
 
 let tree: TestRenderer.ReactTestRenderer;
-function render() { act(() => { tree = TestRenderer.create(screen()); }); return tree; }
+function render(ready = true) {
+  act(() => { tree = TestRenderer.create(screen()); });
+  if (ready) act(() => mockTransitionEnd({ data: { closing: false } }));
+  return tree;
+}
 beforeEach(() => {
   jest.useFakeTimers();
   jest.clearAllMocks();
@@ -61,6 +74,21 @@ beforeEach(() => {
 afterEach(() => { act(() => tree?.unmount()); jest.clearAllTimers(); jest.useRealTimers(); });
 
 describe('G48 completion integration', () => {
+  it('原生淡入结束后才启动计数与庆祝，退出及重复事件不重播', () => {
+    render(false);
+    expect(tree.root.findAllByType(CountUp).map((n) => n.props.value)).toEqual([0, 0, 0]);
+    expect(tree.root.findAllByType(ConfettiBurst)).toHaveLength(0);
+    expect(mockHeavy).not.toHaveBeenCalled();
+    act(() => mockTransitionEnd({ data: { closing: true } }));
+    expect(mockHeavy).not.toHaveBeenCalled();
+    act(() => mockTransitionEnd({ data: { closing: false } }));
+    expect(tree.root.findAllByType(CountUp).map((n) => n.props.value)).toEqual([120, 400, 3]);
+    expect(mockHeavy).toHaveBeenCalledTimes(1);
+    act(() => mockTransitionEnd({ data: { closing: false } }));
+    expect(mockHeavy).toHaveBeenCalledTimes(1);
+    act(() => tree.unmount());
+    expect(mockUnsubscribe).toHaveBeenCalledTimes(1);
+  });
   it('三处真实 CountUp 目标值来自 store，260ms，最终格式正确', () => {
     render();
     const counters = tree.root.findAllByType(CountUp);

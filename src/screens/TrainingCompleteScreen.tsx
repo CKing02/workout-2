@@ -98,6 +98,12 @@ export function TrainingCompleteScreen() {
   const totalAllSets = currentSummary?.totalAllSets ?? setCount;
   const [showBestSet, setShowBestSet] = useState(false);
   const celebratedRef = useRef<string | null>(null);
+  const [entryReady, setEntryReady] = useState(false);
+
+  // 原生淡入期间页面尚不可见，等入场完成再播放 260ms 计数与庆祝。
+  useEffect(() => navigation.addListener('transitionEnd', (event) => {
+    if (!event.data.closing) setEntryReady(true);
+  }), [navigation]);
 
   const completeTraining = useTrainingStore((s) => s.completeTraining);
   const cancelTraining = useTrainingStore((s) => s.cancelTraining);
@@ -106,11 +112,11 @@ export function TrainingCompleteScreen() {
   // Entry haptic — celebration when the screen opens.
   // ----------------------------------------------------------------
   useEffect(() => {
-    if (bestSet && celebratedRef.current !== trainingId) {
+    if (entryReady && bestSet && celebratedRef.current !== trainingId) {
       celebratedRef.current = trainingId;
       haptic.heavy();
     }
-  }, [bestSet, trainingId]);
+  }, [entryReady, bestSet, trainingId]);
 
   // ----------------------------------------------------------------
   // Save state machine: idle → saving → saved
@@ -270,7 +276,7 @@ export function TrainingCompleteScreen() {
             icon="⏱"
             label="时长"
             value={formattedDuration}
-            animatedValue={durationSeconds}
+            animatedValue={entryReady ? durationSeconds : 0}
             format={formatDuration}
             testID="summary-duration"
             accessibilityHint={`本次训练总时长 ${formattedDuration}`}
@@ -279,7 +285,7 @@ export function TrainingCompleteScreen() {
             icon="💪"
             label="训练量"
             value={formattedVolume}
-            animatedValue={totalVolume}
+            animatedValue={entryReady ? totalVolume : 0}
             format={formatKg}
             testID="summary-volume"
             unit="kg"
@@ -296,7 +302,7 @@ export function TrainingCompleteScreen() {
             icon="✓"
             label="总组数"
             value={String(totalAllSets)}
-            animatedValue={totalAllSets}
+            animatedValue={entryReady ? totalAllSets : 0}
             testID="summary-sets"
             unit="组"
             accessibilityHint={`共完成 ${setCount} 组`}
@@ -352,7 +358,7 @@ export function TrainingCompleteScreen() {
         </Button>
       </View>
 
-      {bestSet ? <ConfettiBurst trigger={bestSet.value} testID="training-confetti" /> : null}
+      {entryReady && bestSet ? <ConfettiBurst trigger={bestSet.value} testID="training-confetti" /> : null}
       {bestSet ? (
         <Sheet visible={showBestSet} onClose={() => setShowBestSet(false)} title="本次最佳组" testID="best-set-sheet">
           <Text style={[typography.h2, { color: colors.text, marginBottom: spacing.md }]}>
