@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  器材标记（横杠 + 两端配重片）—— 品牌唯一图形标识。
+
+  这是**源文件**，不是运行时资产。改动这里之后要重跑
+  `python scripts/brand/generate-brand-assets.py` 重新生成 PNG
+  （icon / adaptiveIcon 三层 / splash / favicon）。
+
+  几何约定：
+  - viewBox 0 0 100 100，标记 bbox = x 13..87, y 24..76（74×52 单位），
+    **居中在 (50,50)**。故意留白，因为 Android 自适应图标只保证
+    中心 66/108 的圆内可见，生成脚本会按这个安全区缩放。
+  - 全部圆角用「半径 = 短边一半」= 胶囊形。这样任意尺寸下边缘曲率
+    一致，缩到 48px（favicon）也不会糊成方块。
+  - 单色，不含渐变/描边 —— 因为 Android 主题化图标（monochromeImage）
+    只接受剪影，渐变和描边会在取色时被压平。
+
+  两侧配重片外高内低（外侧 52 单位、内侧 34 单位），是为了让剪影
+  读起来像「已经上好片」的杠铃，而不是一根带凸起的棍子。
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <g fill="#FFFFFF">
+    <!-- 杠身 -->
+    <rect x="26" y="46" width="48" height="8" rx="4"/>
+    <!-- 左侧：内片（矮） -->
+    <rect x="22" y="33" width="7" height="34" rx="3.5"/>
+    <!-- 左侧：外片（高） -->
+    <rect x="13" y="24" width="7" height="52" rx="3.5"/>
+    <!-- 右侧：内片（矮） -->
+    <rect x="71" y="33" width="7" height="34" rx="3.5"/>
+    <!-- 右侧：外片（高） -->
+    <rect x="80" y="24" width="7" height="52" rx="3.5"/>
+  </g>
+</svg>

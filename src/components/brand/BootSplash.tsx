@@ -3,14 +3,12 @@
  *
  * ## 它和原生启动页的关系（这是整个组件最重要的一件事）
  *
- * Android 上先显示的是**原生启动页**（由 app.json 的 expo-splash-screen 生成：
- * 橙底 + 居中白标记）。expo-splash-screen 的 SplashScreenManager 会用
- * OnPreDrawListener 一直挡住 RN 内容，直到 React 的 CONTENT_APPEARED 标记触发
- * 才把原生启动页撤掉。也就是说：**原生启动页会一直盖着，直到本组件的首帧真的
- * 存在**。所以两边只要画出同一个东西，交接就是无缝的、连一帧白闪都没有。
+ * 原生启动页由 app.json 的 expo-splash-screen 生成（橙底白标记）。
+ * nativeSplash 在模块作用域保持原生页；本组件 onLayout 后请求隐藏，
+ * 再启动 JS 动效。原生淡出关闭，避免两个动画层重叠。
  *
  * 由此推出两条硬约束，改本文件时别破坏：
- *   1. 首帧（t=0）必须与原生启动页**逐像素一致**：同一块底色、同一个宽度的
+ *   1. 首帧（t=0）必须与原生启动页使用相同底色、宽度与居中锚点：
  *      白标记、同一个位置（都居中）。所以这里首帧不画字标、不画进度条，
  *      标记也没有任何入场动画 —— 那些都是 t=0 之后才发生的。
  *   2. 标记必须**单独居中**，字标/进度条挂在它下方的绝对定位层里。
@@ -26,10 +24,13 @@
  * 用 theme 的 `colors.primary` 会在深色模式拿到 #FF7A4D，交接瞬间底色跳变。
  * 这是"启动屏是一块固定品牌表面、不是主题化表面"的直接后果。
  */
-import React, { useCallback, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import { StatusBar } from 'expo-status-bar';
 import Animated, {
+  cancelAnimation,
   Easing,
+  ReduceMotion,
   runOnJS,
   useAnimatedStyle,
   useReducedMotion,
@@ -43,6 +44,7 @@ import Animated, {
 import { spacing, typography } from '@/theme';
 import { BarbellMark } from './BarbellMark';
 import { MARK_ASPECT } from './markGeometry';
+import { hideNativeSplash } from './nativeSplash';
 
 /**
  * 启动屏底色。**必须**等于 app.json 里 expo-splash-screen 的
@@ -103,54 +105,89 @@ export type BootSplashProps = {
 
 export function BootSplash({ progress, visible, onHidden, statusLabel }: BootSplashProps) {
   const reduceMotion = useReducedMotion();
+  const [laidOut, setLaidOut] = useState(false);
+  const layoutHandled = useRef(false);
+  const safeProgress = Number.isFinite(progress) ? Math.max(0, Math.min(1, progress)) : 0;
+
+  const handleLayout = useCallback(() => {
+    if (layoutHandled.current) return;
+    layoutHandled.current = true;
+    hideNativeSplash();
+    setLaidOut(true);
+  }, []);
 
   const plateOffset = useSharedValue(0);
-  const reveal = useSharedValue(0); // 字标与进度条共用的"浮现"进度 0..1
+  const reveal = useSharedValue(0); // 字标浮现进度 0..1
+  const barReveal = useSharedValue(0);
   const shown = useSharedValue(1); // 整屏不透明度
-  const fill = useSharedValue(progress);
+  const fill = useSharedValue(safeProgress);
 
-  // 入场编排。依赖只放 reduceMotion：这几条在组件生命周期内只跑一次。
+  // 布局交接后才入场；启动完成时取消尚未出现的字标/进度，避免快速启动闪字。
   useEffect(() => {
+    if (!laidOut || !visible) return;
     if (reduceMotion) {
       // 减少动态：不做任何位移，只保留透明度渐显；配重片完全不动。
-      reveal.value = withDelay(T.wordmarkDelay, withTiming(1, { duration: T.wordmarkIn }));
-      return;
+      plateOffset.value = 0;
+      reveal.value = withTiming(1, { duration: T.wordmarkIn, reduceMotion: ReduceMotion.Never });
+    } else {
+      // "装片"：先向外撑开，再弹回归位。首帧 offset=0 = 原生那一帧。
+      plateOffset.value = withDelay(
+        T.plateDelay,
+        withSequence(
+          withTiming(PLATE_RACK_OUT, {
+            duration: T.plateOut,
+            easing: Easing.out(Easing.quad),
+          }),
+          withSpring(0, { damping: 12, stiffness: 180, mass: 0.9 }),
+        ),
+      );
+      reveal.value = withDelay(
+        T.wordmarkDelay,
+        withTiming(1, { duration: T.wordmarkIn, easing: Easing.out(Easing.cubic) }),
+      );
     }
-    // "装片"：先向外撑开，再弹回归位。首帧 offset=0 = 原生那一帧。
-    plateOffset.value = withDelay(
-      T.plateDelay,
-      withSequence(
-        withTiming(PLATE_RACK_OUT, {
-          duration: T.plateOut,
-          easing: Easing.out(Easing.quad),
-        }),
-        withSpring(0, { damping: 12, stiffness: 180, mass: 0.9 }),
-      ),
-    );
-    reveal.value = withDelay(
-      T.wordmarkDelay,
-      withTiming(1, { duration: T.wordmarkIn, easing: Easing.out(Easing.cubic) }),
-    );
-  }, [plateOffset, reduceMotion, reveal]);
+    barReveal.value = withDelay(T.barDelay, withTiming(1, { duration: T.barIn }));
+    return () => {
+      cancelAnimation(plateOffset);
+      cancelAnimation(reveal);
+      cancelAnimation(barReveal);
+    };
+  }, [barReveal, laidOut, plateOffset, reduceMotion, reveal, visible]);
 
   // 进度变化 → 平滑追上去（不平滑的话每完成一步都会"蹦"一下）。
   useEffect(() => {
-    fill.value = withTiming(progress, { duration: 260, easing: Easing.out(Easing.cubic) });
-  }, [fill, progress]);
+    fill.value = withTiming(safeProgress, { duration: reduceMotion ? 0 : 260, easing: Easing.out(Easing.cubic) });
+    return () => cancelAnimation(fill);
+  }, [fill, reduceMotion, safeProgress]);
 
   // onHidden 走 ref：调用方通常传内联箭头函数，每次渲染都是新引用。
   // 直接放进依赖数组的话，淡出期间任何一个重渲染都会重启淡出动画
   // （表现为启动屏闪一下、迟迟不消失）。
   const onHiddenRef = useRef(onHidden);
   onHiddenRef.current = onHidden;
+  const hiddenNotified = useRef(false);
+  const mounted = useRef(true);
+  const visibleRef = useRef(visible);
+  visibleRef.current = visible;
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
   /** 稳定引用：给 worklet 里的 runOnJS 用，避免捕获到过期的 onHidden。 */
   const notifyHidden = useCallback(() => {
+    if (!mounted.current || visibleRef.current || hiddenNotified.current) return;
+    hiddenNotified.current = true;
     onHiddenRef.current?.();
   }, []);
 
   // 退出：淡出后通知调用方卸载。
   useEffect(() => {
-    if (visible) return;
+    if (visible) {
+      hiddenNotified.current = false;
+      shown.value = 1;
+      return;
+    }
+    if (!laidOut) return;
     shown.value = withTiming(
       0,
       { duration: reduceMotion ? 0 : T.exit, easing: Easing.in(Easing.quad) },
@@ -159,33 +196,37 @@ export function BootSplash({ progress, visible, onHidden, statusLabel }: BootSpl
         if (finished) runOnJS(notifyHidden)();
       },
     );
-  }, [reduceMotion, shown, visible]);
+    return () => cancelAnimation(shown);
+  }, [laidOut, notifyHidden, reduceMotion, shown, visible]);
 
   const fieldStyle = useAnimatedStyle(() => ({ opacity: shown.value }));
   const wordmarkStyle = useAnimatedStyle(() => {
-    // reveal 同时驱动字标和进度条；进度条用后半段，形成轻微错峰。
     const p = reveal.value;
     return {
       opacity: p,
       transform: [{ translateY: reduceMotion ? 0 : (1 - p) * 8 }],
     };
   });
-  const barStyle = useAnimatedStyle(() => {
-    const p = Math.max(0, (reveal.value - 0.45) / 0.55);
-    return { opacity: p };
-  });
-  const fillStyle = useAnimatedStyle(() => ({ width: fill.value * TRACK_WIDTH }));
+  const barStyle = useAnimatedStyle(() => ({ opacity: barReveal.value }));
+  const fillStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: (fill.value - 1) * TRACK_WIDTH }],
+  }));
 
   const label = statusLabel ? `正在启动：${statusLabel}` : '正在启动';
 
   return (
     <Animated.View
       style={[styles.field, fieldStyle]}
-      accessible
+      onLayout={handleLayout}
+      pointerEvents={visible ? 'auto' : 'none'}
+      accessible={visible}
+      accessibilityElementsHidden={!visible}
+      importantForAccessibility={visible ? 'yes' : 'no-hide-descendants'}
       accessibilityRole="progressbar"
       accessibilityLabel={label}
-      accessibilityValue={{ min: 0, max: 100, now: Math.round(progress * 100) }}
+      accessibilityValue={{ min: 0, max: 100, now: Math.round(safeProgress * 100) }}
     >
+      <StatusBar style="light" />
       {/* 标记层：严格居中。这是"与原生启动页无缝交接"的全部要求。 */}
       <BarbellMark
         width={SPLASH_MARK_WIDTH}
@@ -251,6 +292,7 @@ const styles = StyleSheet.create({
     left: 0,
     top: 0,
     bottom: 0,
+    width: TRACK_WIDTH,
     borderRadius: TRACK_HEIGHT / 2,
     backgroundColor: SPLASH_ON_FIELD,
   },

@@ -43,6 +43,15 @@
           "cameraPermission": false,
           "microphonePermission": false
         }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#FF6B35",
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 150,
+          "resizeMode": "contain"
+        }
       ]
     ],
     "extra": {

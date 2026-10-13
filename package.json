@@ -54,6 +54,9 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
+    "brand:generate": "python scripts/brand/generate-brand-assets.py",
+    "brand:check": "python scripts/brand/generate-brand-assets.py --check",
+    "brand:preview": "python scripts/brand/preview-brand-assets.py",
     "postinstall": "patch-package",
     "eas:preview": "eas build --profile preview --platform android --non-interactive",
     "eas:development": "eas build --profile development --platform android --non-interactive"

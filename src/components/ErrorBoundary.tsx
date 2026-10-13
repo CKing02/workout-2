@@ -72,7 +72,7 @@ export class ErrorBoundary extends React.Component<
 /**
  * The default fallback surface. Reads theme from context for light/dark.
  */
-function DefaultFallback({
+export function DefaultFallback({
   error,
   onReset,
 }: {
