@@ -43,11 +43,9 @@ import Animated, {
   cancelAnimation,
   useAnimatedProps,
   useSharedValue,
-  withTiming,
 } from 'react-native-reanimated';
 
 import { useTheme } from '@/theme';
-import { motion } from '@/theme/motion';
 
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
@@ -85,6 +83,7 @@ export function TimerRing({
   const startWallRef = useRef<number | null>(null);
   const onCompleteRef = useRef(onComplete);
   const firedRef = useRef(false);
+  const completionCalledRef = useRef(false);
 
   // Keep the latest onComplete without retriggering the RAF loop.
   useEffect(() => {
@@ -112,14 +111,10 @@ export function TimerRing({
     progress.value = fraction;
     if (remainingMs <= 0 && !firedRef.current) {
       firedRef.current = true;
-      // 末段 ease-out snap:让 ring"落入"零点而不是撞停(细节,让完成感柔和)
-      progress.value = withTiming(0, {
-        duration: motion.duration.fast,
-        easing: motion.easing.standard,
-      }, () => {
-        // Use runOnJS through setImmediate for safety.
-        setImmediate(() => onCompleteRef.current?.());
-      });
+      // Keep completion entirely on the JS path. Reanimated's animation
+      // completion callback runs on the UI runtime and can reject the JS
+      // `onComplete` prop in dev-client builds.
+      progress.value = 0;
     }
   }, [duration, progress]);
 
@@ -130,6 +125,7 @@ export function TimerRing({
       return undefined;
     }
     firedRef.current = false;
+    completionCalledRef.current = false;
     startWallRef.current = Date.now() - elapsed * 1000;
     // Snap to the initial fraction so the ring matches whatever elapsed
     // value the parent passed in.
@@ -144,9 +140,15 @@ export function TimerRing({
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
+    const completionTimer = setTimeout(() => {
+      if (completionCalledRef.current) return;
+      completionCalledRef.current = true;
+      onCompleteRef.current?.();
+    }, Math.max(0, (duration - elapsed) * 1000));
     return () => {
       mounted = false;
       cancelAnimationFrame(raf);
+      clearTimeout(completionTimer);
     };
     // Re-mount the loop whenever duration or initial elapsed time changes.
   }, [duration, elapsed, initialFraction, progress, tick]);
