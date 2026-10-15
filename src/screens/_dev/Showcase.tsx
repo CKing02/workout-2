@@ -590,13 +590,13 @@ function EmptyStateDemo() {
   return (
     <View style={{ gap: spacing.lg }}>
       <EmptyState
-        icon="🏋"
+        illustration="plan"
         title="创建你的第一个训练计划"
         description="把今天想练的动作组合起来，下次训练一点就能开始。"
         actionLabel="新建计划"
         onAction={() => undefined}
       />
-      <EmptyState icon="📓" title="开始你的第一次训练吧" />
+      <EmptyState illustration="training" title="开始你的第一次训练吧" />
     </View>
   );
 }

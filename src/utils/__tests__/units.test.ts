@@ -48,12 +48,15 @@ describe('utils/units', () => {
     });
 
     it('lb 模式：保留 1 位小数 + 单位', () => {
-      expect(formatWeight(100, 'lb')).toBe('100.0 lb');
+      expect(formatWeight(100, 'lb')).toBe('220.5 lb');
     });
 
-    it('kg → lb 换算：100 kg 显示为 220.5 lb', () => {
-      // 注意 formatWeight 不做单位换算，只格式化。这里验证单位 label。
-      expect(formatWeight(100, 'lb')).toContain('lb');
+    it.each([
+      [100, '220.5 lb'],
+      [60, '132.3 lb'],
+      [40, '88.2 lb'],
+    ])('kg → lb 换算：%d kg 显示为 %s', (kg, expected) => {
+      expect(formatWeight(kg, 'lb')).toBe(expected);
     });
 
     it('NaN → 0.0 + 单位（不显示 NaN）', () => {

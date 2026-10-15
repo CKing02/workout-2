@@ -68,7 +68,7 @@ export function VolumeTrendScreen() {
       >
         {isEmpty ? (
           <EmptyState
-            icon="📈"
+            illustration="chart"
             title="还没有训练量数据"
             description="完成至少一次训练后，这里会出现过去 12 周的周训练量柱状图。"
           />

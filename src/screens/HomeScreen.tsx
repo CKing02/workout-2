@@ -198,9 +198,9 @@ export function HomeScreen() {
           isEmpty ? (
             <View style={{ marginTop: spacing.xxl }}>
               <EmptyState
-                icon="🏋"
+                illustration="training"
                 title="开始你的第一次训练吧"
-                description="切换到锻炼 Tab 创建计划"
+                description="创建计划或开始自由训练，完成后记录会出现在这里。"
                 actionLabel="去锻炼"
                 onAction={onPressStart}
               />

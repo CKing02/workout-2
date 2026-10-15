@@ -418,9 +418,9 @@ export function ExerciseLibraryScreen() {
         </View>
       ) : isEmpty ? (
         <EmptyState
-          icon="🔍"
+          illustration="search"
           title="没有匹配的动作"
-          description="试试其他筛选"
+          description="换个关键词，或清除当前筛选后再试。"
           actionLabel="清除筛选"
           onAction={onClearFilters}
         />

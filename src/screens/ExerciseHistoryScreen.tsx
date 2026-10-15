@@ -162,7 +162,7 @@ export function ExerciseHistoryScreen({
     return (
       <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
         <EmptyState
-          icon="❓"
+          illustration="missing"
           title="未指定动作"
           description="请从「按动作」Tab 选择一个动作查看历史。"
         />
@@ -236,7 +236,7 @@ export function ExerciseHistoryScreen({
           </View>
         ) : isEmpty ? (
           <EmptyState
-            icon="📭"
+            illustration="chart"
             title="还没有训练记录"
             description="完成一次包含该动作的训练后，这里会出现 1RM 趋势线和容量柱状。"
           />

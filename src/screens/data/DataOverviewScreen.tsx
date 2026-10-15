@@ -291,7 +291,7 @@ function ByExerciseTab({
   if (!loading && (list === null || list.length === 0)) {
     return (
       <EmptyState
-        icon="🏋"
+        illustration="training"
         title="还没有训练过的动作"
         description="完成一次训练后，这里会列出你做过的所有动作（按最高 1RM 排序）。"
       />

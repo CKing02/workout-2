@@ -43,7 +43,7 @@ import { useSettingsStore, type Unit } from '@/store/settingsStore';
 import { useTheme } from '@/theme';
 import { haptic } from '@/utils/haptics';
 import type { BodyMeasurement } from '@/db/schema';
-import { formatWeight, kgToLb } from '@/utils/units';
+import { formatWeight } from '@/utils/units';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'BodyMeasurement'>;
 
@@ -141,7 +141,7 @@ function groupByDate(items: BodyMeasurement[]): Group[] {
 /** 显示体重：存储统一 kg，按 unit 换算。null → —。 */
 function displayWeight(kg: number | null, unit: Unit): string {
   if (kg == null) return '—';
-  return formatWeight(unit === 'kg' ? kg : kgToLb(kg), unit);
+  return formatWeight(kg, unit);
 }
 
 /** 显示体脂：百分比 1 位小数。null → —。 */
@@ -297,10 +297,10 @@ function ListTab({
     return (
       <View style={{ flex: 1, justifyContent: 'center' }}>
         <EmptyState
-          icon="⚖"
+          illustration="measurement"
           title="记录你的第一次测量"
-          description="早晚体重可能有差异,允许同一天记多次。"
-          actionLabel="+ 添加记录"
+          description="早晚体重可能有差异，支持同一天记录多次。"
+          actionLabel="添加记录"
           onAction={onAdd}
         />
       </View>
@@ -450,12 +450,11 @@ function TrendTab() {
       .slice() // copy,因为 sort 原地
       .sort((a, b) => a.createdAt - b.createdAt)
       .map((m) => {
-        const display =
-          unit === 'kg' ? (m.weightKg as number) : kgToLb(m.weightKg as number);
+        const weightKg = m.weightKg as number;
         return {
           x: m.createdAt,
-          y: display,
-          label: formatWeight(display, unit),
+          y: weightKg,
+          label: formatWeight(weightKg, unit),
           payload: m,
         };
       });
@@ -514,10 +513,7 @@ function TrendTab() {
               useToastStore.getState().show(
                 `${new Date(m.createdAt).toLocaleString()} · ${
                   metric === 'weight'
-                    ? formatWeight(
-                        unit === 'kg' ? (m.weightKg as number) : kgToLb(m.weightKg as number),
-                        unit,
-                      )
+                    ? formatWeight(m.weightKg as number, unit)
                     : `${(m.bodyFatPct as number).toFixed(1)}%`
                 }`,
                 { variant: 'info', durationMs: 3500 },

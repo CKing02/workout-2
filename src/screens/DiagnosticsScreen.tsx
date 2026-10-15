@@ -205,9 +205,9 @@ export function DiagnosticsScreen({ navigation }: Props) {
           isEmpty ? (
             <View style={{ marginTop: spacing.xxxl }}>
               <EmptyState
-                icon="🩹"
+                illustration="healthy"
                 title="暂无错误日志"
-                description="应用运行良好,没有记录到错误。"
+                description="应用运行良好，没有记录到错误。"
               />
             </View>
           ) : null

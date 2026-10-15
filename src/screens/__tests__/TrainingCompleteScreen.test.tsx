@@ -7,6 +7,7 @@ const mockPop = jest.fn();
 const mockSave = jest.fn();
 const mockCancel = jest.fn();
 let mockSummary: TrainingSummary | null = null;
+let mockReduceMotion = false;
 let mockTransitionEnd: (event: { data: { closing: boolean } }) => void;
 const mockUnsubscribe = jest.fn();
 const mockNavigation = {
@@ -36,6 +37,7 @@ jest.mock('react-native-reanimated', () => {
     __esModule: true, default: { View: RN.View },
     useSharedValue: (n: number) => React.useRef({ value: n }).current,
     useAnimatedStyle: (fn: () => unknown) => fn(),
+    useReducedMotion: () => mockReduceMotion,
     useAnimatedReaction: () => undefined,
     cancelAnimation: jest.fn(), runOnJS: identity,
     withTiming: (n: number, _config: unknown, cb?: (ok: boolean) => void) => { cb?.(true); return n; },
@@ -53,6 +55,7 @@ import { Sheet } from '@/components/Sheet';
 import { Dialog } from '@/components/Dialog';
 import { ThemeProvider } from '@/theme';
 import { haptic } from '@/utils/haptics';
+import { useSettingsStore } from '@/store/settingsStore';
 
 const mockHeavy = haptic.heavy as jest.Mock;
 
@@ -70,6 +73,8 @@ beforeEach(() => {
   mockSave.mockResolvedValue({ stats: {} });
   mockSummary = { trainingId: 'session', durationSeconds: 120, totalVolume: 400,
     exerciseCount: 1, setCount: 2, totalAllSets: 3, bestSet: { weight: 40, reps: 10, value: 400 } };
+  mockReduceMotion = false;
+  useSettingsStore.setState({ unit: 'kg' });
 });
 afterEach(() => { act(() => tree?.unmount()); jest.clearAllTimers(); jest.useRealTimers(); });
 
@@ -100,6 +105,20 @@ describe('G48 completion integration', () => {
     }
   });
 
+  it('lb 模式换算训练量和最佳组，但不改变 kg 汇总真值', () => {
+    useSettingsStore.setState({ unit: 'lb' });
+    render();
+
+    const counters = tree.root.findAllByType(CountUp);
+    expect(counters.map((n) => n.props.value)).toEqual([120, 881.84, 3]);
+    const volume = tree.root.findAllByType(Text).find((n) => n.props.testID === 'summary-volume');
+    expect(volume?.props.children).toBe('881.8');
+    expect(tree.root.findAllByType(Text).some((n) =>
+      String(n.props.children).includes('88.2 lb'),
+    )).toBe(true);
+    expect(mockSummary?.totalVolume).toBe(400);
+  });
+
   it('有重量入场撒一次，重渲染和打开详情不再 heavy', () => {
     render();
     expect(tree.root.findByType(ConfettiBurst).props.trigger).toBe(400);
@@ -111,6 +130,15 @@ describe('G48 completion integration', () => {
     expect(mockHeavy).toHaveBeenCalledTimes(1);
     act(() => tree.root.findByType(Sheet).props.onClose());
     expect(tree.root.findByType(Sheet).props.visible).toBe(false);
+  });
+
+  it('减少动态效果时静态展示结果，不触发粒子或装饰性震动', () => {
+    mockReduceMotion = true;
+    render();
+
+    expect(tree.root.findAllByType(CountUp).map((n) => n.props.duration)).toEqual([0, 0, 0]);
+    expect(tree.root.findAllByType(ConfettiBurst)).toHaveLength(0);
+    expect(mockHeavy).not.toHaveBeenCalled();
   });
 
   it('无重量安静完成，仍显示三个统计数字', () => {

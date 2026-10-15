@@ -44,7 +44,8 @@ export function lbToKg(lb: number): number {
  */
 export function formatWeight(weight: number, unit: Unit): string {
   const safe = Number.isFinite(weight) ? weight : 0;
-  return `${safe.toFixed(1)} ${unit}`;
+  const display = unit === 'kg' ? safe : kgToLb(safe);
+  return `${display.toFixed(1)} ${unit}`;
 }
 
 /**

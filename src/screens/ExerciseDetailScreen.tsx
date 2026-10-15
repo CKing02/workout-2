@@ -176,13 +176,11 @@ export function ExerciseDetailScreen() {
         ]}
       >
         <EmptyState
-          icon="🤷"
+          illustration="missing"
           title="没找到这个动作"
-          description="可能已被删除,回动作库刷新一下试试。"
+          description="动作可能已被删除，返回动作库刷新后再试。"
           actionLabel="回上一页"
-          onAction={() => {
-            // react-navigation 自动有 header back;这里只提示
-          }}
+          onAction={() => navigation.goBack()}
         />
       </View>
     );

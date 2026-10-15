@@ -44,9 +44,9 @@ export function OneRMRecordsScreen() {
       >
         {isEmpty ? (
           <EmptyState
-            icon="🏆"
+            illustration="chart"
             title="还没有 1RM 数据"
-            description="完成一次包含 weight × reps 的训练后，这里会出现按动作聚合的最高 1RM。"
+            description="完成一次负重训练后，这里会显示按动作聚合的最高 1RM。"
           />
         ) : (
           <>

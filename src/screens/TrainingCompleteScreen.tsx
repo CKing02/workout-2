@@ -26,7 +26,7 @@
  *   - 通过 `route.params` 接收训练总结 stats(activeTraining 在内存中,DB 写
  *     尚未发生;`trainingId` 是 `activeTraining.id` 的快照,startTraining 已
  *     写过 orphan 行,等用户点保存才真正落库,点不保存则 cancelTraining 删)。
- *   - 数值/单位显示格式化为本地习惯(中文千分位、kg 保留 0 位小数)。
+ *   - 重量与训练量底层保持 kg，展示按 settingsStore.unit 换算。
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -47,9 +47,11 @@ import {
 } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Animated, {
+  cancelAnimation,
   Easing,
   interpolateColor,
   useAnimatedStyle,
+  useReducedMotion,
   useSharedValue,
   withRepeat,
   withSequence,
@@ -67,7 +69,9 @@ import { Sheet } from '@/components/Sheet';
 import { useTheme } from '@/theme';
 import { motion } from '@/theme/motion';
 import { useTrainingStore } from '@/store/trainingStore';
+import { useSettingsStore } from '@/store/settingsStore';
 import type { RootStackParamList } from '@/navigation/types';
+import { formatWeight, kgToLb } from '@/utils/units';
 
 type Navigation = NativeStackNavigationProp<
   RootStackParamList,
@@ -82,6 +86,8 @@ export function TrainingCompleteScreen() {
   const route = useRoute<Route>();
   const insets = useSafeAreaInsets();
   const { colors, spacing, typography, radius } = useTheme();
+  const unit = useSettingsStore((state) => state.unit);
+  const reduceMotion = useReducedMotion();
 
   const params = route.params;
   const summary = useTrainingStore((s) => s.completionSummary);
@@ -112,11 +118,11 @@ export function TrainingCompleteScreen() {
   // Entry haptic — celebration when the screen opens.
   // ----------------------------------------------------------------
   useEffect(() => {
-    if (entryReady && bestSet && celebratedRef.current !== trainingId) {
+    if (!reduceMotion && entryReady && bestSet && celebratedRef.current !== trainingId) {
       celebratedRef.current = trainingId;
       haptic.heavy();
     }
-  }, [entryReady, bestSet, trainingId]);
+  }, [entryReady, bestSet, reduceMotion, trainingId]);
 
   // ----------------------------------------------------------------
   // Save state machine: idle → saving → saved
@@ -163,6 +169,10 @@ export function TrainingCompleteScreen() {
   const pulse = useSharedValue(0);
 
   useEffect(() => {
+    if (reduceMotion) {
+      pulse.value = 0;
+      return () => cancelAnimation(pulse);
+    }
     pulse.value = withRepeat(
       withSequence(
         withTiming(1, { duration: 900, easing: Easing.inOut(Easing.quad) }),
@@ -171,7 +181,8 @@ export function TrainingCompleteScreen() {
       -1, // loop forever
       false,
     );
-  }, [pulse]);
+    return () => cancelAnimation(pulse);
+  }, [pulse, reduceMotion]);
 
   const iconAnimatedStyle = useAnimatedStyle(() => {
     const scale = 1 + 0.12 * pulse.value;
@@ -199,7 +210,8 @@ export function TrainingCompleteScreen() {
   // Stat formatters — Chinese-friendly number formatting.
   // ----------------------------------------------------------------
   const formattedDuration = formatDuration(durationSeconds);
-  const formattedVolume = formatKg(totalVolume);
+  const displayVolume = unit === 'kg' ? totalVolume : kgToLb(totalVolume);
+  const formattedVolume = `${formatAmount(displayVolume)} ${unit}`;
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
@@ -279,17 +291,19 @@ export function TrainingCompleteScreen() {
             animatedValue={entryReady ? durationSeconds : 0}
             format={formatDuration}
             testID="summary-duration"
+            countUpDuration={reduceMotion ? 0 : motion.duration.base}
             accessibilityHint={`本次训练总时长 ${formattedDuration}`}
           />
           <StatCard
             icon="💪"
             label="训练量"
-            value={formattedVolume}
-            animatedValue={entryReady ? totalVolume : 0}
-            format={formatKg}
+            value={formatAmount(displayVolume)}
+            animatedValue={entryReady ? displayVolume : 0}
+            format={formatAmount}
             testID="summary-volume"
-            unit="kg"
-            accessibilityHint={`总训练量 ${totalVolume.toFixed(0)} 公斤`}
+            unit={unit}
+            countUpDuration={reduceMotion ? 0 : motion.duration.base}
+            accessibilityHint={`总训练量 ${formattedVolume}`}
           />
           <StatCard
             icon="🏋️"
@@ -305,6 +319,7 @@ export function TrainingCompleteScreen() {
             animatedValue={entryReady ? totalAllSets : 0}
             testID="summary-sets"
             unit="组"
+            countUpDuration={reduceMotion ? 0 : motion.duration.base}
             accessibilityHint={`共完成 ${setCount} 组`}
           />
         </View>
@@ -312,10 +327,10 @@ export function TrainingCompleteScreen() {
           <Card padding="md" style={{ alignSelf: 'stretch' }}>
             <Text accessibilityRole="header" style={[typography.h3, { color: colors.primary }]}>本次最佳组</Text>
             <Text style={[typography.h2, { color: colors.text, marginVertical: spacing.sm }]}>
-              {formatKg(bestSet.weight)} kg × {bestSet.reps} 次
+              {formatWeight(bestSet.weight, unit)} × {bestSet.reps} 次
             </Text>
             <Text style={[typography.bodySmall, { color: colors.textSecondary, marginBottom: spacing.sm }]}>
-              单组容量 {formatKg(bestSet.value)} kg · 次
+              单组容量 {formatAmount(unit === 'kg' ? bestSet.value : kgToLb(bestSet.value))} {unit} · 次
             </Text>
             <Button variant="ghost" onPress={() => setShowBestSet(true)} accessibilityLabel="查看本次最佳组">查看详情</Button>
           </Card>
@@ -358,11 +373,13 @@ export function TrainingCompleteScreen() {
         </Button>
       </View>
 
-      {entryReady && bestSet ? <ConfettiBurst trigger={bestSet.value} testID="training-confetti" /> : null}
+      {!reduceMotion && entryReady && bestSet ? (
+        <ConfettiBurst trigger={bestSet.value} testID="training-confetti" />
+      ) : null}
       {bestSet ? (
         <Sheet visible={showBestSet} onClose={() => setShowBestSet(false)} title="本次最佳组" testID="best-set-sheet">
           <Text style={[typography.h2, { color: colors.text, marginBottom: spacing.md }]}>
-            {formatKg(bestSet.weight)} kg × {bestSet.reps} 次
+            {formatWeight(bestSet.weight, unit)} × {bestSet.reps} 次
           </Text>
           <Text style={[typography.body, { color: colors.textSecondary, marginBottom: spacing.md }]}>
             本次已完成的非热身负重组中，重量 × 次数最高的一组。
@@ -534,10 +551,21 @@ interface StatCardProps {
   format?: (n: number) => string;
   testID?: string;
   unit?: string;
+  countUpDuration?: number;
   accessibilityHint?: string;
 }
 
-function StatCard({ icon, label, value, animatedValue, format, testID, unit, accessibilityHint }: StatCardProps) {
+function StatCard({
+  icon,
+  label,
+  value,
+  animatedValue,
+  format,
+  testID,
+  unit,
+  countUpDuration = motion.duration.base,
+  accessibilityHint,
+}: StatCardProps) {
   const { colors, spacing, typography } = useTheme();
   return (
     <Card padding="md" style={{ flexBasis: '45%', flexGrow: 1, minWidth: 0 }}>
@@ -562,7 +590,7 @@ function StatCard({ icon, label, value, animatedValue, format, testID, unit, acc
         </Text>
         <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: spacing.xxs }}>
           {animatedValue !== undefined ? (
-            <CountUp value={animatedValue} duration={motion.duration.base} format={format} testID={testID}
+            <CountUp value={animatedValue} duration={countUpDuration} format={format} testID={testID}
               style={[typography.h2, { color: colors.text, fontVariant: ['tabular-nums'], flexShrink: 1 }]} />
           ) : <Text
             style={[
@@ -602,9 +630,9 @@ function formatDuration(totalSeconds: number): string {
   return `${pad(minutes)}:${pad(seconds)}`;
 }
 
-function formatKg(kg: number): string {
-  if (!Number.isFinite(kg)) return '0';
-  const rounded = Math.round(kg * 10) / 10;
+function formatAmount(value: number): string {
+  if (!Number.isFinite(value)) return '0';
+  const rounded = Math.round(value * 10) / 10;
   // 整数不显示小数;非整数保留 1 位
   if (Math.abs(rounded - Math.floor(rounded)) < 0.05) {
     return String(Math.floor(rounded));

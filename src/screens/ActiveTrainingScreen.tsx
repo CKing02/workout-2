@@ -63,6 +63,7 @@ import { Dialog } from '@/components/Dialog';
 import { ExerciseThumbnail } from '@/components/ExerciseThumbnail';
 import { IconButton } from '@/components/IconButton';
 import { NumberInput } from '@/components/NumberInput';
+import { WeightInput } from '@/components/WeightInput';
 import { Sheet } from '@/components/Sheet';
 import { SET_TYPES, type SetTypeValue } from '@/constants/setTypes';
 import { findMetricType, type MetricField } from '@/constants/metricTypes';
@@ -1479,14 +1480,12 @@ function MetricFieldInput({
 }: MetricFieldInputProps) {
   if (field === 'weight') {
     return (
-      <NumberInput
+      <WeightInput
         label={inline ? undefined : '重量'}
-        unitLabel="kg"
         value={value}
         onChangeValue={onChange}
         min={0}
         max={500}
-        precision={1}
         disabled={disabled}
       />
     );

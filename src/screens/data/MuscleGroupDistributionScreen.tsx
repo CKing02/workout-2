@@ -55,7 +55,7 @@ export function MuscleGroupDistributionScreen() {
       >
         {isEmpty ? (
           <EmptyState
-            icon="🥩"
+            illustration="chart"
             title="还没有肌群数据"
             description="至少完成一次训练后，这里会出现按主要肌群聚合的训练量占比饼图。"
           />

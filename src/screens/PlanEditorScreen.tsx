@@ -71,6 +71,7 @@ import { ExerciseThumbnail } from '@/components/ExerciseThumbnail';
 import { Input } from '@/components/Input';
 import { MenuRow } from '@/components/MenuRow';
 import { NumberInput } from '@/components/NumberInput';
+import { WeightInput } from '@/components/WeightInput';
 import { Sheet } from '@/components/Sheet';
 import { SET_TYPES, type SetTypeValue } from '@/constants/setTypes';
 import { STUB_NEW_PLAN_ID } from '@/constants/plan';
@@ -1108,13 +1109,11 @@ function SetRowField({
           accessible
           accessibilityLabel={`第 ${setIndex} 组 重量`}
         >
-          <NumberInput
+          <WeightInput
             value={setRow.weight}
             onChangeValue={onChangeWeight}
             min={0}
             max={500}
-            precision={1}
-            unitLabel="kg"
           />
         </View>
       );

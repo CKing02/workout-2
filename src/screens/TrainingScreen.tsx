@@ -391,9 +391,9 @@ export function TrainingScreen() {
           isEmpty ? (
             <View style={{ marginTop: spacing.xxxl }}>
               <EmptyState
-                icon="📋"
+                illustration="plan"
                 title="还没有训练计划"
-                description="创建你的第一个训练计划"
+                description="先把常练动作和组数整理成计划，训练时可以直接开始。"
                 actionLabel="新建计划"
                 onAction={handleNewPlan}
               />

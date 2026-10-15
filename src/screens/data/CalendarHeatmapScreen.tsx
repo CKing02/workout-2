@@ -57,7 +57,7 @@ export function CalendarHeatmapScreen() {
       >
         {isEmpty ? (
           <EmptyState
-            icon="🗓"
+            illustration="chart"
             title="还没有训练记录"
             description="完成一次训练后，这里会显示过去 12 周的每日训练量热力图。"
           />
