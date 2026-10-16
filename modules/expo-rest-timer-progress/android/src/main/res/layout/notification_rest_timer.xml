@@ -64,13 +64,25 @@
 
   </LinearLayout>
 
-  <!-- 进度条着色由 Kotlin 侧 setProgressTintList 注入(主题 primary),不在这里写死 -->
+  <!--
+    进度条着色,两层:
+      1. android:progressTint(这里) = **兜底**,API 21+ 就生效。
+      2. Kotlin 侧 setProgressTintList 用 JS 传来的主题色覆盖,但那个
+         RemoteViews 重载**API 31 才有**。
+
+    2026-10-02 之前只有第 2 层,于是 API < 31 的机器上进度条是系统强调色
+    (teal),不是品牌橙 —— 验收机 OPPO PBEM00(Android 10)正好落在那档,
+    文档里一度把它记成"无解,要拍板换自绘控件"。其实第 1 层就够了:
+    inflate 时解析资源,不受 RemoteViews 更新通道的 API 限制。
+    颜色值见同目录 values/colors.xml 与 values-night/colors.xml。
+  -->
   <ProgressBar
       android:id="@+id/rest_timer_progress"
       style="?android:attr/progressBarStyleHorizontal"
       android:layout_width="match_parent"
       android:layout_height="4dp"
       android:layout_marginTop="6dp"
-      android:max="100" />
+      android:max="100"
+      android:progressTint="@color/rest_timer_progress_tint" />
 
 </LinearLayout>

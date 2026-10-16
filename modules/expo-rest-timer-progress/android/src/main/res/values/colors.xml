@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  休息通知进度条的**兜底**着色。
+
+  为什么需要它:进度条本来只靠 Kotlin 侧 setProgressTintList 着色,而那个
+  RemoteViews 重载 (setColorStateList) **API 31 才有** —— 低于 31 的机器上
+  进度条是系统强调色(teal),与 App 品牌橙无关。验收机 OPPO PBEM00 是
+  Android 10,正好落在没色的那一档。
+
+  改成在**自己的 layout** 里写 android:progressTint(API 21+ 属性),
+  资源在 inflate 时解析,不受 RemoteViews 更新通道的 API 限制。
+  API 31+ 仍然由 Kotlin 用 JS 传来的主题色覆盖(XML 只是兜底),
+  所以两套并存、不冲突。
+
+  与 src/theme/colors.ts 的品牌色保持一致:light #FF6B35 / dark #FF7A4D。
+-->
+<resources>
+  <color name="rest_timer_progress_tint">#FF6B35</color>
+</resources>

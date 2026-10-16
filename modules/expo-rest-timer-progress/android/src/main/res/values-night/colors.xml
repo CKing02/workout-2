@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 夜间模式的兜底着色 —— 对应 src/theme/colors.ts 的 dark primary #FF7A4D。 -->
+<resources>
+  <color name="rest_timer_progress_tint">#FF7A4D</color>
+</resources>
