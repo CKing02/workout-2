@@ -1,0 +1,121 @@
+name: Build Android Release APK
+
+# 用途：从 master 出正式签名 APK（:app:assembleRelease），供上架 / 真机装包使用。
+# 与 android-apk.yml 的区别：本 workflow 注入 release keystore（不在仓库里），
+#   启用 R8 收缩 / PNG crunch，对应 `eas build --profile production`。
+# 触发：在 Actions 页面手动 workflow_dispatch。
+#
+# 入参 `abi` 默认同 debug 版（arm64-v8a + x86_64 双架构）。
+#
+# Keystore 从 `WORKOUT2_RELEASE_KEYSTORE_B64` secret 解码到 runner 临时文件，
+# 其余三个 secret（store/key alias/key 密码）直接传给 patch-android-signing.mjs。
+
+on:
+  workflow_dispatch:
+    inputs:
+      abi:
+        description: '目标 ABI'
+        required: true
+        default: 'arm64-v8a,x86_64'
+        type: choice
+        options:
+          - 'arm64-v8a,x86_64'
+          - 'arm64-v8a'
+          - 'x86_64'
+
+concurrency:
+  group: android-release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: 腾磁盘空间（debug workflow 已验证可减 ~20GB）
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost \
+                      /usr/share/swift /opt/hostedtoolcache/CodeQL || true
+          df -h /
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('package-lock.json', 'modules/**/android/build.gradle', 'patches/*.patch') }}
+          restore-keys: gradle-${{ runner.os }}-
+
+      - name: 安装依赖
+        run: npm ci --include=dev
+
+      - name: 注入 release keystore（从 secret 解码到 runner 临时目录）
+        env:
+          KEYSTORE_B64: ${{ secrets.WORKOUT2_RELEASE_KEYSTORE_B64 }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/keystore"
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/keystore/workout2-release.keystore"
+          ls -lh "$RUNNER_TEMP/keystore/"
+          # keystore 是 PKCS12，凭据自报。注意：本 workflow 不打印密码到日志。
+
+      - name: 暴露 signing 环境变量 + 注入签名配置
+        env:
+          WORKOUT2_RELEASE_STORE_FILE: ${{ runner.temp }}/keystore/workout2-release.keystore
+          WORKOUT2_RELEASE_STORE_PASSWORD: ${{ secrets.WORKOUT2_RELEASE_STORE_PASSWORD }}
+          WORKOUT2_RELEASE_KEY_ALIAS: ${{ secrets.WORKOUT2_RELEASE_KEY_ALIAS }}
+          WORKOUT2_RELEASE_KEY_PASSWORD: ${{ secrets.WORKOUT2_RELEASE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          node scripts/release/patch-android-signing.mjs
+
+      - name: 生成 android/ 工程
+        run: npx expo prebuild --platform android --no-install
+
+      - name: 构建 release APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:assembleRelease \
+            -PreactNativeArchitectures=${{ inputs.abi }} \
+            --no-daemon
+
+      - name: 收集产物 + 写签名指纹
+        run: |
+          set -euo pipefail
+          ls -lh android/app/build/outputs/apk/release/
+          sha256sum android/app/build/outputs/apk/release/*.apk | tee apk-sha256.txt
+          # 用 apksigner 验证签名身份（发行者、序列号）
+          APKSIGNER=$(ls "$ANDROID_HOME/build-tools"/*/apksigner 2>/dev/null | tail -1)
+          if [ -z "$APKSIGNER" ]; then APKSIGNER="$ANDROID_HOME/build-tools/35.0.0/apksigner"; fi
+          if [ -x "$APKSIGNER" ]; then
+            echo "=== 签名身份 ==="
+            "$APKSIGNER" verify --print-certs android/app/build/outputs/apk/release/app-release.apk | head -40
+          fi
+
+      - name: 上传 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk-release-${{ inputs.abi }}-${{ github.sha }}
+          path: |
+            android/app/build/outputs/apk/release/*.apk
+            apk-sha256.txt
+          if-no-files-found: error
+          retention-days: 90
