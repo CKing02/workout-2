@@ -9,6 +9,8 @@ name: Build Android Release APK
 #
 # Keystore 从 `WORKOUT2_RELEASE_KEYSTORE_B64` secret 解码到 runner 临时文件，
 # 其余三个 secret（store/key alias/key 密码）直接传给 patch-android-signing.mjs。
+# 注意：patch 脚本必须在 `expo prebuild` 之后跑（脚本读 android/app/build.gradle，
+# 由 prebuild 生成）。
 
 on:
   workflow_dispatch:
@@ -76,7 +78,10 @@ jobs:
           ls -lh "$RUNNER_TEMP/keystore/"
           # keystore 是 PKCS12，凭据自报。注意：本 workflow 不打印密码到日志。
 
-      - name: 暴露 signing 环境变量 + 注入签名配置
+      - name: 生成 android/ 工程（必须先于 patch 脚本）
+        run: npx expo prebuild --platform android --no-install
+
+      - name: 注入签名配置
         env:
           WORKOUT2_RELEASE_STORE_FILE: ${{ runner.temp }}/keystore/workout2-release.keystore
           WORKOUT2_RELEASE_STORE_PASSWORD: ${{ secrets.WORKOUT2_RELEASE_STORE_PASSWORD }}
@@ -85,9 +90,6 @@ jobs:
         run: |
           set -euo pipefail
           node scripts/release/patch-android-signing.mjs
-
-      - name: 生成 android/ 工程
-        run: npx expo prebuild --platform android --no-install
 
       - name: 构建 release APK
         working-directory: android
