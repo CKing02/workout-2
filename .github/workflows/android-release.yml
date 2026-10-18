@@ -7,10 +7,11 @@ name: Build Android Release APK
 #
 # 入参 `abi` 默认同 debug 版（arm64-v8a + x86_64 双架构）。
 #
-# Keystore 从 `WORKOUT2_RELEASE_KEYSTORE_B64` secret 解码到 runner 临时文件，
-# 其余三个 secret（store/key alias/key 密码）直接传给 patch-android-signing.mjs。
-# 注意：patch 脚本必须在 `expo prebuild` 之后跑（脚本读 android/app/build.gradle，
-# 由 prebuild 生成）。
+# Keystore 从 `WORKOUT2_RELEASE_KEYSTORE_B64` secret 解码到 runner 临时文件。
+# 其余三个 secret（store/key alias/key 密码）通过 env 同时传给：
+#   1) patch-android-signing.mjs（让脚本注入 use env vars 的签名配置到 build.gradle）
+#   2) ./gradlew :app:assembleRelease（gradle 配置阶段会读这四个 env vars）
+# 两个 step 必须都显式带 env，否则 gradle 会"环境变量未设置"抛错。
 
 on:
   workflow_dispatch:
@@ -76,7 +77,6 @@ jobs:
           mkdir -p "$RUNNER_TEMP/keystore"
           echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/keystore/workout2-release.keystore"
           ls -lh "$RUNNER_TEMP/keystore/"
-          # keystore 是 PKCS12，凭据自报。注意：本 workflow 不打印密码到日志。
 
       - name: 生成 android/ 工程（必须先于 patch 脚本）
         run: npx expo prebuild --platform android --no-install
@@ -91,9 +91,15 @@ jobs:
           set -euo pipefail
           node scripts/release/patch-android-signing.mjs
 
-      - name: 构建 release APK
+      - name: 构建 release APK（env 必须再次声明 —— gradle 在配置阶段读 env）
         working-directory: android
+        env:
+          WORKOUT2_RELEASE_STORE_FILE: ${{ runner.temp }}/keystore/workout2-release.keystore
+          WORKOUT2_RELEASE_STORE_PASSWORD: ${{ secrets.WORKOUT2_RELEASE_STORE_PASSWORD }}
+          WORKOUT2_RELEASE_KEY_ALIAS: ${{ secrets.WORKOUT2_RELEASE_KEY_ALIAS }}
+          WORKOUT2_RELEASE_KEY_PASSWORD: ${{ secrets.WORKOUT2_RELEASE_KEY_PASSWORD }}
         run: |
+          set -euo pipefail
           chmod +x gradlew
           ./gradlew :app:assembleRelease \
             -PreactNativeArchitectures=${{ inputs.abi }} \
@@ -104,7 +110,6 @@ jobs:
           set -euo pipefail
           ls -lh android/app/build/outputs/apk/release/
           sha256sum android/app/build/outputs/apk/release/*.apk | tee apk-sha256.txt
-          # 用 apksigner 验证签名身份（发行者、序列号）
           APKSIGNER=$(ls "$ANDROID_HOME/build-tools"/*/apksigner 2>/dev/null | tail -1)
           if [ -z "$APKSIGNER" ]; then APKSIGNER="$ANDROID_HOME/build-tools/35.0.0/apksigner"; fi
           if [ -x "$APKSIGNER" ]; then
