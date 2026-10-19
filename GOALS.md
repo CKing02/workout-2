@@ -2673,6 +2673,221 @@ G29 已经把顶部进度条做了,G38.1 已经把"完成一组后焦点光带"�
 - 通知 teal 着色 WIP 已于 c81ad78 落地到 master（G49 文档声明的边界项）；当前已装 1be629 APK 仍按旧版渲染（构建于该提交之前），新行为要等下一轮云构建出新 APK 后真机复验。
 - 历史最大 PR 比较与持久化会涉及新数据层和 schema；G48 仅实现“本次最佳组”。原文提到“G49 或后续”，**本节不将真实 PR 功能纳入 G49**；需另立目标和迁移方案。
 
+
+## G50. picker mode 内联新建自定义动作（BL-001）✅
+
+**优先级**：P1  |  **依赖**：G15（自定义动作 ✅）+ G11（picker mode ✅）  |  **阶段**：4
+**状态**：✅ 代码完成 + 测试 4/4 + 类型检查通过（2026-10-18）
+
+### 问题
+
+用户从 PlanEditor 进入「+ 添加动作」→ ExerciseLibraryScreen picker mode（mode=multiple + onSelect）。
+旧逻辑：`selectMode=true` 一进 picker 就把右上角 `＋` 按钮隐藏，迫使用户先退出选择态、
+再创建、再重新进选择态、再勾选才能带回新动作。回环 ≥5 步，体感割裂。
+
+### 方案（最小改动）
+
+不动 PlanEditor，不新建 Sheet。复用 picker 已有的 `＋` 入口 + 已有 `ExerciseFormSheet`：
+
+1. Header `＋` 可见条件：`!selectMode` → `browseMode && selectMode ? null : (...)`
+   —— picker mode 始终可见；browse + selectMode 仍隐藏（避免误触）。
+2. `handleCreateCustom` 捕获 `createCustom` 返回的 Exercise；picker mode 下
+   `setSelected(prev => prev ∪ {created.id})` 后再关闭 sheet。
+3. picker hint 文案补一句「或点右上角「＋」新建自定义动作」让用户知道入口在哪。
+
+### 验收
+
+- [x] picker mode 右上角始终可见 `＋`（无论 selectMode）
+- [x] picker mode 内创建后，新动作自动出现在已选集合
+- [x] picker mode 点「完成(N)」能一并带回新动作
+- [x] browse / single 模式行为不变（仅入库、不入选中）
+- [x] picker mode hint 文案提示 `＋` 入口
+- [x] `tsc --noEmit` 0 错误
+- [x] `jest ExerciseFormSheet.test` 4/4 通过（form 契约锁定）
+- [x] 现有 `EmptyState.test.tsx` 11/11 通过（未受影响）
+- [ ] 真机：OPPO PBEM00 picker 内 `＋` → 表单 → 保存 → 点「完成」→ PlanEditor 出现该动作
+
+### 涉及文件
+
+- `src/screens/ExerciseLibraryScreen.tsx`：header 条件（line 184）+ handleCreateCustom（line 308–333）+ hint 文案（line 425–426）
+- `src/components/__tests__/ExerciseFormSheet.test.tsx`：新增 4 条契约测试
+- `docs/BACKLOG.md`：BL-001 标记为 ✅
+
+### 已知边界
+
+- picker mode 内重复创建同名自定义动作 → DB 不去重（pre-existing），两个同名行会同时出现在列表，
+  但 `handlePickExercises` 用 `!current.includes(id)` 过滤，所以只会加一次。
+- 如果未来 picker 模式要支持"先看 custom 再看 builtin"的排序，BL-003 会一并覆盖（G 当前未动 SQL）。
+
+---
+
+
+## G51. 时间类运动支持秒级录入（BL-002）✅
+
+**优先级**：P1  |  **依赖**：无  |  **阶段**：4
+**状态**：✅ 代码完成 + 类型检查通过 + 现有测试 37/37 全绿（2026-10-18）
+
+### 问题
+
+PlanEditor 中 SetRowField 对 `duration_seconds` 的渲染做 `Math.round(s / 60)` 把秒
+强制对齐到分钟，再把分钟 ×60 回写。用户录 45 秒 → 0.75min → 进位 1min → 回写 60s，
+**真实数据丢 15s**。ActiveTrainingScreen.MetricFieldInput 早已是纯秒处理，
+PlanEditor 与训练中页输入语义不一致。
+
+### 方案（单点修复）
+
+修改 `src/screens/PlanEditorScreen.tsx::SetRowField` 的 `duration_seconds` case：
+
+| 项 | 旧 | 新 |
+| --- | --- | --- |
+| `value` | `Math.round(setRow.durationSeconds / 60)` | `setRow.durationSeconds` |
+| `onChangeValue` | `(min) => max(0, round(min * 60))` | `(sec) => max(0, round(sec))` |
+| `unitLabel` | `"min"` | `"秒"` |
+| `max` | `600` (10 小时) | `3600` (1 小时) |
+| `accessibilityLabel` | `第 N 组 时间` | `第 N 组 时间(秒)` |
+
+SetRow 头部注释从 `1 个「min」输入（DB 存秒,UI 显示分钟）` 同步更新为 `1 个「秒」输入（DB 存秒,UI 也以秒录入）`。
+
+### 验收
+
+- [x] PlanEditor 行内 SetRow 的 duration 输入显示「秒」
+- [x] PlanEditor SetSheetBody（编辑组 sheet）的 duration 输入显示「秒」
+- [x] 输入 45 → DB 写入 45（不再被 /60 转换）
+- [x] 输入 90 → DB 写入 90（不再进位到 120）
+- [x] 输入 0 → 留空（fallback 到 min=0，pre-existing 行为）
+- [x] 与 ActiveTrainingScreen.MetricFieldInput 行为一致
+- [x] DB schema / store / repo 无任何改动，无需 migration
+- [x] `tsc --noEmit` 0 错误
+- [x] `jest WeightInput` 3/3 + `aggregations` 22/22 + `planRepo` 6/6 + `useExerciseHistory` 6/6 通过
+- [x] 全文 grep `durationSeconds.*/ ?60` 0 命中（无残留）
+- [ ] 真机：进入计划 → time 类型运动 → 加组 → 输入 45 / 90 → 保存 → 训练中再次查看 → 显示 45 秒 / 90 秒
+
+### 涉及文件
+
+- `src/screens/PlanEditorScreen.tsx`：
+  - SetRowField duration_seconds case（line 1135–1155）
+  - SetRow 头部注释（line 914）
+- `docs/BACKLOG.md`：BL-002 标记为 ✅
+
+### 已知限制
+
+- 旧数据展示：DB 存的 `durationSeconds`（例如旧 30min 记录为 1800s）回读直接显示为「1800 秒」，
+  不做格式化。可后续独立增强加「≥60s → X 分 Y 秒」显示（不在 G51 范围）。
+- `distance_km` 未改动（已是纯 km 录入）。
+
+---
+
+
+## G52. 动作列表自定义动作置顶（BL-003）✅
+
+**优先级**：P1  |  **依赖**：无  |  **阶段**：4
+**状态**：✅ 代码完成 + 类型检查通过 + 测试 34/34 全绿（2026-10-18）
+
+### 问题
+
+`exerciseRepo` 4 处查询都用 `ORDER BY is_custom ASC, name COLLATE NOCASE ASC`：
+内置动作按字母序、自定义动作沉底。用户自建的动作往往是「我最常用」的高频项
+却最难找到。
+
+### 方案（最小改动）
+
+将 `is_custom ASC` 改为 `is_custom DESC`，4 处同步：
+
+| 位置 | 行号 | 函数 |
+| --- | --- | --- |
+| `exerciseRepo.ts` | 41 | `listExercises` |
+| `exerciseRepo.ts` | 147 | `queryByMuscleGroup` |
+| `exerciseRepo.ts` | 161 | `queryByEquipment` |
+| `exerciseRepo.ts` | 177 | `searchByName` |
+
+内置动作内部仍按 `name COLLATE NOCASE ASC` —— 行为完全不变。
+自定义动作内部也按 `name ASC`，与内置规则统一（最可预测）。
+下游 store / 组件 / picker / browse 全自动受益，无任何组件层改动。
+
+### 验收
+
+- [x] `listExercises` 自定义动作置顶
+- [x] `queryByMuscleGroup` 自定义动作置顶
+- [x] `queryByEquipment` 自定义动作置顶
+- [x] `searchByName` 自定义动作置顶
+- [x] picker 模式 + browse 模式行为统一（共用同一 SQL）
+- [x] 内置动作内部排序未变（name ASC）
+- [x] 训练中 / 历史回看中的动作 chip 不受影响（不走 exercises 排序）
+- [x] DB schema 不动，无 migration
+- [x] `tsc --noEmit` 0 错误
+- [x] 新增 `exerciseRepo.test.ts` 5/5 通过（锁定 4 条 ORDER BY）
+- [x] seedRunnerUpgrade 7/7 + seedRunnerUpgradeCdnUrls 2/2 + toExerciseRowsG35 12/12 + exportData 8/8 通过
+- [ ] 真机：进入动作库 → 自定义动作排在前面；进入肌群「胸」筛选 → 自定义胸动作置顶
+
+### 涉及文件
+
+- `src/db/repositories/exerciseRepo.ts`：4 处 ORDER BY + 1 处注释更新
+- `src/db/repositories/__tests__/exerciseRepo.test.ts`：新增 5 条回归测试
+- `docs/BACKLOG.md`：BL-003 标记为 ✅
+
+### 已知边界
+
+- 自定义动作内部仍按字母序。如果未来要按「最近创建在前」可独立增强（`ORDER BY is_custom DESC, created_at DESC`）。
+- 训练历史 / 完成页里的动作顺序由 `training_sets` 实际记录决定，不受此改动影响。
+
+---
+
+
+## G53. 训练中输入框焦点自动滚到键盘上方（BL-004）✅
+
+**优先级**：P0（影响录入正确性）  |  **依赖**：无（复用 G38.1 的 `scrollViewRef`/`setRowRefs` 基础设施）  |  **阶段**：4
+**状态**：✅ 代码完成 + 类型检查通过 + 测试 27/27 全绿（2026-10-19）
+
+### 问题
+
+`ActiveTrainingScreen` 已用 `KeyboardAvoidingView` + `keyboardShouldPersistTaps="handled"`，但滚到最后一个 set 时点 weight 输入，
+键盘遮住输入框 —— 用户盲打 45 / 48 不知道是哪个。正确性 bug（P0）。
+
+### 方案（复用 G38.1 基础设施）
+
+扩展已有的 `setRowRefs` + `scrollViewRef` 模式（rest-timer auto-scroll 已经在用），加 input-focus 路径：
+
+| 层 | 改动 |
+| --- | --- |
+| `NumberInput` | 新增 `onFocus?: () => void` prop；先调 `onFocus?.()` 再做内置 select-all（顺序契约） |
+| `MetricFieldInputProps` | 新增 `onInputFocus?: () => void`，透传给 4 个 WeightInput/NumberInput（weight/reps/duration/distance） |
+| `SetRowProps` | 新增 `onInputFocus?: () => void`，透传到 1 / 2 个 `MetricFieldInput` |
+| `ActiveTrainingScreen` | 新增 `handleSetInputFocus(clientId)` useCallback：`requestAnimationFrame` → `measureLayout` → `scrollTo({y: y - 100})` |
+| 主组件 render | 每个 SetRow 收 `onInputFocus={isActive ? () => handleSetInputFocus(s.clientId) : undefined}` |
+
+### 验收
+
+- [x] `NumberInput.onFocus` prop 接入正确，4 条单测覆盖契约（不报错 / 回调被调 / 顺序 / 不依赖 prefill）
+- [x] 仅 active set 收到 `onInputFocus`（性能 + 语义对齐）
+- [x] 复用现有 `scrollViewRef` + `setRowRefs`，不新增 ref
+- [x] `KeyboardAvoidingView` 配置 / 顶部状态栏 / Bottom CTA 零改动
+- [x] `tsc --noEmit` 0 错误
+- [x] `jest NumberInput.test` 4/4 通过
+- [x] 现有 8 个相关测试套件全绿
+- [ ] 真机：OPPO PBEM00 滚到最后一组 → 点 weight 输入 → 输入框滚到屏顶可见区
+
+### 涉及文件
+
+- `src/components/NumberInput.tsx`：+ `onFocus` prop / destructure / `handleFocus` 链
+- `src/screens/ActiveTrainingScreen.tsx`：
+  - `SetRowProps` 加 `onInputFocus`（line ~1604）
+  - `MetricFieldInputProps` 加 `onInputFocus`（line ~1472）
+  - `handleSetInputFocus` useCallback（line 632–660）
+  - SetRow render 加 `onInputFocus={...}` 绑定（line ~1045）
+  - 4 处 WeightInput / NumberInput 加 `onFocus={onInputFocus}`（line ~1489–1534）
+- `src/components/__tests__/NumberInput.test.tsx`：新增 4 条契约测试
+- `docs/BACKLOG.md`：BL-004 标记为 ✅
+
+### 关键设计取舍
+
+- **caller 早于内置 select-all**：让 measureLayout 测的是 focus 触发瞬间的位置，文本选择动画不污染坐标。
+- **`requestAnimationFrame` 一帧延迟**：KeyboardAvoidingView 的 padding 在 iOS / Android 上有 100–200ms 弹起动画，一帧（16ms）足够，measureLayout 拿到的是最终几何。
+- **`y - 100` 偏移**：让行到屏顶 100dp 之下，留出状态栏 + 进度条 + 一点点呼吸空间。
+- **失败静默**：measureLayout 在 RN 偶尔返回 0，不打断用户输入 —— 下次 focus 重试。
+- **不引入新 ref**：scrollViewRef / setRowRefs 都是 G38.1 的资产，0 增加。
+
+---
+
 ## 附录 A：数据库表结构（草图，Agent 可微调）
 
 ```sql

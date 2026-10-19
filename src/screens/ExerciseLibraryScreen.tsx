@@ -177,9 +177,11 @@ export function ExerciseLibraryScreen() {
       ...(headerTitle ? { title: headerTitle } : null),
       headerRight: () => (
         <View style={styles.headerRight}>
-          {/* G15: 「+」始终在左边；多选 / 完成模式时不显示（避免误触）。
-              G26: browse mode 也保留 `+`，让用户能新建自定义动作。 */}
-          {!selectMode ? (
+          {/* BL-001: 「+」在 picker mode 下始终可见 — PlanEditor 「添加动作」
+              进入即 selectMode=true,旧逻辑会把 ＋ 隐藏,迫使用户先退选、再
+              创建、再重选,流程冗余。browse + selectMode 仍隐藏避免误触。
+              G15: 创建入口;G26: browse 也保留。 */}
+          {browseMode && selectMode ? null : (
             <Pressable
               onPress={() => {
                 haptic.selection();
@@ -188,12 +190,12 @@ export function ExerciseLibraryScreen() {
               hitSlop={12}
               accessibilityRole="button"
               accessibilityLabel="新建自定义动作"
-              accessibilityHint="弹出创建表单 Sheet"
+              accessibilityHint="弹出创建表单 Sheet，保存后自动加入当前选择"
               style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, paddingHorizontal: 8 })}
             >
               <Text style={[typography.title, { color: colors.primary, fontSize: 22 }]}>＋</Text>
             </Pressable>
-          ) : null}
+          )}
           {/* G26: browse 模式隐藏 ☑/完成 切换按钮（browse 不进入选择态） */}
           {browseMode ? null : (
             <HeaderRight
@@ -306,16 +308,27 @@ export function ExerciseLibraryScreen() {
       metricType: string;
     }) => {
       try {
-        await createCustom({ ...input, isCustom: true });
+        // BL-001: 拿到返回值,方便 picker mode 下自动勾选新建的动作。
+        const created = await createCustom({ ...input, isCustom: true });
         haptic.success();
         toast.show(`已创建「${input.name}」`, 'success');
+        // BL-001: picker mode 下「+ 新建」创建后立即加入选中集合,
+        // 用户点「完成(N)」即可把新建动作一并带回 PlanEditor。
+        // browse / single 等非 picker 模式保持原行为(仅入库,不入选中)。
+        if (pickerMode) {
+          setSelected((prev) => {
+            const next = new Set(prev);
+            next.add(created.id);
+            return next;
+          });
+        }
         setCreateSheetOpen(false);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         toast.show('创建失败：' + msg, 'error');
       }
     },
-    [createCustom],
+    [createCustom, pickerMode],
   );
 
   const handleDeleteRequest = useCallback((item: Exercise) => {
@@ -405,8 +418,8 @@ export function ExerciseLibraryScreen() {
             ]}
           >
             {selected.size === 0
-              ? '至少选择 1 个动作，然后点右上角「完成」开始'
-              : `已选 ${selected.size} 个动作 · 点右上角「完成」开始训练`}
+              ? '至少选择 1 个动作，或点右上角「＋」新建自定义动作'
+              : `已选 ${selected.size} 个动作 · 右上角「＋」可新建 ·「完成」开始训练`}
           </Text>
         </View>
       ) : null}

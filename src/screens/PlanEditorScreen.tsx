@@ -178,9 +178,16 @@ export function PlanEditorScreen() {
         toast.show('请至少添加一个动作', 'warning');
         return;
       }
+      // BL-fix-rest: 防御性显式透传 restSecondsByExerciseId,不再依赖 store 内部
+      // auto-collect。如果 store 内部某行过滤掉了草稿(React 闭包延迟/重排竞态),
+      // 这里从最新的 detail.exercises 现场构造,保证写入 DB 的是用户最终设置的值。
+      const restSecondsByExerciseId: Record<string, number> = {};
+      for (const pe of detail?.exercises ?? []) {
+        restSecondsByExerciseId[pe.exerciseId] = pe.restSeconds;
+      }
       try {
         setSaving(true);
-        await createPlan({ name: trimmed, exerciseIds });
+        await createPlan({ name: trimmed, exerciseIds, restSecondsByExerciseId });
         toast.show('计划已保存', 'success');
         navigation.goBack();
       } catch (err) {
@@ -911,7 +918,7 @@ function ExerciseEditorCard({
 /* - ['reps']              → 1 个「次」输入                                    */
 /* - ['weight']            → 1 个「kg」输入                                    */
 /* - ['weight','reps']     → 「kg」+「次」两个输入（现有负重类）              */
-/* - ['duration_seconds']  → 1 个「min」输入（DB 存秒,UI 显示分钟）            */
+/* - ['duration_seconds']  → 1 个「秒」输入（DB 存秒,UI 也以秒录入）          */
 /* - ['distance_km']       → 1 个「km」输入                                   */
 /*                                                                            */
 /* 旧调用方只接 weight/reps 回调;duration/distance 通过 onChangeDuration/      */
@@ -1133,21 +1140,23 @@ function SetRowField({
         </View>
       );
     case 'duration_seconds':
-      // DB 存秒,NumberInput 显示分钟。转换只在 UI ↔ 存储的边界做。
+      // BL-002: DB 存秒,NumberInput 也以秒为单位录入。
+      // 旧版 minutes ↔ seconds 双向换算会让 45s → 0.75min → 进位 1min → 回写 60s,
+      // 数据丢 15s。改成纯秒,与 ActiveTrainingScreen.MetricFieldInput 行为对齐。
       return (
         <View
           style={{ flex: 1 }}
           accessible
-          accessibilityLabel={`第 ${setIndex} 组 时间`}
+          accessibilityLabel={`第 ${setIndex} 组 时间(秒)`}
         >
           <NumberInput
-            value={Math.round(setRow.durationSeconds / 60)}
-            onChangeValue={(minutes) =>
-              onChangeDuration?.(Math.max(0, Math.round(minutes * 60)))
+            value={setRow.durationSeconds}
+            onChangeValue={(seconds) =>
+              onChangeDuration?.(Math.max(0, Math.round(seconds)))
             }
             min={0}
-            max={600}
-            unitLabel="min"
+            max={3600}
+            unitLabel="秒"
           />
         </View>
       );

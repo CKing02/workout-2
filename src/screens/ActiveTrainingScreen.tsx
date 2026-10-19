@@ -625,6 +625,40 @@ export function ActiveTrainingScreen() {
 
   // -----------------------------------------------------------------
   // Field change handler — write into store on every change
+  // BL-004: input focus -> scroll this set row into view above the keyboard.
+  // Uses measureLayout + scrollTo (same pattern as rest-timer auto-scroll at
+  // line ~285); the offset below places the row near the top of the visible
+  // viewport, just below the status bar.
+  const handleSetInputFocus = useCallback(
+    (clientId: string) => {
+      const targetView = setRowRefs.current.get(clientId);
+      if (!targetView || !scrollViewRef.current) return;
+      // Wrap measureLayout in requestAnimationFrame so the ScrollView has
+      // a chance to react to the keyboard coming up (KeyboardAvoidingView
+      // padding pushes content) before we measure coordinates.
+      requestAnimationFrame(() => {
+        if (!scrollViewRef.current) return;
+        targetView.measureLayout(
+          scrollViewRef.current as unknown as number,
+          (_x, y, _w, _h) => {
+            if (!scrollViewRef.current) return;
+            // Row center near top of viewport. 100dp offset clears
+            // the status bar + progress bar + a little breathing room.
+            const offset = Math.max(0, y - 100);
+            scrollViewRef.current.scrollTo({
+              y: offset,
+              animated: true,
+            });
+          },
+          () => {
+            // measureLayout 罕见失败 — 不滚,也不打断用户输入。
+          },
+        );
+      });
+    },
+    [],
+  );
+
   // -----------------------------------------------------------------
   const onFieldChange = useCallback(
     (field: MetricField, value: number) => {
@@ -1042,6 +1076,7 @@ export function ActiveTrainingScreen() {
                 }}
                 onChangeField={onFieldChange}
                 justActivated={pulsedSetId === s.clientId}
+                onInputFocus={isActive ? () => handleSetInputFocus(s.clientId) : undefined}
                 rowRef={(view) => {
                   if (view) {
                     setRowRefs.current.set(s.clientId, view);
@@ -1469,6 +1504,11 @@ interface MetricFieldInputProps {
    * 秒 / km) or by ordinal context (reps has no unit, just a number).
    */
   inline?: boolean;
+  /**
+   * BL-004: forwarded to NumberInput/WeightInput so the parent can scroll
+   * the row above the keyboard when this field gains focus.
+   */
+  onInputFocus?: () => void;
 }
 
 function MetricFieldInput({
@@ -1477,6 +1517,7 @@ function MetricFieldInput({
   disabled,
   onChange,
   inline = false,
+  onInputFocus,
 }: MetricFieldInputProps) {
   if (field === 'weight') {
     return (
@@ -1487,6 +1528,7 @@ function MetricFieldInput({
         min={0}
         max={500}
         disabled={disabled}
+        onFocus={onInputFocus}
       />
     );
   }
@@ -1499,6 +1541,7 @@ function MetricFieldInput({
         min={0}
         max={50}
         disabled={disabled}
+        onFocus={onInputFocus}
       />
     );
   }
@@ -1512,6 +1555,7 @@ function MetricFieldInput({
         min={0}
         max={3600}
         disabled={disabled}
+        onFocus={onInputFocus}
       />
     );
   }
@@ -1526,6 +1570,7 @@ function MetricFieldInput({
       max={100}
       precision={2}
       disabled={disabled}
+      onFocus={onInputFocus}
     />
   );
 }
@@ -1601,6 +1646,12 @@ interface SetRowProps {
    * 到当前 set。callback ref 模式,卸载时回 null。
    */
   rowRef?: (view: View | null) => void;
+  /**
+   * BL-004: 当行内任意 TextInput 获得焦点时触发,父级据此 measureLayout
+   * + scrollTo 把这一行带到键盘上方。仅 active set 会被聚焦,所以
+   * onInputFocus 只在 active=true 时有意义。
+   */
+  onInputFocus?: () => void;
 }
 
 /**
@@ -1627,6 +1678,7 @@ function SetRow({
   onChangeField,
   justActivated,
   rowRef,
+  onInputFocus,
 }: SetRowProps) {
   const { colors, spacing, typography, radius } = useTheme();
   const unit = useSettingsStore((s) => s.unit);
@@ -1781,6 +1833,7 @@ function SetRow({
               disabled={false}
               onChange={(v) => onChangeField(fields[0], v)}
               inline
+              onInputFocus={onInputFocus}
             />
           ) : (
             <View style={{ flexDirection: 'row', gap: spacing.sm }}>
@@ -1792,6 +1845,7 @@ function SetRow({
                     disabled={false}
                     onChange={(v) => onChangeField(f, v)}
                     inline
+                    onInputFocus={onInputFocus}
                   />
                 </View>
               ))}

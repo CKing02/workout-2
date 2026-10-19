@@ -76,6 +76,11 @@ export interface NumberInputProps {
   /** Optional error message — renders below the field with a red border. */
   error?: string;
   testID?: string;
+  /** BL-004: called when the underlying TextInput gains focus. Useful for
+   * scrolling the parent ScrollView so the input stays above the keyboard.
+   * Fires AFTER the built-in select-all-on-focus logic so callers can rely
+   * on text content already being selected when their handler runs. */
+  onFocus?: () => void;
 }
 
 /** Reserved width on the right edge of the input for the unit label. */
@@ -132,6 +137,7 @@ export function NumberInput({
   placeholder,
   error,
   testID,
+  onFocus,
 }: NumberInputProps) {
   const { colors, typography, spacing, radius } = useTheme();
   const defaultPlaceholder = toFixed(typeof min === 'number' ? min : 0, precision);
@@ -162,11 +168,14 @@ export function NumberInput({
   const inputRef = useRef<TextInput>(null);
 
   const handleFocus = useCallback(() => {
+    // BL-004: notify caller first so a parent ScrollView can start
+    // measuring/scrolling on the focus event itself.
+    onFocus?.();
     if (isPrefill) return;
     if (text.length === 0) return;
-    // RN's `setSelection` takes positional (start, end), not an object.
+    // RN setSelection takes positional (start, end), not an object.
     inputRef.current?.setSelection?.(0, text.length);
-  }, [isPrefill, text.length]);
+  }, [isPrefill, text.length, onFocus]);
 
   // Sync external value -> internal text when the parent changes the
   // value *outside* of the user's typing flow. The skip flag above keeps
