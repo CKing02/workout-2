@@ -13,7 +13,9 @@
 
 import React, { useEffect } from 'react';
 import {
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -101,7 +103,11 @@ export function Sheet({
           onPress={onClose}
           style={StyleSheet.absoluteFill}
         />
-        <View pointerEvents="box-none" style={styles.bottomAnchor}>
+        <KeyboardAvoidingView
+          pointerEvents="box-none"
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.bottomAnchor}
+        >
           <Animated.View
             testID={testID}
             style={[
@@ -132,7 +138,7 @@ export function Sheet({
             ) : null}
             {children}
           </Animated.View>
-        </View>
+        </KeyboardAvoidingView>
       </View>
     </Modal>
   );

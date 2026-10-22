@@ -36,10 +36,12 @@ import React, {
   useEffect,
   useLayoutEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import {
   ActivityIndicator,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -67,6 +69,7 @@ import { Badge } from '@/components/Badge';
 import { Button } from '@/components/Button';
 import { Card } from '@/components/Card';
 import { Dialog } from '@/components/Dialog';
+import { DurationInputSheetBody } from '@/components/DurationInputSheetBody';
 import { ExerciseThumbnail } from '@/components/ExerciseThumbnail';
 import { Input } from '@/components/Input';
 import { MenuRow } from '@/components/MenuRow';
@@ -91,6 +94,7 @@ import { useExerciseStore } from '@/store/exerciseStore';
 import { useTheme } from '@/theme';
 import { motion } from '@/theme/motion';
 import { haptic } from '@/utils/haptics';
+import { formatSetDuration } from '@/utils/duration';
 import type { Exercise } from '@/db/schema';
 
 import type { RootStackParamList } from '@/navigation/types';
@@ -137,6 +141,42 @@ export function PlanEditorScreen() {
   const [name, setName] = useState<string>('');
   const [nameTouchedFromDB, setNameTouchedFromDB] = useState(false);
   const [saving, setSaving] = useState(false);
+  const scrollViewRef = useRef<ScrollView>(null);
+  const setRowRefs = useRef(new Map<string, View>());
+  const pendingInputRowRef = useRef<string | null>(null);
+
+  const scrollSetRowIntoView = useCallback((localId: string) => {
+    const target = setRowRefs.current.get(localId);
+    const scrollView = scrollViewRef.current;
+    if (!target || !scrollView) return;
+    target.measureLayout(
+      scrollView as unknown as number,
+      (_x, y) => {
+        scrollViewRef.current?.scrollTo({
+          y: Math.max(0, y - 112),
+          animated: true,
+        });
+      },
+      () => undefined,
+    );
+  }, []);
+
+  const handleSetInputFocus = useCallback(
+    (localId: string) => {
+      pendingInputRowRef.current = localId;
+      requestAnimationFrame(() => scrollSetRowIntoView(localId));
+    },
+    [scrollSetRowIntoView],
+  );
+
+  useEffect(() => {
+    const eventName = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const subscription = Keyboard.addListener(eventName, () => {
+      const localId = pendingInputRowRef.current;
+      if (localId) requestAnimationFrame(() => scrollSetRowIntoView(localId));
+    });
+    return () => subscription.remove();
+  }, [scrollSetRowIntoView]);
 
   // ----------------------------------------------------------------
   // Bootstrap: load exercise catalog + edit-mode plan detail.
@@ -397,6 +437,32 @@ export function PlanEditorScreen() {
     closeSetSheet();
   }, [setSheet, onRemoveSet, closeSetSheet]);
 
+  const [durationSheet, setDurationSheet] = useState<{
+    peId: string;
+    setIndex: number;
+    seconds: number;
+  } | null>(null);
+
+  const openDurationSheet = useCallback(
+    (peId: string, setIndex: number, seconds: number) => {
+      setDurationSheet({ peId, setIndex, seconds });
+      haptic.selection();
+    },
+    [],
+  );
+
+  const commitDuration = useCallback(
+    (seconds: number) => {
+      if (!durationSheet) return;
+      onUpdateSet(durationSheet.peId, durationSheet.setIndex, {
+        durationSeconds: seconds,
+      });
+      setDurationSheet(null);
+      haptic.success();
+    },
+    [durationSheet, onUpdateSet],
+  );
+
   // ----------------------------------------------------------------
   // Per-card menus — MoreSheet / ReorderModal / ReplaceSheet / RestSheet.
   // `targetPeId` 同时驱动 MoreSheet 和它打开的下游界面。
@@ -516,6 +582,7 @@ export function PlanEditorScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <ScrollView
+        ref={scrollViewRef}
         contentContainerStyle={{
           padding: spacing.lg,
           paddingBottom: insets.bottom + spacing.xxxxl,
@@ -560,6 +627,14 @@ export function PlanEditorScreen() {
                 onRemoveSet={(idx) => onRemoveSet(pe.id, idx)}
                 onOpenMore={() => openMoreSheet(pe.id)}
                 onOpenRest={() => setRestSheetPeId(pe.id)}
+                onEditDuration={(idx, seconds) =>
+                  openDurationSheet(pe.id, idx, seconds)
+                }
+                onSetInputFocus={handleSetInputFocus}
+                setRowRef={(localId, view) => {
+                  if (view) setRowRefs.current.set(localId, view);
+                  else setRowRefs.current.delete(localId);
+                }}
                 onPressName={() =>
                   (navigation as unknown as {
                     navigate: (s: 'ExerciseDetail', p: { exerciseId: string }) => void;
@@ -699,6 +774,22 @@ export function PlanEditorScreen() {
       </Sheet>
 
       <Sheet
+        visible={!!durationSheet}
+        onClose={() => setDurationSheet(null)}
+        title={
+          durationSheet ? `设置第 ${durationSheet.setIndex + 1} 组时间` : '设置时间'
+        }
+        maxHeightRatio={0.55}
+      >
+        {durationSheet ? (
+          <DurationInputSheetBody
+            currentSeconds={durationSheet.seconds}
+            onCommit={commitDuration}
+          />
+        ) : null}
+      </Sheet>
+
+      <Sheet
         visible={!!setSheet}
         onClose={closeSetSheet}
         title="编辑组"
@@ -730,6 +821,9 @@ interface ExerciseEditorCardProps {
   onRemoveSet: (setIndex: number) => void;
   onOpenMore: () => void;
   onOpenRest: () => void;
+  onEditDuration: (setIndex: number, seconds: number) => void;
+  onSetInputFocus: (localId: string) => void;
+  setRowRef: (localId: string, view: View | null) => void;
   /** G36: 点击动作名 → 跳详情屏。 */
   onPressName: () => void;
 }
@@ -742,6 +836,9 @@ function ExerciseEditorCard({
   onRemoveSet,
   onOpenMore,
   onOpenRest,
+  onEditDuration,
+  onSetInputFocus,
+  setRowRef,
   onPressName,
 }: ExerciseEditorCardProps) {
   const { colors, spacing, typography, radius } = useTheme();
@@ -890,6 +987,31 @@ function ExerciseEditorCard({
         </Text>
       ) : (
         <View style={{ gap: spacing.xs, marginTop: spacing.xs }}>
+          {metricType.value === 'time' ? (
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: spacing.sm,
+                paddingHorizontal: spacing.xs,
+                paddingBottom: spacing.xxs,
+              }}
+            >
+              <Text
+                style={[
+                  typography.caption,
+                  { width: 40, textAlign: 'center', color: colors.textTertiary },
+                ]}
+              >
+                设置
+              </Text>
+              <Text
+                style={[typography.caption, { flex: 1, color: colors.textTertiary }]}
+              >
+                时间
+              </Text>
+            </View>
+          ) : null}
           {draft.sets.map((s, idx) => (
             <SetRow
               key={s.localId}
@@ -898,11 +1020,11 @@ function ExerciseEditorCard({
               onPressIndex={() => onOpenSetSheet(idx)}
               onChangeWeight={(w) => onUpdateSet(idx, { weight: w })}
               onChangeReps={(r) => onUpdateSet(idx, { reps: r })}
-              onChangeDuration={(seconds) =>
-                onUpdateSet(idx, { durationSeconds: seconds })
-              }
+              onEditDuration={() => onEditDuration(idx, s.durationSeconds)}
               onChangeDistance={(km) => onUpdateSet(idx, { distanceKm: km })}
               onRemove={() => onRemoveSet(idx)}
+              onInputFocus={() => onSetInputFocus(s.localId)}
+              rowRef={(view) => setRowRef(s.localId, view)}
             />
           ))}
         </View>
@@ -918,11 +1040,10 @@ function ExerciseEditorCard({
 /* - ['reps']              → 1 个「次」输入                                    */
 /* - ['weight']            → 1 个「kg」输入                                    */
 /* - ['weight','reps']     → 「kg」+「次」两个输入（现有负重类）              */
-/* - ['duration_seconds']  → 1 个「秒」输入（DB 存秒,UI 也以秒录入）          */
+/* - ['duration_seconds']  → 1 个时钟值；点击后选择 s/min/h 编辑              */
 /* - ['distance_km']       → 1 个「km」输入                                   */
 /*                                                                            */
-/* 旧调用方只接 weight/reps 回调;duration/distance 通过 onChangeDuration/      */
-/* onChangeDistance 写到 PlanSetDraft 的对应字段。                            */
+/* duration 通过独立 Sheet 提交；distance 仍直接写 PlanSetDraft。             */
 /* -------------------------------------------------------------------------- */
 
 interface SetRowProps {
@@ -931,9 +1052,11 @@ interface SetRowProps {
   onPressIndex: () => void;
   onChangeWeight: (next: number) => void;
   onChangeReps: (next: number) => void;
-  onChangeDuration?: (seconds: number) => void;
+  onEditDuration?: () => void;
   onChangeDistance?: (km: number) => void;
   onRemove: () => void;
+  onInputFocus?: () => void;
+  rowRef?: (view: View | null) => void;
 }
 
 function SetRow({
@@ -942,9 +1065,11 @@ function SetRow({
   onPressIndex,
   onChangeWeight,
   onChangeReps,
-  onChangeDuration,
+  onEditDuration,
   onChangeDistance,
   onRemove,
+  onInputFocus,
+  rowRef,
 }: SetRowProps) {
   const { colors, spacing, typography, radius } = useTheme();
   const meta = SET_TYPES.find((t) => t.value === setRow.setType) ?? SET_TYPES[0];
@@ -1004,7 +1129,7 @@ function SetRow({
   }));
 
   return (
-    <View style={{ position: 'relative' }}>
+    <View ref={rowRef} style={{ position: 'relative' }}>
       <Animated.View
         pointerEvents="box-none"
         style={[
@@ -1074,8 +1199,9 @@ function SetRow({
                 setRow={setRow}
                 onChangeWeight={onChangeWeight}
                 onChangeReps={onChangeReps}
-                onChangeDuration={onChangeDuration}
+                onEditDuration={onEditDuration}
                 onChangeDistance={onChangeDistance}
+                onInputFocus={onInputFocus}
               />
             ))}
           </View>
@@ -1095,8 +1221,9 @@ interface SetRowFieldProps {
   setRow: PlanSetDraft;
   onChangeWeight: (next: number) => void;
   onChangeReps: (next: number) => void;
-  onChangeDuration?: (seconds: number) => void;
+  onEditDuration?: () => void;
   onChangeDistance?: (km: number) => void;
+  onInputFocus?: () => void;
 }
 
 function SetRowField({
@@ -1105,9 +1232,11 @@ function SetRowField({
   setRow,
   onChangeWeight,
   onChangeReps,
-  onChangeDuration,
+  onEditDuration,
   onChangeDistance,
+  onInputFocus,
 }: SetRowFieldProps) {
+  const { colors, typography, radius } = useTheme();
   switch (field) {
     case 'weight':
       return (
@@ -1121,6 +1250,7 @@ function SetRowField({
             onChangeValue={onChangeWeight}
             min={0}
             max={500}
+            onFocus={onInputFocus}
           />
         </View>
       );
@@ -1136,29 +1266,40 @@ function SetRowField({
             onChangeValue={onChangeReps}
             min={0}
             max={50}
+            onFocus={onInputFocus}
           />
         </View>
       );
     case 'duration_seconds':
-      // BL-002: DB 存秒,NumberInput 也以秒为单位录入。
-      // 旧版 minutes ↔ seconds 双向换算会让 45s → 0.75min → 进位 1min → 回写 60s,
-      // 数据丢 15s。改成纯秒,与 ActiveTrainingScreen.MetricFieldInput 行为对齐。
       return (
-        <View
-          style={{ flex: 1 }}
-          accessible
-          accessibilityLabel={`第 ${setIndex} 组 时间(秒)`}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`第 ${setIndex} 组时间 ${formatSetDuration(setRow.durationSeconds, '00:00')}`}
+          accessibilityHint="打开时间和单位编辑"
+          onPress={onEditDuration}
+          style={({ pressed }) => ({
+            flex: 1,
+            minHeight: 48,
+            justifyContent: 'center',
+            paddingHorizontal: 12,
+            borderRadius: radius.md,
+            opacity: pressed ? 0.7 : 1,
+          })}
         >
-          <NumberInput
-            value={setRow.durationSeconds}
-            onChangeValue={(seconds) =>
-              onChangeDuration?.(Math.max(0, Math.round(seconds)))
-            }
-            min={0}
-            max={3600}
-            unitLabel="秒"
-          />
-        </View>
+          <Text
+            style={[
+              typography.numeric,
+              {
+                color: colors.text,
+                fontSize: 17,
+                fontWeight: '600',
+                fontVariant: ['tabular-nums'],
+              },
+            ]}
+          >
+            {formatSetDuration(setRow.durationSeconds, '00:00')}
+          </Text>
+        </Pressable>
       );
     case 'distance_km':
       return (
@@ -1174,6 +1315,7 @@ function SetRowField({
             max={500}
             precision={2}
             unitLabel="km"
+            onFocus={onInputFocus}
           />
         </View>
       );

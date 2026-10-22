@@ -59,7 +59,7 @@ describe('getAppVersion', () => {
 });
 
 describe('调用点不再硬编码版本号', () => {
-  // appJson.expo.version 当前是 1.0.0，把任何 "x.y.z" 字面量都当嫌疑。
+  // appJson.expo.version 会随发版更新，把任何 "x.y.z" 字面量都当嫌疑。
   // 允许 0.0.0（appVersion.ts 的兜底）与测试文件自身。
   const CALL_SITES = [
     'src/screens/ProfileScreen.tsx',

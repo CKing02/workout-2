@@ -1,19 +1,18 @@
 /**
  * useElapsedSeconds — wall-clock based seconds counter.
  *
- * Returns `Math.floor((Date.now() - startedAt) / 1000)`, updated every
- * animation frame. We deliberately do NOT use `setInterval` so that
- * backgrounding the app, receiving a phone call, or the JS thread being
- * paused does not stall the timer — wall-clock time keeps moving.
+ * Returns `Math.floor((Date.now() - startedAt) / 1000)`, updated on the
+ * next wall-clock second boundary. We derive from `Date.now()` rather than
+ * incrementing a counter, so backgrounding the app or pausing the JS thread
+ * cannot make the displayed time drift.
  *
  * Use cases (G6 / G7 / G8):
  *  - training header timer (mm:ss elapsed since `startedAt`)
  *  - rest timer countdown
  *
- * Re-renders happen at most ~60 Hz when the screen is active; when the
- * screen is off, RAF callbacks don't fire and there's no state churn —
- * but the very next call after the screen wakes up reads `Date.now()`
- * again and reports the true elapsed time.
+ * Re-renders happen at most once per second. This matters on the active
+ * training screen, where a frame-rate RAF loop previously woke the JS thread
+ * about 60 times per second even though the visible value only changed at 1Hz.
  *
  * Pattern: force-trigger + synchronous derive.
  *
@@ -50,19 +49,18 @@ export function useElapsedSeconds(
       return undefined;
     }
 
-    let rafId = 0;
-    let lastShown = -1;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
     const tick = () => {
       const sec = computeElapsed(startedAt);
-      if (sec !== lastShown) {
-        lastShown = sec;
-        force(sec);
-      }
-      rafId = requestAnimationFrame(tick);
+      force(sec);
+      const remainder = Math.max(0, (Date.now() - startedAt) % 1000);
+      timeoutId = setTimeout(tick, Math.max(16, 1000 - remainder));
     };
 
-    rafId = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(rafId);
+    tick();
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+    };
   }, [startedAt]);
 
   return computeElapsed(startedAt);

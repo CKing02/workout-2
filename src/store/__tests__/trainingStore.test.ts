@@ -43,6 +43,58 @@ beforeEach(() => {
   useTrainingStore.setState({ activeTraining: null, bestSet: null, completionSummary: null, history: [] });
 });
 
+describe('duration plan targets', () => {
+  const timeExercise = {
+    id: 'plank',
+    name: '平板支撑',
+    metricType: 'time',
+  } as ActiveTraining['exercises'][number]['exercise'];
+
+  it('keeps the plan duration as a target and starts actual time empty', async () => {
+    const active = await useTrainingStore.getState().startTraining({
+      planId: 'plan-1',
+      planNameSnapshot: '核心训练',
+      exercises: [
+        {
+          exercise: timeExercise,
+          restSeconds: 30,
+          initialSets: [{ durationSeconds: 90, setType: 'normal' }],
+        },
+      ],
+    });
+
+    expect(active.exercises[0].sets[0]).toMatchObject({
+      targetDurationSeconds: 90,
+      durationSeconds: null,
+    });
+  });
+
+  it('persists only the measured actual duration when training completes', async () => {
+    const active = await useTrainingStore.getState().startTraining({
+      planId: 'plan-1',
+      planNameSnapshot: '核心训练',
+      exercises: [
+        {
+          exercise: timeExercise,
+          restSeconds: 30,
+          initialSets: [{ durationSeconds: 90, setType: 'normal' }],
+        },
+      ],
+    });
+    const target = active.exercises[0].sets[0];
+    useTrainingStore.getState().updateSet(0, target.clientId, {
+      durationSeconds: 73,
+    });
+    useTrainingStore.getState().completeAndAdvance(0, target.clientId);
+
+    await useTrainingStore.getState().completeTraining();
+
+    const written = jest.mocked(batchInsertTrainingSetsInTransaction).mock.calls[0][1][0];
+    expect(written.durationSeconds).toBe(73);
+    expect(written).not.toHaveProperty('targetDurationSeconds');
+  });
+});
+
 describe('G48 training summary', () => {
   it('completeTraining 选跨动作 weight × reps 最大的已完成非热身组', async () => {
     seed([[{ weight: 80, reps: 5 }, { weight: 60, reps: 10 }], [{ weight: 50, reps: 15 }]]);

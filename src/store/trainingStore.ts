@@ -43,6 +43,8 @@ export interface ActiveSet extends CreateTrainingSetInput {
   clientId: string;
   /** 行 ID，DB 写入后填充。 */
   rowId?: string;
+  /** 计划处方中的目标时间；仅驻留内存，不写入训练实际记录。 */
+  targetDurationSeconds?: number | null;
 }
 
 export interface ActiveExercise {
@@ -381,7 +383,16 @@ export const useTrainingStore = create<TrainingStoreState>((set, get) => ({
               setIndex: idx + 1,
               weight: h.weight ?? null,
               reps: h.reps ?? null,
-              durationSeconds: h.durationSeconds ?? null,
+              // 时间型动作必须区分「目标」与「本次实际」。计划里的时长
+              // 只作为目标展示，实际值等用户计时或手动录入后再写入。
+              durationSeconds:
+                ex.exercise.metricType === 'time'
+                  ? null
+                  : h.durationSeconds ?? null,
+              targetDurationSeconds:
+                ex.exercise.metricType === 'time'
+                  ? h.durationSeconds ?? null
+                  : null,
               distanceKm: h.distanceKm ?? null,
               setType: h.setType ?? 'normal',
               completed: false,
@@ -441,7 +452,13 @@ export const useTrainingStore = create<TrainingStoreState>((set, get) => ({
       weight: prototype?.weight ?? last?.weight ?? null,
       reps: prototype?.reps ?? last?.reps ?? null,
       durationSeconds:
-        prototype?.durationSeconds ?? last?.durationSeconds ?? null,
+        ex.exercise.metricType === 'time'
+          ? null
+          : prototype?.durationSeconds ?? last?.durationSeconds ?? null,
+      targetDurationSeconds:
+        ex.exercise.metricType === 'time'
+          ? prototype?.durationSeconds ?? last?.targetDurationSeconds ?? null
+          : null,
       distanceKm: prototype?.distanceKm ?? last?.distanceKm ?? null,
       setType: prototype?.setType ?? last?.setType ?? 'normal',
       completed: prototype?.completed ?? false,
@@ -481,7 +498,12 @@ export const useTrainingStore = create<TrainingStoreState>((set, get) => ({
       setIndex: newSetIndex,
       weight: last?.weight ?? null,
       reps: last?.reps ?? null,
-      durationSeconds: last?.durationSeconds ?? null,
+      durationSeconds:
+        ex.exercise.metricType === 'time' ? null : last?.durationSeconds ?? null,
+      targetDurationSeconds:
+        ex.exercise.metricType === 'time'
+          ? last?.targetDurationSeconds ?? null
+          : null,
       distanceKm: last?.distanceKm ?? null,
       setType: last?.setType ?? 'normal',
       completed: false,

@@ -60,6 +60,7 @@ import { Badge } from '@/components/Badge';
 import { Button } from '@/components/Button';
 import { Card } from '@/components/Card';
 import { Dialog } from '@/components/Dialog';
+import { DurationInputSheetBody } from '@/components/DurationInputSheetBody';
 import { ExerciseThumbnail } from '@/components/ExerciseThumbnail';
 import { IconButton } from '@/components/IconButton';
 import { NumberInput } from '@/components/NumberInput';
@@ -80,6 +81,7 @@ import { useTrainingStore, type ActiveSet, type ActiveTraining } from '@/store/t
 import { useTheme } from '@/theme';
 import { motion } from '@/theme/motion';
 import { haptic } from '@/utils/haptics';
+import { formatSetDuration } from '@/utils/duration';
 import { formatWeight } from '@/utils/units';
 import type { TrainingSet } from '@/db/schema';
 import type { Unit } from '@/store/settingsStore';
@@ -91,6 +93,13 @@ type Navigation = NativeStackNavigationProp<
   'ActiveTraining'
 >;
 type Route = RouteProp<RootStackParamList, 'ActiveTraining'>;
+
+interface DurationTimerState {
+  clientId: string;
+  exerciseIndex: number;
+  startedAt: number;
+  baseSeconds: number;
+}
 
 /* ============================================================================
  * Screen
@@ -198,6 +207,15 @@ export function ActiveTrainingScreen() {
   const [typeSheetTarget, setTypeSheetTarget] = useState<
     { exerciseIndex: number; setIndex: number } | null
   >(null);
+
+  const [durationSheetTarget, setDurationSheetTarget] = useState<{
+    exerciseIndex: number;
+    setIndex: number;
+    seconds: number | null;
+  } | null>(null);
+  const [durationTimer, setDurationTimer] =
+    useState<DurationTimerState | null>(null);
+  const durationTimerElapsed = useElapsedSeconds(durationTimer?.startedAt ?? null);
 
   // -----------------------------------------------------------------
   // G29: Exercise-overview sheet — list every exercise in the
@@ -430,6 +448,8 @@ export function ActiveTrainingScreen() {
             initialSets: pe.sets.map((s: PlanSetDraft) => ({
               weight: s.weight,
               reps: s.reps,
+              durationSeconds: s.durationSeconds,
+              distanceKm: s.distanceKm,
               setType: s.setType,
             })),
           })),
@@ -443,6 +463,78 @@ export function ActiveTrainingScreen() {
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const stopDurationTimer = useCallback((): number | null => {
+    if (!durationTimer) return null;
+    const elapsedSeconds = Math.max(
+      0,
+      Math.floor((Date.now() - durationTimer.startedAt) / 1000),
+    );
+    const actualSeconds = durationTimer.baseSeconds + elapsedSeconds;
+    useTrainingStore.getState().updateSet(
+      durationTimer.exerciseIndex,
+      durationTimer.clientId,
+      { durationSeconds: actualSeconds },
+    );
+    setDurationTimer(null);
+    return actualSeconds;
+  }, [durationTimer]);
+
+  const handleToggleDurationTimer = useCallback(
+    (exerciseIndex: number, target: ActiveSet) => {
+      if (durationTimer?.clientId === target.clientId) {
+        stopDurationTimer();
+        haptic.success();
+        return;
+      }
+      stopDurationTimer();
+      setDurationTimer({
+        clientId: target.clientId,
+        exerciseIndex,
+        startedAt: Date.now(),
+        baseSeconds: target.durationSeconds ?? 0,
+      });
+      haptic.selection();
+    },
+    [durationTimer, stopDurationTimer],
+  );
+
+  const handleOpenDurationEditor = useCallback(
+    (exerciseIndex: number, setIndex: number, target: ActiveSet) => {
+      const committed = stopDurationTimer();
+      setDurationSheetTarget({
+        exerciseIndex,
+        setIndex,
+        seconds:
+          durationTimer?.clientId === target.clientId
+            ? committed ?? null
+            : target.durationSeconds ?? null,
+      });
+      haptic.selection();
+    },
+    [durationTimer, stopDurationTimer],
+  );
+
+  const handleCommitActualDuration = useCallback(
+    (seconds: number) => {
+      if (!durationSheetTarget) return;
+      const state = useTrainingStore.getState().activeTraining;
+      const target =
+        state?.exercises[durationSheetTarget.exerciseIndex]?.sets[
+          durationSheetTarget.setIndex
+        ];
+      if (target) {
+        useTrainingStore.getState().updateSet(
+          durationSheetTarget.exerciseIndex,
+          target.clientId,
+          { durationSeconds: seconds },
+        );
+      }
+      setDurationSheetTarget(null);
+      haptic.success();
+    },
+    [durationSheetTarget],
+  );
 
   // -----------------------------------------------------------------
   // Cancel handlers
@@ -533,8 +625,9 @@ export function ActiveTrainingScreen() {
 
   const handleConfirmFinish = useCallback(() => {
     setPendingFinish(false);
+    stopDurationTimer();
     void completeAndNavigate();
-  }, [completeAndNavigate]);
+  }, [completeAndNavigate, stopDurationTimer]);
 
   // -----------------------------------------------------------------
   // G29: Set-type sheet handlers — target a specific (exIdx, setIdx),
@@ -609,19 +702,23 @@ export function ActiveTrainingScreen() {
 
   const handleJumpToExercise = useCallback(
     (exIndex: number) => {
+      stopDurationTimer();
       setCurrentExerciseIndex(exIndex);
       setOverviewSheetOpen(false);
       haptic.selection();
     },
-    [setCurrentExerciseIndex],
+    [setCurrentExerciseIndex, stopDurationTimer],
   );
 
   const handleConfirmDelete = useCallback(() => {
     if (!pendingDelete) return;
+    if (durationTimer?.clientId === pendingDelete.clientId) {
+      setDurationTimer(null);
+    }
     removeSet(pendingDelete.exerciseIndex, pendingDelete.clientId);
     haptic.warning();
     setPendingDelete(null);
-  }, [pendingDelete, removeSet]);
+  }, [durationTimer, pendingDelete, removeSet]);
 
   // -----------------------------------------------------------------
   // Field change handler — write into store on every change
@@ -701,6 +798,13 @@ export function ActiveTrainingScreen() {
     }
     if (target.completed) {
       return; // already done — CTA disabled but defensive
+    }
+
+    // 时间组若正在计时，主 CTA 同时承担“停止并写入实际时间”的职责。
+    // updateSet 是同步 Zustand mutation，随后 completeAndAdvance 会在最新
+    // state 上标记完成，因此不会丢掉这一拍的计时结果。
+    if (durationTimer?.clientId === target.clientId) {
+      stopDurationTimer();
     }
 
     // G29: 检测"这是当前动作的最后一组未完成"。
@@ -791,6 +895,8 @@ export function ActiveTrainingScreen() {
     defaultRestSeconds,
     completeAndNavigate,
     setCurrentExerciseIndex,
+    durationTimer,
+    stopDurationTimer,
   ]);
 
   // -----------------------------------------------------------------
@@ -1051,6 +1157,7 @@ export function ActiveTrainingScreen() {
             overflow: 'hidden',
           }}
         >
+          {ex.exercise.metricType === 'time' ? <DurationSetHeader /> : null}
           {ex.sets.map((s, idx) => {
             const isActive = idx === currentSetIndex;
             const isLast = idx === ex.sets.length - 1;
@@ -1063,18 +1170,33 @@ export function ActiveTrainingScreen() {
                 metricType={ex.exercise.metricType}
                 fields={fields}
                 lastSets={
-                  isActive ? lastSetsByExerciseId[ex.exercise.id] : undefined
+                  ex.exercise.metricType === 'time' || isActive
+                    ? lastSetsByExerciseId[ex.exercise.id]
+                    : undefined
                 }
                 onPressNumber={() =>
                   handleOpenTypeSheet(currentExerciseIndex, idx)
                 }
                 onTapRow={() => {
                   if (!isActive) {
+                    stopDurationTimer();
                     setCurrentSetIndex(idx);
                     haptic.selection();
                   }
                 }}
                 onChangeField={onFieldChange}
+                liveDurationSeconds={
+                  durationTimer?.clientId === s.clientId
+                    ? durationTimer.baseSeconds + durationTimerElapsed
+                    : undefined
+                }
+                durationTimerRunning={durationTimer?.clientId === s.clientId}
+                onToggleDurationTimer={() =>
+                  handleToggleDurationTimer(currentExerciseIndex, s)
+                }
+                onEditDuration={() =>
+                  handleOpenDurationEditor(currentExerciseIndex, idx, s)
+                }
                 justActivated={pulsedSetId === s.clientId}
                 onInputFocus={isActive ? () => handleSetInputFocus(s.clientId) : undefined}
                 rowRef={(view) => {
@@ -1281,6 +1403,25 @@ export function ActiveTrainingScreen() {
           : null}
       </Sheet>
 
+      <Sheet
+        visible={durationSheetTarget !== null}
+        onClose={() => setDurationSheetTarget(null)}
+        title={
+          durationSheetTarget
+            ? `记录第 ${durationSheetTarget.setIndex + 1} 组时间`
+            : '记录时间'
+        }
+        maxHeightRatio={0.55}
+      >
+        {durationSheetTarget ? (
+          <DurationInputSheetBody
+            currentSeconds={durationSheetTarget.seconds}
+            onCommit={handleCommitActualDuration}
+            submitLabel="填入本次"
+          />
+        ) : null}
+      </Sheet>
+
       {/* ====== G29b: Exercise overview sheet ======
           Lists every exercise in the current training with progress.
           Tap a row to jump; no "skip" button (per spec). */}
@@ -1425,7 +1566,7 @@ function formatLastSetRow(set: TrainingSet, metricType: string, unit: Unit): str
   const prefix = short ? `${short} ` : '';
   const m = metricType;
   if (m === 'time') {
-    return `${prefix}${set.durationSeconds ?? 0} 秒`;
+    return `${prefix}${formatSetDuration(set.durationSeconds)}`;
   }
   if (m === 'km') {
     return `${prefix}${(set.distanceKm ?? 0).toFixed(2)}km`;
@@ -1622,6 +1763,47 @@ function ProgressBarEdgeToEdge({
 
 /* ---------- G29: SetRow (vertical set list) ---------- */
 
+function DurationSetHeader() {
+  const { colors, spacing, typography } = useTheme();
+  return (
+    <View
+      accessibilityRole="header"
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.sm,
+        minHeight: 36,
+        paddingHorizontal: spacing.md,
+        borderBottomWidth: StyleSheet.hairlineWidth,
+        borderBottomColor: colors.divider,
+      }}
+    >
+      <Text
+        style={[
+          typography.caption,
+          { width: 40, textAlign: 'center', color: colors.textTertiary },
+        ]}
+      >
+        组
+      </Text>
+      <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}>
+        {['上次', '目标', '本次'].map((label) => (
+          <Text
+            key={label}
+            style={[
+              typography.caption,
+              { flex: 1, textAlign: 'center', color: colors.textTertiary },
+            ]}
+          >
+            {label}
+          </Text>
+        ))}
+        <View style={{ width: 48 }} />
+      </View>
+    </View>
+  );
+}
+
 interface SetRowProps {
   setRow: ActiveSet;
   isActive: boolean;
@@ -1635,6 +1817,10 @@ interface SetRowProps {
   /** Tap on the row body (when not active) — focuses this set. */
   onTapRow: () => void;
   onChangeField: (field: MetricField, value: number) => void;
+  liveDurationSeconds?: number;
+  durationTimerRunning?: boolean;
+  onToggleDurationTimer: () => void;
+  onEditDuration: () => void;
   /**
    * G38.1: rest timer 倒计时自然到 0 之后 1.1s,屏幕侧会让该 prop 翻 true
    * 维持 0.6s,SetRow 据此给当前激活行加一个 border 闪光 + 背景短暂提亮
@@ -1676,6 +1862,10 @@ function SetRow({
   onPressNumber,
   onTapRow,
   onChangeField,
+  liveDurationSeconds,
+  durationTimerRunning = false,
+  onToggleDurationTimer,
+  onEditDuration,
   justActivated,
   rowRef,
   onInputFocus,
@@ -1685,7 +1875,7 @@ function SetRow({
   const meta =
     SET_TYPES.find((t) => t.value === setRow.setType) ?? SET_TYPES[0];
 
-  const completed = setRow.completed;
+  const completed = setRow.completed === true;
 
   // Background tint: active highlights, completed recedes, future is neutral.
   // G38.1: justActivated 时背景再亮一档(border + 背景短暂提亮),提示用户
@@ -1715,7 +1905,8 @@ function SetRow({
       style={{
         flexDirection: 'row',
         gap: spacing.sm,
-        paddingVertical: spacing.sm + 4,
+        paddingVertical:
+          metricType === 'time' ? spacing.xxs : spacing.sm + 4,
         paddingHorizontal: spacing.md,
         backgroundColor: rowBg,
         borderBottomWidth: isLast ? 0 : StyleSheet.hairlineWidth,
@@ -1792,7 +1983,19 @@ function SetRow({
           completeAndAdvance keeps currentSetIndex on the just-completed
           set). Pressing the body of an incomplete inactive row focuses
           it; completed rows aren't pressable (no edit semantics). */}
-      {completed ? (
+      {metricType === 'time' ? (
+        <DurationSetRowBody
+          setRow={setRow}
+          isActive={isActive}
+          completed={completed}
+          lastSets={lastSets}
+          liveSeconds={liveDurationSeconds}
+          timerRunning={durationTimerRunning}
+          onTapRow={onTapRow}
+          onEditDuration={onEditDuration}
+          onToggleTimer={onToggleDurationTimer}
+        />
+      ) : completed ? (
         <View
           style={{
             flex: 1,
@@ -1882,6 +2085,187 @@ function SetRow({
   );
 }
 
+interface DurationSetRowBodyProps {
+  setRow: ActiveSet;
+  isActive: boolean;
+  completed: boolean;
+  lastSets: TrainingSet[] | undefined;
+  liveSeconds?: number;
+  timerRunning: boolean;
+  onTapRow: () => void;
+  onEditDuration: () => void;
+  onToggleTimer: () => void;
+}
+
+function DurationSetRowBody({
+  setRow,
+  isActive,
+  completed,
+  lastSets,
+  liveSeconds,
+  timerRunning,
+  onTapRow,
+  onEditDuration,
+  onToggleTimer,
+}: DurationSetRowBodyProps) {
+  const { colors, typography, radius } = useTheme();
+  const previous = lastSets?.find((item) => item.setIndex === setRow.setIndex);
+  const actualSeconds = liveSeconds ?? setRow.durationSeconds;
+  const textColor = completed ? colors.textTertiary : colors.text;
+
+  const cells = (
+    <>
+      <Text
+        style={[
+          typography.bodySmall,
+          {
+            flex: 1,
+            textAlign: 'center',
+            color: colors.textSecondary,
+            fontVariant: ['tabular-nums'],
+          },
+        ]}
+        numberOfLines={1}
+      >
+        {formatSetDuration(previous?.durationSeconds)}
+      </Text>
+      <Text
+        style={[
+          typography.bodySmall,
+          {
+            flex: 1,
+            textAlign: 'center',
+            color: colors.textSecondary,
+            fontVariant: ['tabular-nums'],
+          },
+        ]}
+        numberOfLines={1}
+      >
+        {formatSetDuration(setRow.targetDurationSeconds)}
+      </Text>
+      {isActive && !completed ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`本次时间 ${formatSetDuration(actualSeconds)}`}
+          accessibilityHint="手动填写本组时间"
+          onPress={onEditDuration}
+          style={({ pressed }) => ({
+            flex: 1,
+            minHeight: 48,
+            alignItems: 'center',
+            justifyContent: 'center',
+            borderRadius: radius.sm,
+            backgroundColor: pressed ? colors.surfaceMuted : colors.transparent,
+          })}
+        >
+          <Text
+            style={[
+              typography.numeric,
+              {
+                color: colors.primaryPressed,
+                fontSize: 15,
+                fontWeight: '700',
+                fontVariant: ['tabular-nums'],
+              },
+            ]}
+          >
+            {formatSetDuration(actualSeconds)}
+          </Text>
+        </Pressable>
+      ) : (
+        <Text
+          style={[
+            typography.bodySmall,
+            {
+              flex: 1,
+              textAlign: 'center',
+              color: textColor,
+              fontVariant: ['tabular-nums'],
+              textDecorationLine: completed ? 'line-through' : 'none',
+            },
+          ]}
+          numberOfLines={1}
+        >
+          {formatSetDuration(actualSeconds)}
+        </Text>
+      )}
+      {isActive && !completed ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={timerRunning ? '停止本组计时' : '开始本组计时'}
+          accessibilityState={{ selected: timerRunning }}
+          onPress={onToggleTimer}
+          style={({ pressed }) => ({
+            width: 48,
+            height: 48,
+            borderRadius: radius.full,
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: timerRunning
+              ? colors.primary
+              : pressed
+                ? colors.primaryMuted
+                : colors.surfaceMuted,
+          })}
+        >
+          <Text
+            style={{
+              color: timerRunning ? colors.onPrimary : colors.primaryPressed,
+              fontSize: 18,
+              fontWeight: '800',
+            }}
+          >
+            {timerRunning ? '■' : '▶'}
+          </Text>
+        </Pressable>
+      ) : (
+        <View style={{ width: 48, alignItems: 'center' }}>
+          {completed ? (
+            <Text
+              accessibilityLabel="已完成"
+              style={{ color: colors.success, fontSize: 16, fontWeight: '700' }}
+            >
+              ✓
+            </Text>
+          ) : null}
+        </View>
+      )}
+    </>
+  );
+
+  if (!isActive && !completed) {
+    return (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`选择第 ${setRow.setIndex} 组`}
+        onPress={onTapRow}
+        style={({ pressed }) => ({
+          flex: 1,
+          minHeight: 48,
+          flexDirection: 'row',
+          alignItems: 'center',
+          backgroundColor: pressed ? colors.surfaceMuted : colors.transparent,
+        })}
+      >
+        {cells}
+      </Pressable>
+    );
+  }
+
+  return (
+    <View
+      style={{
+        flex: 1,
+        minHeight: 48,
+        flexDirection: 'row',
+        alignItems: 'center',
+      }}
+    >
+      {cells}
+    </View>
+  );
+}
+
 /**
  * G29: one-line set summary used by non-active rows.
  * Same formatting as `formatLastSetRow` but takes an `ActiveSet` instead
@@ -1898,7 +2282,7 @@ function formatActiveSetSummary(
   const prefix = short ? `${short} ` : '';
   const m = metricType;
   if (m === 'time') {
-    return `${prefix}${set.durationSeconds ?? 0} 秒`;
+    return `${prefix}${formatSetDuration(set.durationSeconds)}`;
   }
   if (m === 'km') {
     return `${prefix}${(set.distanceKm ?? 0).toFixed(2)}km`;
