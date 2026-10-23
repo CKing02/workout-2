@@ -74,9 +74,10 @@ export interface ValidatablePayload {
   /**
    * v1 = G19 原始格式（planExercises 只有 planId/exerciseId/position）。
    * v2 = 2026-10-01 起，planExercises 每项带 restSeconds + sets[]。
-   * 两种都接受 —— 老备份文件必须还能导入。
+   * v3 = trainingSets 带 metricTypeSnapshot。
+   * 三种都接受 —— 老备份文件必须还能导入。
    */
-  schemaVersion: 1 | 2;
+  schemaVersion: 1 | 2 | 3;
   exercises: unknown;
   plans: unknown;
   planExercises: unknown;
@@ -130,12 +131,16 @@ export function validateBackupPayload(input: unknown): ValidationResult {
   }
   const obj = input as Record<string, unknown>;
 
-  // 严格 === 数字（'1' 这种字符串不算）。v2 是当前的导出格式，v1 保留兼容：
+  // 严格 === 数字（'1' 这种字符串不算）。v3 是当前格式，v1/v2 保留兼容：
   // 用户手里可能还存着升级前导出的 .json，不能因为版本号旧就拒收。
-  if (obj.schemaVersion !== 1 && obj.schemaVersion !== 2) {
+  if (
+    obj.schemaVersion !== 1 &&
+    obj.schemaVersion !== 2 &&
+    obj.schemaVersion !== 3
+  ) {
     return {
       ok: false,
-      error: `不支持的备份版本（schemaVersion=${String(obj.schemaVersion)}，当前支持 1 / 2）`,
+      error: `不支持的备份版本（schemaVersion=${String(obj.schemaVersion)}，当前支持 1 / 2 / 3）`,
     };
   }
 
@@ -258,6 +263,9 @@ export async function importFromBackup(
 
     // 2. exercises
     const exercises = payload.exercises as Exercise[];
+    const metricTypeByExerciseId = new Map(
+      exercises.map((exercise) => [exercise.id, exercise.metricType]),
+    );
     if (exercises.length > 0) {
       // ⚠️ G35 的 5 列必须一起写（2026-09-30 真机发现）。
       //
@@ -419,10 +427,10 @@ export async function importFromBackup(
     if (allSets.length > 0) {
       const stmt = await db.prepareAsync(
         `INSERT INTO training_sets
-           (id, training_id, exercise_id, exercise_name_snapshot,
+           (id, training_id, exercise_id, exercise_name_snapshot, metric_type_snapshot,
             position, set_index, weight, reps, duration_seconds, distance_km,
             set_type, completed)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
       );
       try {
         for (const s of allSets) {
@@ -431,6 +439,7 @@ export async function importFromBackup(
             s.trainingId,
             s.exerciseId,
             s.exerciseNameSnapshot,
+            s.metricTypeSnapshot ?? metricTypeByExerciseId.get(s.exerciseId) ?? null,
             s.position,
             s.setIndex,
             s.weight,

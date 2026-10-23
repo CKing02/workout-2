@@ -37,6 +37,10 @@ import {
   type CreateTrainingSetInput,
 } from '@/db/repositories/trainingSetRepo';
 import type { TrainingSet } from '@/db/schema';
+import {
+  getSetMetricValidationError,
+  normalizeSetMetricValues,
+} from '@/features/training/setMetrics';
 
 export interface ActiveSet extends CreateTrainingSetInput {
   /** 前端的临时 id（与 DB id 区分），用于 React key。 */
@@ -248,13 +252,18 @@ function computeStats(active: ActiveTraining): TrainingSummary {
   let totalVolume = 0;
   let setCount = 0;
   let totalAllSets = 0;
+  let exerciseCount = 0;
   let bestSet: BestSet | null = null;
   for (const ex of active.exercises) {
     totalAllSets += ex.sets.length;
+    if (ex.sets.some((s) => s.completed)) exerciseCount += 1;
     for (const s of ex.sets) {
       if (s.completed) {
         setCount += 1;
-        if (s.setType !== 'warmup' && s.weight != null && s.reps != null &&
+        if ((ex.exercise.metricType === 'weight_reps' ||
+             ex.exercise.metricType === '+kg' ||
+             ex.exercise.metricType === '-kg') &&
+            s.setType !== 'warmup' && s.weight != null && s.reps != null &&
             Number.isFinite(s.weight) && Number.isFinite(s.reps) &&
             s.weight > 0 && s.reps > 0) {
           const value = s.weight * s.reps;
@@ -273,7 +282,7 @@ function computeStats(active: ActiveTraining): TrainingSummary {
       Math.floor((Date.now() - active.startedAt) / 1000),
     ),
     totalVolume,
-    exerciseCount: active.exercises.length,
+    exerciseCount,
     setCount,
     totalAllSets,
     bestSet,
@@ -374,29 +383,38 @@ export const useTrainingStore = create<TrainingStoreState>((set, get) => ({
             position: i,
             exercise: ex.exercise,
             restSeconds: ex.restSeconds,
-            sets: hints.map((h, idx) => ({
-              clientId: genClientId(),
-              trainingId: created.id,
-              exerciseId: ex.exercise.id,
-              exerciseNameSnapshot: ex.exercise.name,
-              position: i,
-              setIndex: idx + 1,
-              weight: h.weight ?? null,
-              reps: h.reps ?? null,
-              // 时间型动作必须区分「目标」与「本次实际」。计划里的时长
-              // 只作为目标展示，实际值等用户计时或手动录入后再写入。
-              durationSeconds:
-                ex.exercise.metricType === 'time'
-                  ? null
-                  : h.durationSeconds ?? null,
-              targetDurationSeconds:
-                ex.exercise.metricType === 'time'
-                  ? h.durationSeconds ?? null
-                  : null,
-              distanceKm: h.distanceKm ?? null,
-              setType: h.setType ?? 'normal',
-              completed: false,
-            })),
+            sets: hints.map((h, idx) => {
+              const values = normalizeSetMetricValues(ex.exercise.metricType, {
+                weight: h.weight ?? null,
+                reps: h.reps ?? null,
+                durationSeconds: h.durationSeconds ?? null,
+                distanceKm: h.distanceKm ?? null,
+              });
+              return {
+                clientId: genClientId(),
+                trainingId: created.id,
+                exerciseId: ex.exercise.id,
+                exerciseNameSnapshot: ex.exercise.name,
+                metricTypeSnapshot: ex.exercise.metricType,
+                position: i,
+                setIndex: idx + 1,
+                weight: values.weight,
+                reps: values.reps,
+                // 时间型动作必须区分「目标」与「本次实际」。计划里的时长
+                // 只作为目标展示，实际值等用户计时或手动录入后再写入。
+                durationSeconds:
+                  ex.exercise.metricType === 'time'
+                    ? null
+                    : values.durationSeconds,
+                targetDurationSeconds:
+                  ex.exercise.metricType === 'time'
+                    ? h.durationSeconds ?? null
+                    : null,
+                distanceKm: values.distanceKm,
+                setType: h.setType ?? 'normal',
+                completed: false,
+              };
+            }),
           };
         }
         // Otherwise seed a single empty set so the chip strip is never
@@ -411,6 +429,7 @@ export const useTrainingStore = create<TrainingStoreState>((set, get) => ({
               trainingId: created.id,
               exerciseId: ex.exercise.id,
               exerciseNameSnapshot: ex.exercise.name,
+              metricTypeSnapshot: ex.exercise.metricType,
               position: i,
               setIndex: 1,
               weight: null,
@@ -442,24 +461,32 @@ export const useTrainingStore = create<TrainingStoreState>((set, get) => ({
 
     const last = ex.sets[ex.sets.length - 1];
     const newSetIndex = (last?.setIndex ?? 0) + 1;
+    const values = normalizeSetMetricValues(ex.exercise.metricType, {
+      weight: prototype?.weight ?? last?.weight ?? null,
+      reps: prototype?.reps ?? last?.reps ?? null,
+      durationSeconds:
+        prototype?.durationSeconds ?? last?.durationSeconds ?? null,
+      distanceKm: prototype?.distanceKm ?? last?.distanceKm ?? null,
+    });
     const newSet: ActiveSet = {
       clientId: genClientId(),
       trainingId: active.id,
       exerciseId: ex.exercise.id,
       exerciseNameSnapshot: ex.exercise.name,
+      metricTypeSnapshot: ex.exercise.metricType,
       position: ex.position,
       setIndex: newSetIndex,
-      weight: prototype?.weight ?? last?.weight ?? null,
-      reps: prototype?.reps ?? last?.reps ?? null,
+      weight: values.weight,
+      reps: values.reps,
       durationSeconds:
         ex.exercise.metricType === 'time'
           ? null
-          : prototype?.durationSeconds ?? last?.durationSeconds ?? null,
+          : values.durationSeconds,
       targetDurationSeconds:
         ex.exercise.metricType === 'time'
           ? prototype?.durationSeconds ?? last?.targetDurationSeconds ?? null
           : null,
-      distanceKm: prototype?.distanceKm ?? last?.distanceKm ?? null,
+      distanceKm: values.distanceKm,
       setType: prototype?.setType ?? last?.setType ?? 'normal',
       completed: prototype?.completed ?? false,
     };
@@ -486,6 +513,12 @@ export const useTrainingStore = create<TrainingStoreState>((set, get) => ({
 
     const last = ex.sets[ex.sets.length - 1];
     const newSetIndex = (last?.setIndex ?? 0) + 1;
+    const values = normalizeSetMetricValues(ex.exercise.metricType, {
+      weight: last?.weight ?? null,
+      reps: last?.reps ?? null,
+      durationSeconds: last?.durationSeconds ?? null,
+      distanceKm: last?.distanceKm ?? null,
+    });
     // G38.1:继承上一组的实际数据值(weight/reps/duration/distance),不再默认 0。
     // 用户典型流程:加一组 → 输入相同的训练量(同样重量 x 同样次数)→ 仅改一两个字段。
     // null 继承 null(不强制 0,尊重"还没填"的状态);setType 早就是 last?.setType ?? 'normal'。
@@ -494,17 +527,18 @@ export const useTrainingStore = create<TrainingStoreState>((set, get) => ({
       trainingId: active.id,
       exerciseId: ex.exercise.id,
       exerciseNameSnapshot: ex.exercise.name,
+      metricTypeSnapshot: ex.exercise.metricType,
       position: ex.position,
       setIndex: newSetIndex,
-      weight: last?.weight ?? null,
-      reps: last?.reps ?? null,
+      weight: values.weight,
+      reps: values.reps,
       durationSeconds:
-        ex.exercise.metricType === 'time' ? null : last?.durationSeconds ?? null,
+        ex.exercise.metricType === 'time' ? null : values.durationSeconds,
       targetDurationSeconds:
         ex.exercise.metricType === 'time'
           ? last?.targetDurationSeconds ?? null
           : null,
-      distanceKm: last?.distanceKm ?? null,
+      distanceKm: values.distanceKm,
       setType: last?.setType ?? 'normal',
       completed: false,
     };
@@ -531,6 +565,13 @@ export const useTrainingStore = create<TrainingStoreState>((set, get) => ({
           ...state.activeTraining,
           exercises: state.activeTraining.exercises.map((e) => {
             if (e.position !== position) return e;
+            const target = e.sets.find((s) => s.clientId === clientId);
+            if (
+              target &&
+              getSetMetricValidationError(e.exercise.metricType, target)
+            ) {
+              return e;
+            }
             return {
               ...e,
               sets: e.sets.map((s) =>
@@ -563,6 +604,9 @@ export const useTrainingStore = create<TrainingStoreState>((set, get) => ({
       // no-op so we don't double-advance. Returning `false` lets the caller
       // skip haptics/toast/rest-timer side effects on the duplicate call.
       if (target.completed) return state;
+      if (getSetMetricValidationError(ex.exercise.metricType, target)) {
+        return state;
+      }
 
       const newSets = ex.sets.map((s) =>
         s.clientId === clientId ? { ...s, completed: true } : s,
@@ -708,16 +752,23 @@ export const useTrainingStore = create<TrainingStoreState>((set, get) => ({
       for (const s of ex.sets) {
         // 只写入已完成的组；未完成的直接丢弃（PRD 风险评估要求：MVP 完成后批量写入）。
         if (!s.completed) continue;
+        const validationError = getSetMetricValidationError(
+          ex.exercise.metricType,
+          s,
+        );
+        if (validationError) throw new Error(validationError);
+        const values = normalizeSetMetricValues(ex.exercise.metricType, s);
         allSets.push({
           trainingId: s.trainingId,
           exerciseId: s.exerciseId,
           exerciseNameSnapshot: s.exerciseNameSnapshot,
+          metricTypeSnapshot: ex.exercise.metricType,
           position: s.position,
           setIndex: s.setIndex,
-          weight: s.weight,
-          reps: s.reps,
-          durationSeconds: s.durationSeconds,
-          distanceKm: s.distanceKm,
+          weight: values.weight,
+          reps: values.reps,
+          durationSeconds: values.durationSeconds,
+          distanceKm: values.distanceKm,
           setType: s.setType,
           completed: true,
         });

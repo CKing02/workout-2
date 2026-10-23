@@ -190,6 +190,27 @@ export const MIGRATIONS: readonly Migration[] = [
       await upgradeExerciseCdnUrls(db);
     },
   },
+  {
+    version: 12,
+    description:
+      'History metric snapshot: persist training_sets.metric_type_snapshot and backfill existing rows from exercises.',
+    sql: `ALTER TABLE training_sets ADD COLUMN metric_type_snapshot TEXT;
+          UPDATE training_sets
+             SET metric_type_snapshot = (
+               SELECT e.metric_type FROM exercises e WHERE e.id = training_sets.exercise_id
+             )
+           WHERE metric_type_snapshot IS NULL;`,
+    run: async (db) => {
+      await safeAddColumn(db, 'training_sets', 'metric_type_snapshot', 'TEXT');
+      await db.runAsync(
+        `UPDATE training_sets
+            SET metric_type_snapshot = (
+              SELECT e.metric_type FROM exercises e WHERE e.id = training_sets.exercise_id
+            )
+          WHERE metric_type_snapshot IS NULL;`,
+      );
+    },
+  },
 ];
 
 /**

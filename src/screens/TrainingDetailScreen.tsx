@@ -47,6 +47,7 @@ import {
 } from '@/db/repositories/trainingSetRepo';
 import type { Training, TrainingSet } from '@/db/schema';
 import { isFreeTraining, resolveTrainingTitle } from '@/features/training/freeTraining';
+import { formatTrainingSetMetric } from '@/features/training/setMetrics';
 import { toast } from '@/hooks/useToast';
 import { useSettingsStore } from '@/store/settingsStore';
 import { useTrainingStore } from '@/store/trainingStore';
@@ -454,9 +455,7 @@ function SetRow({
   unit: ReturnType<typeof useSettingsStore.getState>['unit'];
 }) {
   const { colors, spacing, typography } = useTheme();
-  const isTime = set.durationSeconds != null && (set.weight == null);
-  const isDistance = set.distanceKm != null && (set.weight == null);
-  const main = formatSetMain(set, unit, isTime, isDistance);
+  const main = formatTrainingSetMetric(set, unit);
   const setType = findSetType(set.setType as SetTypeValue) ?? SET_TYPES[0];
 
   return (
@@ -513,29 +512,6 @@ function SetTypeBadge({
 /* -------------------------------------------------------------------------- */
 /* Formatters                                                                  */
 /* -------------------------------------------------------------------------- */
-
-function formatSetMain(
-  set: TrainingSet,
-  unit: ReturnType<typeof useSettingsStore.getState>['unit'],
-  isTime: boolean,
-  isDistance: boolean,
-): string {
-  if (isTime) {
-    return formatDuration(set.durationSeconds ?? 0);
-  }
-  if (isDistance) {
-    return `${(set.distanceKm ?? 0).toFixed(2)} km`;
-  }
-  // 默认 reps/kg 显示：`重量 × 次数`，任意字段为空就省略
-  const w = set.weight;
-  const r = set.reps;
-  if (w != null && r != null) {
-    return `${formatWeight(w, unit)} × ${r}`;
-  }
-  if (w != null) return formatWeight(w, unit);
-  if (r != null) return `${r} 次`;
-  return '—';
-}
 
 function formatHeaderDate(ms: number): string {
   const d = new Date(ms);

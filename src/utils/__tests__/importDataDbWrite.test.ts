@@ -188,6 +188,55 @@ describe('importFromBackup — exercises 写库字段完整性', () => {
   });
 });
 
+describe('importFromBackup — 历史组 metricTypeSnapshot', () => {
+  function trainingSetInsert() {
+    const hit = mockStatements.find((s) => s.sql.includes('INSERT INTO training_sets'));
+    if (!hit) throw new Error('没有找到 INSERT INTO training_sets');
+    return hit;
+  }
+
+  function payloadWithTrainingSet(snapshot?: string) {
+    return {
+      ...makePayload({ metricType: 'time' }),
+      schemaVersion: snapshot ? (3 as const) : (2 as const),
+      trainingSets: [
+        {
+          trainingId: 't1',
+          sets: [
+            {
+              id: 's1',
+              trainingId: 't1',
+              exerciseId: 'e1',
+              exerciseNameSnapshot: '平板支撑',
+              ...(snapshot ? { metricTypeSnapshot: snapshot } : {}),
+              position: 0,
+              setIndex: 1,
+              weight: 0,
+              reps: 0,
+              durationSeconds: 25,
+              distanceKm: 0,
+              setType: 'normal',
+              completed: true,
+            },
+          ],
+        },
+      ],
+    };
+  }
+
+  it('v3 原样写入历史组的类型快照', async () => {
+    await importFromBackup(payloadWithTrainingSet('time'));
+    const { sql, params } = trainingSetInsert();
+    expect(sql).toContain('metric_type_snapshot');
+    expect(params[4]).toBe('time');
+  });
+
+  it('v1/v2 没有快照时按 exerciseId 从动作表回填', async () => {
+    await importFromBackup(payloadWithTrainingSet());
+    expect(trainingSetInsert().params[4]).toBe('time');
+  });
+});
+
 /* -------------------------------------------------------------------------- */
 /* §13.1 — 计划处方（plan_exercises.rest_seconds + plan_sets）                 */
 /* -------------------------------------------------------------------------- */
@@ -219,7 +268,7 @@ describe('importFromBackup — 计划处方写库', () => {
     ],
   };
 
-  function planPayload(planExercises: unknown[], schemaVersion: 1 | 2 = 2) {
+  function planPayload(planExercises: unknown[], schemaVersion: 1 | 2 | 3 = 3) {
     return {
       ...makePayload(),
       schemaVersion,

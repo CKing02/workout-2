@@ -67,11 +67,19 @@ describe('utils/importData — validateBackupPayload', () => {
       expect(result.ok).toBe(true);
     });
 
-    it('schemaVersion=2 → ok（v2 是当前导出格式）', () => {
+    it('schemaVersion=2 → ok（兼容旧备份）', () => {
       const result = validateBackupPayload({ ...validPayload, schemaVersion: 2 });
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(result.payload.schemaVersion).toBe(2);
+      }
+    });
+
+    it('schemaVersion=3 → ok（当前导出格式）', () => {
+      const result = validateBackupPayload({ ...validPayload, schemaVersion: 3 });
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.payload.schemaVersion).toBe(3);
       }
     });
 
@@ -130,12 +138,12 @@ describe('utils/importData — validateBackupPayload', () => {
       }
     });
 
-    it('schemaVersion=3 → error（只支持 1 / 2）', () => {
-      const result = validateBackupPayload({ ...validPayload, schemaVersion: 3 });
+    it('schemaVersion=4 → error（只支持 1 / 2 / 3）', () => {
+      const result = validateBackupPayload({ ...validPayload, schemaVersion: 4 });
       expect(result.ok).toBe(false);
       if (!result.ok) {
         expect(result.error).toContain('不支持的备份版本');
-        expect(result.error).toContain('3');
+        expect(result.error).toContain('4');
       }
     });
 

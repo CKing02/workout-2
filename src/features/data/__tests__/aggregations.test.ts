@@ -67,6 +67,7 @@ function makeSet(over: Partial<TrainingSet> = {}): TrainingSet {
     trainingId: 't1',
     exerciseId: 'e1',
     exerciseNameSnapshot: '杠铃卧推',
+    metricTypeSnapshot: 'weight_reps',
     position: 0,
     setIndex: 0,
     weight: 100,

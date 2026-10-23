@@ -68,10 +68,10 @@ beforeEach(() => {
 });
 
 describe('buildBackupPayload — 计划处方导出', () => {
-  it('schemaVersion 是 2（v2 才带处方，导入端靠它判断形状）', async () => {
+  it('schemaVersion 是 3（历史组携带 metricTypeSnapshot）', async () => {
     const payload = await buildBackupPayload();
-    expect(CURRENT_SCHEMA_VERSION).toBe(2);
-    expect(payload.schemaVersion).toBe(2);
+    expect(CURRENT_SCHEMA_VERSION).toBe(3);
+    expect(payload.schemaVersion).toBe(3);
   });
 
   it('取计划动作那条 SQL 必须 JOIN plan_sets 且带 rest_seconds', async () => {

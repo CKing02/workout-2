@@ -91,6 +91,7 @@ export interface TrainingSetRow {
   training_id: string;
   exercise_id: string;
   exercise_name_snapshot: string;
+  metric_type_snapshot: string | null;
   position: number;
   set_index: number;
   weight: number | null;
@@ -292,6 +293,8 @@ export interface TrainingSet {
   trainingId: string;
   exerciseId: string;
   exerciseNameSnapshot: string;
+  /** Metric semantics at completion time; immutable history snapshot. */
+  metricTypeSnapshot: string | null;
   position: number;
   setIndex: number;
   weight: number | null;
@@ -308,6 +311,7 @@ export function rowToTrainingSet(row: TrainingSetRow): TrainingSet {
     trainingId: row.training_id,
     exerciseId: row.exercise_id,
     exerciseNameSnapshot: row.exercise_name_snapshot,
+    metricTypeSnapshot: row.metric_type_snapshot,
     position: row.position,
     setIndex: row.set_index,
     weight: row.weight,
@@ -393,6 +397,7 @@ export const CREATE_TABLE_SQL: string[] = [
      training_id TEXT NOT NULL,
      exercise_id TEXT NOT NULL,
      exercise_name_snapshot TEXT NOT NULL,
+     metric_type_snapshot TEXT,
      position INTEGER NOT NULL,
      set_index INTEGER NOT NULL,
      weight REAL,

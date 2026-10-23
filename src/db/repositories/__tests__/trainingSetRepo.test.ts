@@ -109,6 +109,7 @@ function setRow(over: Record<string, unknown> = {}) {
     training_id: 't1',
     exercise_id: 'e1',
     exercise_name_snapshot: '卧推',
+    metric_type_snapshot: 'weight_reps',
     position: 0,
     set_index: 0,
     weight: 60,

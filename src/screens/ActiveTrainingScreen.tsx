@@ -73,6 +73,7 @@ import { RestTimerNotificationBridge } from '@/features/training/RestTimerNotifi
 import { triggerRestTimer } from '@/features/training/restTimerTrigger';
 import { useRestTimerStore } from '@/features/training/restTimerStore';
 import { dismissRestTimerNotification } from '@/features/training/restTimerNotification';
+import { getSetMetricValidationError } from '@/features/training/setMetrics';
 import { formatElapsed, useElapsedSeconds } from '@/hooks/useElapsedSeconds';
 import { toast } from '@/hooks/useToast';
 import { usePlanStore, type PlanSetDraft } from '@/store/planStore';
@@ -792,7 +793,7 @@ export function ActiveTrainingScreen() {
       return;
     }
     const ex = activeTraining.exercises[currentExerciseIndex];
-    const target = ex?.sets[currentSetIndex];
+    let target = ex?.sets[currentSetIndex];
     if (!target) {
       return;
     }
@@ -807,6 +808,20 @@ export function ActiveTrainingScreen() {
       stopDurationTimer();
     }
 
+    // stopDurationTimer() synchronously writes the measured value to Zustand.
+    // Re-read the row before validation so the last timer tick is included.
+    const latestEx =
+      useTrainingStore.getState().activeTraining?.exercises[currentExerciseIndex] ?? ex;
+    target = latestEx.sets.find((s) => s.clientId === target.clientId) ?? target;
+    const validationError = getSetMetricValidationError(
+      latestEx.exercise.metricType,
+      target,
+    );
+    if (validationError) {
+      toast.show(validationError, 'warning');
+      return;
+    }
+
     // G29: 检测"这是当前动作的最后一组未完成"。
     // - 真：要么跳下一个还有未完成组的动作，要么（没有就）整体收尾。
     // - 假：什么都不做，依赖 completeAndAdvance 在动作内自动跳到下一未完成组。
@@ -814,7 +829,7 @@ export function ActiveTrainingScreen() {
     // 必须 *在 mutate 之前* 用 closure 捕获的 exBefore 来算：
     // store 改写后再读就读到的是 mutate 之后的状态，会得到 0 个未完成，
     // 误判为"最后一组"。
-    const exBefore = ex;
+    const exBefore = latestEx;
     const wasLastUncompletedInExercise =
       exBefore.sets.filter((s) => !s.completed).length === 1;
 

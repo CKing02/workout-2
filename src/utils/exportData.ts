@@ -11,7 +11,8 @@
  *   （未来的恢复功能）可以直接吃这份 JSON。
  * - 空数据也能导出：每张表保证是 `[]` / `{}`，结构完整。
  * - `exportedAt` ISO 字符串：让恢复端知道这份备份是哪天的。
- * - `schemaVersion` 2（2026-10-01）：计划处方内嵌进 planExercises —— 详见
+ * - `schemaVersion` 3（2026-10-23）：历史组携带 metricTypeSnapshot；计划处方
+ *   仍内嵌进 planExercises —— 详见
  *   `BackupPayload.planExercises` 的说明。
  * - 不预读 settings store —— 直接从 DB 取最新值，避免内存缓存过期。
  *
@@ -34,8 +35,8 @@ import { listSettings } from '@/db/repositories/settingsRepo';
 import type { BodyMeasurement, Exercise, ErrorLog, TrainingSet } from '@/db/schema';
 import { getAppVersion } from '@/utils/appVersion';
 
-/** 当前备份格式版本。v2 = 计划处方（rest_seconds + plan_sets）随 planExercises 内嵌。 */
-export const CURRENT_SCHEMA_VERSION = 2;
+/** 当前备份格式版本。v3 = 历史训练组新增 metricTypeSnapshot。 */
+export const CURRENT_SCHEMA_VERSION = 3;
 
 /** 一条内嵌的组处方 —— 对应 `plan_sets` 表的一行（`id` 不导出，导入端重新生成）。 */
 export interface BackupPlanSet {
@@ -52,6 +53,7 @@ export interface BackupPayload {
    * Schema version — 后续字段增删可走迁移。
    * v1: 只有 planId / exerciseId / position，没有处方（G19 的限制）。
    * v2: planExercises 每项带上 restSeconds + sets[]（2026-10-01 修 §13.1）。
+   * v3: trainingSets[].sets[] 带 metricTypeSnapshot，历史展示不再猜类型。
    */
   schemaVersion: typeof CURRENT_SCHEMA_VERSION;
   appVersion: string;

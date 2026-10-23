@@ -25,7 +25,7 @@ function seed(groups: Array<Array<Partial<ActiveSet>>>) {
     id: 'session', planId: null, planNameSnapshot: null, startedAt: Date.now() - 123000,
     exercises: groups.map((sets, i) => ({
       position: i, restSeconds: 60,
-      exercise: { id: `ex${i}`, name: `动作${i}`, metricType: 'kg' } as ActiveTraining['exercises'][number]['exercise'],
+      exercise: { id: `ex${i}`, name: `动作${i}`, metricType: 'weight_reps' } as ActiveTraining['exercises'][number]['exercise'],
       sets: sets.map((patch, j) => ({
         clientId: `s${i}${j}`, trainingId: 'session', exerciseId: `ex${i}`,
         exerciseNameSnapshot: `动作${i}`, position: i, setIndex: j + 1,
@@ -58,7 +58,7 @@ describe('duration plan targets', () => {
         {
           exercise: timeExercise,
           restSeconds: 30,
-          initialSets: [{ durationSeconds: 90, setType: 'normal' }],
+          initialSets: [{ weight: 0, reps: 0, durationSeconds: 90, distanceKm: 0, setType: 'normal' }],
         },
       ],
     });
@@ -66,6 +66,10 @@ describe('duration plan targets', () => {
     expect(active.exercises[0].sets[0]).toMatchObject({
       targetDurationSeconds: 90,
       durationSeconds: null,
+      weight: null,
+      reps: null,
+      distanceKm: null,
+      metricTypeSnapshot: 'time',
     });
   });
 
@@ -91,7 +95,28 @@ describe('duration plan targets', () => {
 
     const written = jest.mocked(batchInsertTrainingSetsInTransaction).mock.calls[0][1][0];
     expect(written.durationSeconds).toBe(73);
+    expect(written.metricTypeSnapshot).toBe('time');
+    expect(written.weight).toBeNull();
+    expect(written.reps).toBeNull();
+    expect(written.distanceKm).toBeNull();
     expect(written).not.toHaveProperty('targetDurationSeconds');
+  });
+
+  it('没有实际时长时拒绝把时间组标记为完成', async () => {
+    const active = await useTrainingStore.getState().startTraining({
+      planId: 'plan-1',
+      planNameSnapshot: '核心训练',
+      exercises: [
+        {
+          exercise: timeExercise,
+          restSeconds: 30,
+          initialSets: [{ durationSeconds: 90 }],
+        },
+      ],
+    });
+    const target = active.exercises[0].sets[0];
+    expect(useTrainingStore.getState().completeAndAdvance(0, target.clientId)).toBe(false);
+    expect(useTrainingStore.getState().activeTraining?.exercises[0].sets[0].completed).toBe(false);
   });
 });
 
@@ -112,6 +137,14 @@ describe('G48 training summary', () => {
     expect(useTrainingStore.getState().completionSummary?.totalAllSets).toBe(3);
     expect(result?.stats).toMatchObject({ totalVolume: 160, setCount: 2 });
     expect(jest.mocked(batchInsertTrainingSetsInTransaction).mock.calls[0][1]).toHaveLength(2);
+  });
+
+  it('动作数只统计至少完成一组的动作', () => {
+    seed([[{ weight: 20, reps: 8 }], [{ completed: false }]]);
+    const summary = useTrainingStore.getState().prepareTrainingSummary();
+    expect(summary?.exerciseCount).toBe(1);
+    expect(summary?.setCount).toBe(1);
+    expect(summary?.totalAllSets).toBe(2);
   });
 
   it.each([null, 0, -10, NaN, Infinity])('无有效重量 %s 时最佳组为 null', async (weight) => {

@@ -22,6 +22,7 @@ function makeRow(
     id: 's',
     exerciseId: 'e',
     exerciseNameSnapshot: '卧推',
+    metricTypeSnapshot: 'weight_reps',
     position: 0,
     setIndex: 0,
     weight: 100,

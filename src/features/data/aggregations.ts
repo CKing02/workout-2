@@ -41,6 +41,7 @@ export async function listJoinedCompletedSets(
     training_id: string;
     exercise_id: string;
     exercise_name_snapshot: string;
+    metric_type_snapshot: string | null;
     position: number;
     set_index: number;
     weight: number | null;
@@ -65,6 +66,7 @@ export async function listJoinedCompletedSets(
   }>(
     `SELECT
        ts.id, ts.training_id, ts.exercise_id, ts.exercise_name_snapshot,
+       ts.metric_type_snapshot,
        ts.position, ts.set_index, ts.weight, ts.reps,
        ts.duration_seconds, ts.distance_km, ts.set_type, ts.completed,
        e.id          AS e_id,
@@ -89,6 +91,7 @@ export async function listJoinedCompletedSets(
       training_id: r.training_id,
       exercise_id: r.exercise_id,
       exercise_name_snapshot: r.exercise_name_snapshot,
+      metric_type_snapshot: r.metric_type_snapshot,
       position: r.position,
       set_index: r.set_index,
       weight: r.weight,

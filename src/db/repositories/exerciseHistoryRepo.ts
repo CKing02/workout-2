@@ -54,6 +54,7 @@ export async function listSetsByExerciseInRange(
       training_id: r.training_id,
       exercise_id: r.exercise_id,
       exercise_name_snapshot: r.exercise_name_snapshot,
+      metric_type_snapshot: r.metric_type_snapshot,
       position: r.position,
       set_index: r.set_index,
       weight: r.weight,

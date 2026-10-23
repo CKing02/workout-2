@@ -2888,6 +2888,47 @@ SetRow 头部注释从 `1 个「min」输入（DB 存秒,UI 显示分钟）` 同
 
 ---
 
+## G55. 训练历史按指标类型展示 + 训练组数据规范化 ✅ 代码完成 / ☐ 待真机
+
+**优先级**：P0（历史展示错误 + 训练数据语义污染） | **阶段**：4
+**状态**：✅ 代码完成、类型检查与全量测试通过（2026-10-23）；待新 APK 在 OPPO 覆盖安装复验
+
+### 触发问题
+
+OPPO 真机中，计划「三」的平板支撑为 `time` 类型，但首页历史详情显示 `0.0 kg × 0`。
+实际抓取的数据包含 `durationSeconds = 25 / 30 / 5400`，同时被计划默认值污染为 `weight = 0 / reps = 0`。
+历史页原先通过 `duration != null && weight == null` 猜类型，因此错误落入重量次数分支。
+
+### 方案
+
+- `training_sets` 新增 `metric_type_snapshot`，migration v12 回填旧记录。
+- 新训练写入显式指标快照，展示端不再依赖数值形状猜类型。
+- 写入前按 metricType 清除无关列；时间计划目标与实际计时分离。
+- time / km 缺少有效实际值时拒绝完成。
+- 统一覆盖 7 种指标的历史格式化。
+- `exerciseCount` 只统计至少完成一组的动作；时间/距离不参与重量容量和最佳组。
+- 备份升级至 v3，导入兼容 v1 / v2 / v3。
+
+### 验收
+
+- [x] 显式 time 快照不受 `weight=0 / reps=0` 干扰
+- [x] 旧记录 migration v12 自动回填指标类型
+- [x] 新 time 记录仅持久化实际 duration，不写入 weight/reps/distance
+- [x] time / km 无有效实际值不能完成
+- [x] 7 种指标均有稳定展示格式
+- [x] 备份 v3 携带快照，v1/v2 继续可导入
+- [x] `npm run typecheck` 通过
+- [x] 全量测试 60 suites / 624 tests / 1 snapshot 全部通过
+- [ ] 新 APK 覆盖安装后，旧记录显示 `25s / 30s / 1h 30m`
+- [ ] 新时间组目标 60 秒、实际 25 秒时，历史只显示实际 25 秒
+- [ ] v3 备份导出/导入真机回归通过
+
+### 详细记录
+
+见 `docs/G55_HISTORY_METRIC_FIX_2026-10-23.md`。
+
+---
+
 ## 附录 A：数据库表结构（草图，Agent 可微调）
 
 ```sql
@@ -2945,6 +2986,7 @@ CREATE TABLE training_sets (
   training_id TEXT NOT NULL,
   exercise_id TEXT NOT NULL,
   exercise_name_snapshot TEXT,         -- 历史展示用
+  metric_type_snapshot TEXT,           -- G55: 历史指标类型快照，不再从数值列猜类型
   position INTEGER NOT NULL,           -- 动作顺序
   set_index INTEGER NOT NULL,          -- 组序号（1-based）
   weight REAL,

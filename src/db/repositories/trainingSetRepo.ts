@@ -19,6 +19,7 @@ export interface CreateTrainingSetInput {
   trainingId: string;
   exerciseId: string;
   exerciseNameSnapshot: string;
+  metricTypeSnapshot?: string | null;
   position: number;
   setIndex: number;
   weight?: number | null;
@@ -35,6 +36,7 @@ function toInsertArgs(s: CreateTrainingSetInput): SQLiteBindValue[] {
     s.trainingId,
     s.exerciseId,
     s.exerciseNameSnapshot,
+    s.metricTypeSnapshot ?? null,
     s.position,
     s.setIndex,
     s.weight ?? null,
@@ -57,10 +59,10 @@ export async function batchInsertTrainingSetsInTransaction(
   if (sets.length === 0) return 0;
   const stmt = await db.prepareAsync(
     `INSERT INTO training_sets
-       (id, training_id, exercise_id, exercise_name_snapshot,
+       (id, training_id, exercise_id, exercise_name_snapshot, metric_type_snapshot,
         position, set_index, weight, reps, duration_seconds, distance_km,
         set_type, completed)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
   );
   try {
     for (const s of sets) {
@@ -206,6 +208,10 @@ export async function updateTrainingSet(
     exerciseId: patch.exerciseId ?? existing.exerciseId,
     exerciseNameSnapshot:
       patch.exerciseNameSnapshot ?? existing.exerciseNameSnapshot,
+    metricTypeSnapshot:
+      patch.metricTypeSnapshot !== undefined
+        ? patch.metricTypeSnapshot
+        : existing.metricTypeSnapshot,
     position: patch.position ?? existing.position,
     setIndex: patch.setIndex ?? existing.setIndex,
     weight: patch.weight !== undefined ? patch.weight : existing.weight,
@@ -222,13 +228,14 @@ export async function updateTrainingSet(
   };
   await db.runAsync(
     `UPDATE training_sets
-       SET exercise_id = ?, exercise_name_snapshot = ?, position = ?, set_index = ?,
+       SET exercise_id = ?, exercise_name_snapshot = ?, metric_type_snapshot = ?, position = ?, set_index = ?,
            weight = ?, reps = ?, duration_seconds = ?, distance_km = ?,
            set_type = ?, completed = ?
        WHERE id = ?;`,
     [
       next.exerciseId,
       next.exerciseNameSnapshot,
+      next.metricTypeSnapshot,
       next.position,
       next.setIndex,
       next.weight,
