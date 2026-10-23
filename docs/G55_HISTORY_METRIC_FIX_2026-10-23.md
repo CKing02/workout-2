@@ -1,6 +1,6 @@
 # G55 训练历史指标类型修复与数据规范化 — 2026-10-23
 
-> 状态：✅ 代码完成 / ✅ 自动化验证通过 / ☐ 待新 APK 覆盖安装后 OPPO 真机复验
+> 状态：✅ 代码完成 / ✅ 自动化验证通过 / ✅ GitHub release APK 已生成 / ☐ 待 OPPO 覆盖安装复验
 
 ## 1. 用户反馈与真机证据
 
@@ -118,7 +118,10 @@ durationSeconds != null && weight == null  // 才判断为 time
 
 ## 6. 升级与真机复验边界
 
-本次没有重新构建或推送 APK。安装包含 G55 的新包并启动后，migration v12 才会执行。
+2026-10-23 已通过 GitHub Actions run
+[39897842445](https://github.com/CKing02/workout-2/actions/runs/39897842445)
+生成 `1.0.2 / versionCode 3` 正式版 APK。安装并启动后 migration v12 才会执行。
+产物、哈希、签名和下载信息见 `docs/G55_APK_2026-10-23.md`。
 
 预期旧记录迁移后：
 
@@ -136,7 +139,7 @@ durationSeconds != null && weight == null  // 才判断为 time
 
 ## 7. 待办
 
-- [ ] 构建包含 G55 的新 APK。
+- [x] 构建包含 G55 的新 APK（run 39897842445，SHA-256 `03b297b9…25a6a`）。
 - [ ] OPPO 覆盖安装，验证 v11 → v12 迁移。
 - [ ] 按 `docs/REAL_DEVICE_TEST_CHECKLIST.md` §3.1.5～3.1.9 回填结果。
 - [ ] 真机全过后将 G55 状态更新为「✅ 真机通过」，并记录 APK commit、哈希与安装方式。

@@ -851,8 +851,10 @@ adb -s 3c66de59 logcat -c && adb -s 3c66de59 logcat -v threadtime | grep -iE "im
 已完成 G55：新增 `metric_type_snapshot` 与 v12 回填；按类型规范化训练组字段；
 time/km 完成前校验实际值；历史统一按显式类型格式化；备份升 v3 并兼容 v1/v2；
 同时修正只统计实际完成动作。类型检查通过，全量 60 suites / 624 tests 通过。
-尚未重新出包或覆盖安装，真机关闭条件见 §3.1.5～3.1.9；详细记录见
-[`G55_HISTORY_METRIC_FIX_2026-10-23.md`](G55_HISTORY_METRIC_FIX_2026-10-23.md)。
+已完成 GitHub release 出包（`1.0.2` / versionCode 3 / run 39897842445），但尚未覆盖安装；
+真机关闭条件见 §3.1.5～3.1.9。修复记录见
+[`G55_HISTORY_METRIC_FIX_2026-10-23.md`](G55_HISTORY_METRIC_FIX_2026-10-23.md)，出包记录见
+[`G55_APK_2026-10-23.md`](G55_APK_2026-10-23.md)。
 
 ### G48回归发现：kg→lb参考数据只换标签（P1，基线已有）
 
@@ -1136,7 +1138,13 @@ layout 属性是 **inflate 时**解析的，跟那条 API 限制毫无关系 —
 
 ### 14.1 拿 APK
 
-> **2026-10-15 最新包**：`0dd3f45` / Actions run `38673294176` 已成功出包并核对本地 SHA-256，包含品牌启动、kg/lb 修复与 G49。下载、校验值及验收边界见 [出包记录](G49_APK_2026-10-15.md)。以下旧构建号保留为历史参考；新包仍需要 Metro。
+> **2026-10-23 最新正式包**：`b372256` / `1.0.2` / versionCode 3 / Actions run
+> [`39897842445`](https://github.com/CKing02/workout-2/actions/runs/39897842445) 已成功出包并完成本地哈希、
+> 版本、ABI、bundle 与签名核对。SHA-256 为 `03b297b900cd5927fcf1560595d308d1ce073a8ca76aeb1c50f2233c83f25a6a`，
+> 本地路径 `dist/app-release.apk`，详细见 [G55 出包记录](G55_APK_2026-10-23.md)。这是独立 release 包，不需要 Metro。
+>
+> **2026-10-15 dev-client 包**：`0dd3f45` / Actions run `38673294176` 包含品牌启动、kg/lb 修复与 G49，
+> 仍保留作旧开发包参考，见 [G49 出包记录](G49_APK_2026-10-15.md)。
 
 | 场景 | 做法 |
 |---|---|
