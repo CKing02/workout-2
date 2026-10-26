@@ -85,6 +85,8 @@ export type RootStackParamList = {
   Diagnostics: undefined;
   /** G5: 新建 / 编辑计划（锻炼 Tab 进入）。 */
   PlanEditor: PlanEditorParams | undefined;
+  /** Curated templates that can be copied into the user's private plans. */
+  PlanRecommendations: undefined;
   /** G6: 训练中页（全屏沉浸；Tab 之上的一层）。 */
   ActiveTraining: ActiveTrainingParams | undefined;
   /** G8: 训练完成总结页（全屏沉浸；必须在 ActiveTraining 之上）。 */

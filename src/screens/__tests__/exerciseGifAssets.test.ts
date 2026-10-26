@@ -23,9 +23,9 @@ import {
 describe('G35 §4 / G40 / G41 exerciseGifAssets', () => {
   const bundledMappings = EXERCISE_G35_MAPPING.filter((m) => m.bundled);
 
-  it('G41: total mapping = 302(bundled 52 + remote 250)', () => {
-    expect(EXERCISE_G35_MAPPING.length).toBe(306);
-    expect(bundledMappings.length).toBe(52);
+  it('G56: total mapping = 323(bundled 69 + remote 254)', () => {
+    expect(EXERCISE_G35_MAPPING.length).toBe(323);
+    expect(bundledMappings.length).toBe(69);
   });
 
   it('52 条 bundled mapping 的 assetFileName 都在 G35_GIF_ASSETS 里', () => {
@@ -40,8 +40,8 @@ describe('G35 §4 / G40 / G41 exerciseGifAssets', () => {
     );
   });
 
-  it('G35_GIF_ASSETS 恰好 52 项', () => {
-    expect(Object.keys(G35_GIF_ASSETS).length).toBe(52);
+  it('G35_GIF_ASSETS 恰好 69 项', () => {
+    expect(Object.keys(G35_GIF_ASSETS).length).toBe(69);
   });
 
   describe('resolveGifSource', () => {

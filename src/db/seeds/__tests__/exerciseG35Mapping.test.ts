@@ -61,8 +61,8 @@ const ASSETS_DIR = path.resolve(__dirname, '../../../../assets/exercises');
 
 describe('G35 §1 exercise mapping', () => {
   it('302 条 seed 都有对应 mapping', () => {
-    expect(EXERCISE_SEEDS.length).toBe(306);
-    expect(EXERCISE_G35_MAPPING.length).toBe(306);
+    expect(EXERCISE_SEEDS.length).toBe(323);
+    expect(EXERCISE_G35_MAPPING.length).toBe(323);
     assertMappingComplete(EXERCISE_SEEDS);
   });
 
@@ -188,8 +188,8 @@ describe('G35 §2 GIF bundle(bundled === true 走 require)', () => {
 describe('G40 GIF bundle(52 张 bundled 全落盘)', () => {
   const bundled = EXERCISE_G35_MAPPING.filter((m) => m.bundled);
 
-  it('bundled === true = 52 张;bundled === false = 250 张', () => {
-    expect(bundled.length).toBe(52);
+  it('bundled === true = 69 张;bundled === false = 254 张', () => {
+    expect(bundled.length).toBe(69);
     expect(EXERCISE_G35_MAPPING.filter((m) => !m.bundled).length).toBe(254);
   });
 

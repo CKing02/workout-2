@@ -38,6 +38,7 @@ import { Showcase } from '@/screens/_dev/Showcase';
 import { ExerciseDetailScreen } from '@/screens/ExerciseDetailScreen';
 import { ExerciseLibraryScreen } from '@/screens/ExerciseLibraryScreen';
 import { PlanEditorScreen } from '@/screens/PlanEditorScreen';
+import { PlanRecommendationsScreen } from '@/screens/PlanRecommendationsScreen';
 import { TabNavigator } from './TabNavigator';
 import type { RootStackParamList } from './types';
 
@@ -99,6 +100,11 @@ export function RootNavigator() {
           options={({ route }) => ({
             title: route.params?.planId ? '编辑计划' : '新建计划',
           })}
+        />
+        <Stack.Screen
+          name="PlanRecommendations"
+          component={PlanRecommendationsScreen}
+          options={{ title: '推荐训练计划' }}
         />
         <Stack.Screen
           name="ActiveTraining"

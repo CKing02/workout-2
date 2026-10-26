@@ -425,6 +425,27 @@ export const EXERCISE_G35_MAPPING: G35ExerciseMapping[] = [
   { seedName: '推起跑', hasaneyldrmId: '3638', hasaneyldrmName: 'push to run', equipmentEn: 'body weight', targetEn: 'cardiovascular system', gifUrl: 'videos/3638-PrQbjvB.gif', bundled: false, cdnUrl: 'https://workout-gifs-cdn-20260923-1327489994.cos.ap-shanghai.myqcloud.com/exercises/3638-PrQbjvB.gif' },
   { seedName: '滑雪步', hasaneyldrmId: '3671', hasaneyldrmName: 'ski step', equipmentEn: 'body weight', targetEn: 'cardiovascular system', gifUrl: 'videos/3671-5MRH8H2.gif', bundled: false, cdnUrl: 'https://workout-gifs-cdn-20260923-1327489994.cos.ap-shanghai.myqcloud.com/exercises/3671-5MRH8H2.gif' },
 
+  // ----- G56 史密斯机动作(9) -----
+  { seedName: '史密斯卧推', hasaneyldrmId: '0748', hasaneyldrmName: 'smith bench press', equipmentEn: 'smith machine', targetEn: 'pectorals', gifUrl: 'videos/0748-trqKQv2.gif', assetFileName: '0748-trqKQv2.gif', bundled: true },
+  { seedName: '史密斯上斜卧推', hasaneyldrmId: '0757', hasaneyldrmName: 'smith incline bench press', equipmentEn: 'smith machine', targetEn: 'pectorals', gifUrl: 'videos/0757-5v7KYld.gif', assetFileName: '0757-5v7KYld.gif', bundled: true },
+  { seedName: '史密斯俯身划船', hasaneyldrmId: '1359', hasaneyldrmName: 'smith bent over row', equipmentEn: 'smith machine', targetEn: 'upper back', gifUrl: 'videos/1359-ZX9UZmj.gif', assetFileName: '1359-ZX9UZmj.gif', bundled: true },
+  { seedName: '史密斯坐姿肩推', hasaneyldrmId: '0765', hasaneyldrmName: 'smith seated shoulder press', equipmentEn: 'smith machine', targetEn: 'delts', gifUrl: 'videos/0765-xUwnBMT.gif', assetFileName: '0765-xUwnBMT.gif', bundled: true },
+  { seedName: '史密斯深蹲', hasaneyldrmId: '0770', hasaneyldrmName: 'smith squat', equipmentEn: 'smith machine', targetEn: 'glutes', gifUrl: 'videos/0770-jFtipLl.gif', assetFileName: '0770-jFtipLl.gif', bundled: true },
+  { seedName: '史密斯硬拉', hasaneyldrmId: '0752', hasaneyldrmName: 'smith deadlift', equipmentEn: 'smith machine', targetEn: 'glutes', gifUrl: 'videos/0752-UfePqpx.gif', assetFileName: '0752-UfePqpx.gif', bundled: true },
+  { seedName: '史密斯哈克深蹲', hasaneyldrmId: '0755', hasaneyldrmName: 'smith hack squat', equipmentEn: 'smith machine', targetEn: 'glutes', gifUrl: 'videos/0755-ZuPXtCK.gif', assetFileName: '0755-ZuPXtCK.gif', bundled: true },
+  { seedName: '史密斯分腿蹲', hasaneyldrmId: '0768', hasaneyldrmName: 'smith single leg split squat', equipmentEn: 'smith machine', targetEn: 'quads', gifUrl: 'videos/0768-wWFspEi.gif', assetFileName: '0768-wWFspEi.gif', bundled: true },
+  { seedName: '史密斯站姿提踵', hasaneyldrmId: '0773', hasaneyldrmName: 'smith standing leg calf raise', equipmentEn: 'smith machine', targetEn: 'calves', gifUrl: 'videos/0773-6MaEjVA.gif', assetFileName: '0773-6MaEjVA.gif', bundled: true },
+
+  // ----- G56 跪姿动作(8) -----
+  { seedName: '跪姿单臂弹力带下拉', hasaneyldrmId: '0983', hasaneyldrmName: 'band kneeling one arm pulldown', equipmentEn: 'band', targetEn: 'lats', gifUrl: 'videos/0983-pmnrOp0.gif', assetFileName: '0983-pmnrOp0.gif', bundled: true },
+  { seedName: '跪姿高位划船', hasaneyldrmId: '0167', hasaneyldrmName: 'cable high row (kneeling)', equipmentEn: 'cable', targetEn: 'upper back', gifUrl: 'videos/0167-ZSJNetl.gif', assetFileName: '0167-ZSJNetl.gif', bundled: true },
+  { seedName: '跪姿绳索卷腹', hasaneyldrmId: '0175', hasaneyldrmName: 'cable kneeling crunch', equipmentEn: 'cable', targetEn: 'abs', gifUrl: 'videos/0175-WW95auq.gif', assetFileName: '0175-WW95auq.gif', bundled: true },
+  { seedName: '跪姿绳索后束划船', hasaneyldrmId: '3697', hasaneyldrmName: 'cable kneeling rear delt row (with rope) (male)', equipmentEn: 'cable', targetEn: 'delts', gifUrl: 'videos/3697-G61cXLk.gif', assetFileName: '3697-G61cXLk.gif', bundled: true },
+  { seedName: '跪姿绳索三头伸展', hasaneyldrmId: '0176', hasaneyldrmName: 'cable kneeling triceps extension', equipmentEn: 'cable', targetEn: 'triceps', gifUrl: 'videos/0176-KWdF2JI.gif', assetFileName: '0176-KWdF2JI.gif', bundled: true },
+  { seedName: '跪姿自重三头伸展', hasaneyldrmId: '1771', hasaneyldrmName: 'bodyweight kneeling triceps extension', equipmentEn: 'body weight', targetEn: 'triceps', gifUrl: 'videos/1771-s0HKO2I.gif', assetFileName: '1771-s0HKO2I.gif', bundled: true },
+  { seedName: '跪姿俯卧撑', hasaneyldrmId: '3211', hasaneyldrmName: 'kneeling push-up (male)', equipmentEn: 'body weight', targetEn: 'pectorals', gifUrl: 'videos/3211-ZOuKWir.gif', assetFileName: '3211-ZOuKWir.gif', bundled: true },
+  { seedName: '跪姿背阔肌拉伸', hasaneyldrmId: '1346', hasaneyldrmName: 'kneeling lat stretch', equipmentEn: 'body weight', targetEn: 'lats', gifUrl: 'videos/1346-f38OEuO.gif', assetFileName: '1346-f38OEuO.gif', bundled: true },
+
 ];
 
 /** 按 seedName 索引的快查表。 */

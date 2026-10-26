@@ -21,7 +21,7 @@ describe('G35 §3 / G39 / G41 toExerciseRows 字段填充', () => {
   const rows = toExerciseRows(1700000000000);
 
   it('302 条 seed 全部有 14 列(含 5 个 G35 新字段)', () => {
-    expect(rows.length).toBe(306);
+    expect(rows.length).toBe(323);
     const expectedKeys = [
       'name', 'muscle_group', 'secondary_muscles', 'equipment', 'metric_type',
       'image_uri', 'is_custom', 'created_at',
@@ -35,7 +35,7 @@ describe('G35 §3 / G39 / G41 toExerciseRows 字段填充', () => {
 
   it('G40: 52 条 bundled → gif_url = "asset:{filename}"', () => {
     const bundledRows = rows.filter((r) => r.gif_url?.startsWith('asset:'));
-    expect(bundledRows.length).toBe(52);
+    expect(bundledRows.length).toBe(69);
     for (const r of bundledRows) {
       expect(r.gif_url).toMatch(/^asset:[0-9]{4}-[A-Za-z0-9]+\.gif$/);
     }
@@ -53,8 +53,8 @@ describe('G35 §3 / G39 / G41 toExerciseRows 字段填充', () => {
     const bundled = rows.filter((r) => r.gif_url?.startsWith('asset:')).length;
     const remote = rows.filter((r) => r.gif_url?.startsWith('https://')).length;
     const nullUrl = rows.filter((r) => r.gif_url === null).length;
-    expect(bundled + remote + nullUrl).toBe(306);
-    expect(bundled).toBe(52);
+    expect(bundled + remote + nullUrl).toBe(323);
+    expect(bundled).toBe(69);
     expect(remote).toBe(254);
   });
 
@@ -126,12 +126,12 @@ describe('G35 §3 / G39 / G41 toExerciseRows 字段填充', () => {
       }
     }
     // 52 bundled + 254 CDN,全部 306 都有 zh(G37 user-motion 灌完后)
-    expect(withZh).toBe(306);
+    expect(withZh).toBe(323);
     // 0 remote 走 GIF fallback
     expect(withoutZh).toBe(0);
   });
 
   it('EXERCISE_SEEDS 数量(防回归:加新 seed 必须补 mapping + zh)', () => {
-    expect(EXERCISE_SEEDS.length).toBe(306);
+    expect(EXERCISE_SEEDS.length).toBe(323);
   });
 });

@@ -22,7 +22,7 @@ describe('G41 filterMissingSeedRows — 差量 INSERT 列表生成', () => {
   it('空 existing set → 全部 306 行(takeover 全量职责)', () => {
     const missing = filterMissingSeedRows(new Set(), now);
     expect(missing.length).toBe(EXERCISE_SEEDS.length);
-    expect(missing.length).toBe(306);
+    expect(missing.length).toBe(323);
   });
 
   it('full set(306 个 seed name)→ [] (idempotent,no-op 起点)', () => {
@@ -52,7 +52,7 @@ describe('G41 filterMissingSeedRows — 差量 INSERT 列表生成', () => {
 
     const missing = filterMissingSeedRows(partial, now);
     // 254 = 306 - 52,这就是用户手机这次升级该 INSERT 的差量。
-    expect(missing.length).toBe(254);
+    expect(missing.length).toBe(271);
     // 没有一个名字出现在已存在集合里
     for (const r of missing) {
       expect(partial.has(r.name)).toBe(false);
@@ -78,7 +78,7 @@ describe('G41 filterMissingSeedRows — 差量 INSERT 列表生成', () => {
     existing.add('私有热身');
 
     const missing = filterMissingSeedRows(existing, now);
-    expect(missing.length).toBe(254);
+    expect(missing.length).toBe(271);
     expect(missing.some((r) => r.name === '我的深蹲变体')).toBe(false);
   });
 
@@ -115,14 +115,14 @@ describe('G41 filterMissingSeedRows — 差量 INSERT 列表生成', () => {
     expect(partial.size).toBe(52);
 
     const firstPass = filterMissingSeedRows(partial, now);
-    expect(firstPass.length).toBe(254);
+    expect(firstPass.length).toBe(271);
 
     // 模拟第一轮 INSERT 完后,DB 已有 52+254=306 个 name → 第二轮 no-op
     const afterFirstPass = new Set([
       ...partial,
       ...firstPass.map((r) => r.name),
     ]);
-    expect(afterFirstPass.size).toBe(306);
+    expect(afterFirstPass.size).toBe(323);
     const secondPass = filterMissingSeedRows(afterFirstPass, now);
     expect(secondPass).toEqual([]);
   });

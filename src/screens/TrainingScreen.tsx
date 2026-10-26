@@ -305,6 +305,10 @@ export function TrainingScreen() {
     navigation.navigate('PlanEditor', {});
   }, [navigation]);
 
+  const handleOpenRecommendations = useCallback(() => {
+    navigation.navigate('PlanRecommendations');
+  }, [navigation]);
+
   // ----------------------------------------------------------------
   // Empty + list rendering
   // ----------------------------------------------------------------
@@ -365,6 +369,16 @@ export function TrainingScreen() {
               accessibilityHint="选择动作后直接开始，不绑定训练计划"
             >
               开始自由训练
+            </Button>
+            <Button
+              variant="secondary"
+              size="lg"
+              style={{ alignSelf: 'stretch' }}
+              onPress={handleOpenRecommendations}
+              accessibilityLabel="浏览推荐训练计划"
+              accessibilityHint="选择预设并添加到私人计划"
+            >
+              浏览推荐训练计划
             </Button>
             {editMode ? (
               <View

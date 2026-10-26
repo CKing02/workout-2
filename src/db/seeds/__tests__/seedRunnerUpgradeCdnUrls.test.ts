@@ -50,7 +50,7 @@ describe('G44 upgradeExerciseCdnUrls — R2 placeholder → 腾讯云 COS', () =
     const expectedUpdates = EXERCISE_G35_MAPPING.filter(
       (m) => !m.bundled && m.cdnUrl,
     ).length;
-    expect(expectedUpdates).toBe(254); // 映射总数 306 - bundled=true 52 = 254
+    expect(expectedUpdates).toBe(254); // G56 新动作走本地 bundle，不增加 CDN 更新数
     expect(result).toBe(254);
 
     // 嵌套事务回归保护
@@ -98,7 +98,7 @@ describe('G44 upgradeExerciseCdnUrls — R2 placeholder → 腾讯云 COS', () =
     expect(result).toBe(0);
     expect(db.withTransactionAsync).not.toHaveBeenCalled();
     const stmt = await db.prepareAsync.mock.results[0]!.value;
-    expect(stmt.executeAsync).toHaveBeenCalledTimes(254); // 仍尝试 254 次
+    expect(stmt.executeAsync).toHaveBeenCalledTimes(254); // 仍尝试全部 remote mapping
     expect(stmt.finalizeAsync).toHaveBeenCalledTimes(1);
   });
 });

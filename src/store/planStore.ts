@@ -100,6 +100,20 @@ export interface PlanStoreState {
   reload: () => Promise<void>;
   fetch: (id: string) => Promise<PlanWithExercises | null>;
   create: (input: { name: string; exerciseIds?: string[]; restSecondsByExerciseId?: Record<string, number> }) => Promise<Plan>;
+  createFromTemplate: (input: {
+    name: string;
+    exercises: Array<{
+      exerciseId: string;
+      restSeconds: number;
+      sets: Array<{
+        setType: SetTypeValue;
+        weight: number;
+        reps: number;
+        durationSeconds: number;
+        distanceKm: number;
+      }>;
+    }>;
+  }) => Promise<Plan>;
   update: (
     id: string,
     patch: { name?: string; exerciseIds?: string[] },
@@ -325,6 +339,46 @@ export const usePlanStore = create<PlanStoreState>((set, get) => ({
       });
     }
 
+    return plan;
+  },
+
+  createFromTemplate: async (input) => {
+    const db = await getDatabase();
+    const exerciseIds = input.exercises.map((item) => item.exerciseId);
+    const restSecondsByExerciseId = Object.fromEntries(
+      input.exercises.map((item) => [item.exerciseId, item.restSeconds]),
+    );
+    const templateByExerciseId = new Map(
+      input.exercises.map((item) => [item.exerciseId, item]),
+    );
+
+    const plan = await createPlan(db, {
+      name: input.name,
+      exerciseIds,
+      restSecondsByExerciseId,
+    });
+    const pairs =
+      (
+        plan as PlanWithCount & {
+          planExercisePairs?: Array<{ exerciseId: string; planExerciseId: string }>;
+        }
+      ).planExercisePairs ?? [];
+
+    try {
+      for (const { exerciseId, planExerciseId } of pairs) {
+        const source = templateByExerciseId.get(exerciseId);
+        if (!source) continue;
+        await replaceSetsForPlanExercise(db, planExerciseId, source.sets);
+      }
+    } catch (error) {
+      // Import is all-or-nothing from the user's perspective. If writing any
+      // prescription fails, remove the newly-created plan and its cascaded
+      // rows instead of leaving a half-imported private plan behind.
+      await deletePlan(db, plan.id);
+      throw error;
+    }
+
+    set((state) => ({ plans: [plan, ...state.plans] }));
     return plan;
   },
 

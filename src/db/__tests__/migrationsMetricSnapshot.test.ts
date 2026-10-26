@@ -5,8 +5,8 @@ import { CURRENT_VERSION, MIGRATIONS } from '@/db/migrations';
 describe('migration v12 — training set metric snapshot', () => {
   const migration = MIGRATIONS.find((item) => item.version === 12);
 
-  it('是当前最新 migration，并同时加列和回填', () => {
-    expect(CURRENT_VERSION).toBe(12);
+  it('保留 v12 migration，并同时加列和回填', () => {
+    expect(CURRENT_VERSION).toBeGreaterThanOrEqual(12);
     expect(migration).toBeDefined();
     expect(migration?.sql).toContain('metric_type_snapshot');
     expect(migration?.sql).toContain('exercises');

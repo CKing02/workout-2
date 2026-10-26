@@ -54,11 +54,11 @@ describe('G41 upgradeExerciseSeedIfMissing — 不开嵌套事务 (闪退回归)
     const result = await upgradeExerciseSeedIfMissing(
       db as unknown as SQLiteDatabase,
     );
-    expect(result).toBe(306); // EXERCISE_SEEDS.length
+    expect(result).toBe(323); // EXERCISE_SEEDS.length
     expect(db.withTransactionAsync).not.toHaveBeenCalled();
     expect(db.prepareAsync).toHaveBeenCalledTimes(1);
     const stmt = await db.prepareAsync.mock.results[0]!.value;
-    expect(stmt.executeAsync).toHaveBeenCalledTimes(306);
+    expect(stmt.executeAsync).toHaveBeenCalledTimes(323);
     expect(stmt.finalizeAsync).toHaveBeenCalledTimes(1);
   });
 
@@ -73,10 +73,10 @@ describe('G41 upgradeExerciseSeedIfMissing — 不开嵌套事务 (闪退回归)
     const result = await upgradeExerciseSeedIfMissing(
       db as unknown as SQLiteDatabase,
     );
-    expect(result).toBe(254);
+    expect(result).toBe(271);
     expect(db.withTransactionAsync).not.toHaveBeenCalled();
     const stmt = await db.prepareAsync.mock.results[0]!.value;
-    expect(stmt.executeAsync).toHaveBeenCalledTimes(254);
+    expect(stmt.executeAsync).toHaveBeenCalledTimes(271);
   });
 
   it('已升级 306 行:无 INSERT,直接 return 0', async () => {

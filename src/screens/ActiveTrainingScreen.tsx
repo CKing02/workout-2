@@ -30,6 +30,7 @@
 import React, {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react';
@@ -37,6 +38,7 @@ import {
   ActivityIndicator,
   Alert,
   BackHandler,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -45,6 +47,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { setStatusBarHidden } from 'expo-status-bar';
 import {
@@ -68,6 +71,7 @@ import { WeightInput } from '@/components/WeightInput';
 import { Sheet } from '@/components/Sheet';
 import { SET_TYPES, type SetTypeValue } from '@/constants/setTypes';
 import { findMetricType, type MetricField } from '@/constants/metricTypes';
+import { resolveExerciseSwipeDirection } from '@/features/training/exerciseSwipe';
 import { RestTimerOverlay } from '@/features/training/RestTimerOverlay';
 import { RestTimerNotificationBridge } from '@/features/training/RestTimerNotificationBridge';
 import { triggerRestTimer } from '@/features/training/restTimerTrigger';
@@ -701,14 +705,41 @@ export function ActiveTrainingScreen() {
     [],
   );
 
+  const handleSelectExercise = useCallback(
+    (exIndex: number) => {
+      if (
+        !activeTraining ||
+        exIndex < 0 ||
+        exIndex >= activeTraining.exercises.length ||
+        exIndex === currentExerciseIndex
+      ) {
+        return;
+      }
+
+      stopDurationTimer();
+      Keyboard.dismiss();
+      setCurrentExerciseIndex(exIndex);
+      // Each exercise is its own task context. Returning to the top prevents
+      // a long previous set list from leaving the new exercise half offscreen.
+      requestAnimationFrame(() => {
+        scrollViewRef.current?.scrollTo({ y: 0, animated: false });
+      });
+      haptic.tick();
+    },
+    [
+      activeTraining,
+      currentExerciseIndex,
+      setCurrentExerciseIndex,
+      stopDurationTimer,
+    ],
+  );
+
   const handleJumpToExercise = useCallback(
     (exIndex: number) => {
-      stopDurationTimer();
-      setCurrentExerciseIndex(exIndex);
+      handleSelectExercise(exIndex);
       setOverviewSheetOpen(false);
-      haptic.selection();
     },
-    [setCurrentExerciseIndex, stopDurationTimer],
+    [handleSelectExercise],
   );
 
   const handleConfirmDelete = useCallback(() => {
@@ -1071,6 +1102,16 @@ export function ActiveTrainingScreen() {
         }}
         keyboardShouldPersistTaps="handled"
       >
+        {totalExercises > 1 ? (
+          <ExerciseSwipeNavigator
+            currentIndex={currentExerciseIndex}
+            exerciseNames={activeTraining.exercises.map(
+              (item) => item.exercise.name,
+            )}
+            onSelect={handleSelectExercise}
+          />
+        ) : null}
+
         {/* ----- Exercise title (with "动作 X/Y" + "+ 添加组") ----- */}
         <View style={{ gap: spacing.xs }}>
           <View
@@ -1772,6 +1813,178 @@ function ProgressBarEdgeToEdge({
           backgroundColor: fillColor,
         }}
       />
+    </View>
+  );
+}
+
+/* ---------- Adjacent exercise navigation ---------- */
+
+interface ExerciseSwipeNavigatorProps {
+  currentIndex: number;
+  exerciseNames: string[];
+  onSelect: (index: number) => void;
+}
+
+/**
+ * A dedicated gesture lane keeps horizontal exercise switching away from the
+ * vertical set list and every editable control. The two arrow buttons make the
+ * same action visible and keyboard/screen-reader reachable; swipe is an
+ * acceleration, never the only way to navigate.
+ */
+function ExerciseSwipeNavigator({
+  currentIndex,
+  exerciseNames,
+  onSelect,
+}: ExerciseSwipeNavigatorProps) {
+  const { colors, radius, spacing, typography } = useTheme();
+  const total = exerciseNames.length;
+  const canPrevious = currentIndex > 0;
+  const canNext = currentIndex < total - 1;
+  const currentName = exerciseNames[currentIndex] ?? '';
+
+  const selectPrevious = useCallback(() => {
+    if (canPrevious) onSelect(currentIndex - 1);
+  }, [canPrevious, currentIndex, onSelect]);
+
+  const selectNext = useCallback(() => {
+    if (canNext) onSelect(currentIndex + 1);
+  }, [canNext, currentIndex, onSelect]);
+
+  const swipeGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        // The center lane begins well inside the screen edge, and a vertical
+        // move wins before horizontal activation so ScrollView keeps its feel.
+        .activeOffsetX([-18, 18])
+        .failOffsetY([-10, 10])
+        .runOnJS(true)
+        .onEnd((event) => {
+          const direction = resolveExerciseSwipeDirection({
+            translationX: event.translationX,
+            velocityX: event.velocityX,
+            canPrevious,
+            canNext,
+          });
+          if (direction !== 0) onSelect(currentIndex + direction);
+        }),
+    [canNext, canPrevious, currentIndex, onSelect],
+  );
+
+  const arrowStyle = (enabled: boolean, pressed: boolean) => ({
+    width: 48,
+    minHeight: 48,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    borderRadius: radius.md,
+    backgroundColor:
+      enabled && pressed ? colors.primaryMuted : colors.transparent,
+    opacity: enabled ? 1 : 0.3,
+  });
+
+  return (
+    <View
+      style={{
+        minHeight: 56,
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: spacing.xs,
+        borderRadius: radius.lg,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.border,
+        backgroundColor: colors.surface,
+      }}
+    >
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={
+          canPrevious
+            ? `上一个动作，${exerciseNames[currentIndex - 1]}`
+            : '已经是第一个动作'
+        }
+        accessibilityState={{ disabled: !canPrevious }}
+        disabled={!canPrevious}
+        hitSlop={4}
+        onPress={selectPrevious}
+        style={({ pressed }) => arrowStyle(canPrevious, pressed)}
+      >
+        <Text
+          style={{
+            color: colors.primaryPressed,
+            fontSize: 28,
+            lineHeight: 30,
+          }}
+        >
+          ‹
+        </Text>
+      </Pressable>
+
+      <GestureDetector gesture={swipeGesture}>
+        <View
+          accessible
+          accessibilityRole="adjustable"
+          accessibilityLabel={`当前动作 ${currentIndex + 1}/${total}，${currentName}`}
+          accessibilityHint="左右滑动，或使用两侧按钮切换动作"
+          accessibilityValue={{
+            min: 1,
+            max: total,
+            now: currentIndex + 1,
+            text: currentName,
+          }}
+          accessibilityActions={[
+            { name: 'decrement', label: '上一个动作' },
+            { name: 'increment', label: '下一个动作' },
+          ]}
+          onAccessibilityAction={(event) => {
+            if (event.nativeEvent.actionName === 'decrement') selectPrevious();
+            if (event.nativeEvent.actionName === 'increment') selectNext();
+          }}
+          style={{
+            flex: 1,
+            minHeight: 54,
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 2,
+          }}
+        >
+          <Text
+            style={[
+              typography.label,
+              { color: colors.text, fontVariant: ['tabular-nums'] },
+            ]}
+          >
+            动作 {currentIndex + 1}/{total}
+          </Text>
+          <Text
+            style={[typography.caption, { color: colors.textTertiary }]}
+          >
+            左右滑动切换
+          </Text>
+        </View>
+      </GestureDetector>
+
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={
+          canNext
+            ? `下一个动作，${exerciseNames[currentIndex + 1]}`
+            : '已经是最后一个动作'
+        }
+        accessibilityState={{ disabled: !canNext }}
+        disabled={!canNext}
+        hitSlop={4}
+        onPress={selectNext}
+        style={({ pressed }) => arrowStyle(canNext, pressed)}
+      >
+        <Text
+          style={{
+            color: colors.primaryPressed,
+            fontSize: 28,
+            lineHeight: 30,
+          }}
+        >
+          ›
+        </Text>
+      </Pressable>
     </View>
   );
 }

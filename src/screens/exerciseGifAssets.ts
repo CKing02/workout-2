@@ -1,5 +1,5 @@
 /**
- * G39 + G40 — 52 张 bundled GIF 的 RN require() 静态映射 + gifUrl 分类。
+ * G39 + G40 + G56 — bundled GIF 的 RN require() 静态映射 + gifUrl 分类。
  *
  * 背景:
  * - G35 时塞了 52 张 GIF 进 assets/exercises/(5.2MB)。G39 把 30 张保留为
@@ -12,7 +12,7 @@
  *
  * RN 的 `Image` 要本地 source 必须用静态 `require()` —— 不能在运行时
  * 拼字符串(会被 Metro Babel transform 拦下,报 "Invalid call at line N:
- * require(path)")。下面 G35_GIF_ASSETS 内 52 个 require() 全部走字面量
+ * require(path)")。下面 G35_GIF_ASSETS 内的 require() 全部走字面量
  * 路径,不允许包成函数或动态拼接。
  *
  * Jest 不测本文件(`testMatch` 只匹配 `__tests__/*.test.ts`,本文件
@@ -23,7 +23,7 @@
 import type { ImageSourcePropType } from 'react-native';
 
 /**
- * 52 张 bundled GIF 的 file basename → ImageSourcePropType 映射。
+ * Bundled GIF 的 file basename → ImageSourcePropType 映射。
  *
  * Metro 通过这些 require() 静态分析,把对应 GIF 文件作为原生资源打进
  * APK / IPA(走 `react-native-asset` linker);卸载重装都不会丢。
@@ -89,6 +89,25 @@ export const G35_GIF_ASSETS: Readonly<Record<string, ImageSourcePropType>> = {
   '3666-rjiM4L3.gif': require('../../assets/exercises/3666-rjiM4L3.gif'),
   // 有氧 (1)
   '2138-H1PESYI.gif': require('../../assets/exercises/2138-H1PESYI.gif'),
+  // G56 史密斯机 (9)
+  '0748-trqKQv2.gif': require('../../assets/exercises/0748-trqKQv2.gif'),
+  '0757-5v7KYld.gif': require('../../assets/exercises/0757-5v7KYld.gif'),
+  '1359-ZX9UZmj.gif': require('../../assets/exercises/1359-ZX9UZmj.gif'),
+  '0765-xUwnBMT.gif': require('../../assets/exercises/0765-xUwnBMT.gif'),
+  '0770-jFtipLl.gif': require('../../assets/exercises/0770-jFtipLl.gif'),
+  '0752-UfePqpx.gif': require('../../assets/exercises/0752-UfePqpx.gif'),
+  '0755-ZuPXtCK.gif': require('../../assets/exercises/0755-ZuPXtCK.gif'),
+  '0768-wWFspEi.gif': require('../../assets/exercises/0768-wWFspEi.gif'),
+  '0773-6MaEjVA.gif': require('../../assets/exercises/0773-6MaEjVA.gif'),
+  // G56 跪姿 (8)
+  '0983-pmnrOp0.gif': require('../../assets/exercises/0983-pmnrOp0.gif'),
+  '0167-ZSJNetl.gif': require('../../assets/exercises/0167-ZSJNetl.gif'),
+  '0175-WW95auq.gif': require('../../assets/exercises/0175-WW95auq.gif'),
+  '3697-G61cXLk.gif': require('../../assets/exercises/3697-G61cXLk.gif'),
+  '0176-KWdF2JI.gif': require('../../assets/exercises/0176-KWdF2JI.gif'),
+  '1771-s0HKO2I.gif': require('../../assets/exercises/1771-s0HKO2I.gif'),
+  '3211-ZOuKWir.gif': require('../../assets/exercises/3211-ZOuKWir.gif'),
+  '1346-f38OEuO.gif': require('../../assets/exercises/1346-f38OEuO.gif'),
 };
 
 /**

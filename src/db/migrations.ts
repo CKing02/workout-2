@@ -211,6 +211,15 @@ export const MIGRATIONS: readonly Migration[] = [
       );
     },
   },
+  {
+    version: 13,
+    description:
+      'G56: add 17 Smith-machine and kneeling exercises. Reuse the idempotent missing-seed importer so existing installs receive only the new rows.',
+    sql: '-- placeholder; 差量 INSERT via run,逻辑在 upgradeExerciseSeedIfMissing',
+    run: async (db) => {
+      await upgradeExerciseSeedIfMissing(db);
+    },
+  },
 ];
 
 /**

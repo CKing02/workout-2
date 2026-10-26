@@ -690,6 +690,27 @@ export const EXERCISE_SEEDS: ExerciseSeed[] = [
   { name: '推起跑', muscle_group: '全身', secondary_muscles: [], equipment: '自重', metric_type: 'km' },
   { name: '滑雪步', muscle_group: '全身', secondary_muscles: [], equipment: '自重', metric_type: 'time' },
 
+  // ----- G56 史密斯机动作(9) -----
+  { name: '史密斯卧推', muscle_group: '胸', secondary_muscles: ['三头', '肩'], equipment: '史密斯机', metric_type: 'weight_reps' },
+  { name: '史密斯上斜卧推', muscle_group: '胸', secondary_muscles: ['肩', '三头'], equipment: '史密斯机', metric_type: 'weight_reps' },
+  { name: '史密斯俯身划船', muscle_group: '背', secondary_muscles: ['二头', '前臂'], equipment: '史密斯机', metric_type: 'weight_reps' },
+  { name: '史密斯坐姿肩推', muscle_group: '肩', secondary_muscles: ['三头', '背'], equipment: '史密斯机', metric_type: 'weight_reps' },
+  { name: '史密斯深蹲', muscle_group: '臀', secondary_muscles: ['股四头', '腘绳', '小腿'], equipment: '史密斯机', metric_type: 'weight_reps' },
+  { name: '史密斯硬拉', muscle_group: '臀', secondary_muscles: ['腘绳', '股四头', '背'], equipment: '史密斯机', metric_type: 'weight_reps' },
+  { name: '史密斯哈克深蹲', muscle_group: '臀', secondary_muscles: ['股四头', '腘绳', '小腿'], equipment: '史密斯机', metric_type: 'weight_reps' },
+  { name: '史密斯分腿蹲', muscle_group: '股四头', secondary_muscles: ['臀', '腘绳'], equipment: '史密斯机', metric_type: 'weight_reps' },
+  { name: '史密斯站姿提踵', muscle_group: '小腿', secondary_muscles: ['腘绳', '臀'], equipment: '史密斯机', metric_type: 'weight_reps' },
+
+  // ----- G56 跪姿动作(8;另有既有「跪姿健腹轮」) -----
+  { name: '跪姿单臂弹力带下拉', muscle_group: '背', secondary_muscles: ['二头'], equipment: '弹力带', metric_type: 'weight_reps' },
+  { name: '跪姿高位划船', muscle_group: '背', secondary_muscles: ['二头', '肩'], equipment: '缆绳', metric_type: 'weight_reps' },
+  { name: '跪姿绳索卷腹', muscle_group: '腹', secondary_muscles: [], equipment: '缆绳', metric_type: 'weight_reps' },
+  { name: '跪姿绳索后束划船', muscle_group: '肩', secondary_muscles: ['背', '二头'], equipment: '缆绳', metric_type: 'weight_reps' },
+  { name: '跪姿绳索三头伸展', muscle_group: '三头', secondary_muscles: ['肩'], equipment: '缆绳', metric_type: 'weight_reps' },
+  { name: '跪姿自重三头伸展', muscle_group: '三头', secondary_muscles: ['肩', '胸'], equipment: '自重', metric_type: 'weight_reps' },
+  { name: '跪姿俯卧撑', muscle_group: '胸', secondary_muscles: ['三头', '肩'], equipment: '自重', metric_type: 'weight_reps' },
+  { name: '跪姿背阔肌拉伸', muscle_group: '背', secondary_muscles: ['肩', '三头'], equipment: '自重', metric_type: 'time' },
+
 ];
 
 /**
