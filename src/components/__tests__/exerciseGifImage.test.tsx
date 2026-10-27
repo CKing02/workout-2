@@ -75,6 +75,7 @@ jest.mock('@/screens/exerciseGifCache', () => ({
 // useTheme 真模块即可,ExerciseGifImage 不用它
 
 import { ExerciseGifImage } from '@/components/ExerciseGifImage';
+import * as gifAssets from '@/screens/exerciseGifAssets';
 
 function flushPromises(): Promise<void> {
   // 把当前微任务队列清空,触发 useEffect 里的 promise then
@@ -88,6 +89,32 @@ beforeEach(() => {
 });
 
 describe('G39 ExerciseGifImage', () => {
+  it('切换内置动作时立即更新图片，切回时也恢复对应图片', () => {
+    const resolve = jest.spyOn(gifAssets, 'resolveGifSource')
+      .mockImplementation((url) => url === 'asset:first.gif' ? 101 : 202);
+    let tree!: TestRenderer.ReactTestRenderer;
+    act(() => { tree = TestRenderer.create(<ExerciseGifImage gifUrl="asset:first.gif" size={40} />); });
+    expect(hostViewsByTestId(tree, 'expo-image')[0].props['data-source']).toBe('101');
+    act(() => { tree.update(<ExerciseGifImage gifUrl="asset:second.gif" size={40} />); });
+    expect(hostViewsByTestId(tree, 'expo-image')[0].props['data-source']).toBe('202');
+    act(() => { tree.update(<ExerciseGifImage gifUrl="asset:first.gif" size={40} />); });
+    expect(hostViewsByTestId(tree, 'expo-image')[0].props['data-source']).toBe('101');
+    act(() => tree.unmount());
+    resolve.mockRestore();
+  });
+
+  it('切到内置动作后，旧网络图片的迟到结果不能覆盖当前动作', async () => {
+    let resolveDownload!: (uri: string | null) => void;
+    mockGetCachedOrDownload.mockReturnValueOnce(new Promise((resolve) => { resolveDownload = resolve; }));
+    const resolveAsset = jest.spyOn(gifAssets, 'resolveGifSource').mockReturnValue(101);
+    let tree!: TestRenderer.ReactTestRenderer;
+    act(() => { tree = TestRenderer.create(<ExerciseGifImage gifUrl="https://cdn/a.gif" size={40} />); });
+    act(() => { tree.update(<ExerciseGifImage gifUrl="asset:first.gif" size={40} />); });
+    await act(async () => { resolveDownload('file:///old.gif'); await flushPromises(); });
+    expect(hostViewsByTestId(tree, 'expo-image')[0].props['data-source']).toBe('101');
+    act(() => tree.unmount());
+    resolveAsset.mockRestore();
+  });
   it('asset: 前缀 → 同步渲染 Image(无 Skeleton 闪烁)', () => {
     let tree!: TestRenderer.ReactTestRenderer;
     act(() => {

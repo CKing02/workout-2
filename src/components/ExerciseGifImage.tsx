@@ -4,7 +4,7 @@
  * 渲染策略(由 classifyGifSource 决定):
  *  - 'asset'   → 同步 resolveGifSource 拿 RN ImageSource,直接渲染
  *  - 'remote'  → 立刻显示 Skeleton 占位 + useEffect 触发 getCachedOrDownload,
- *                下载完拿到 file:// URI → setSource → 渲染
+ *                下载完拿到 file:// URI → 渲染
  *  - 'none'    → 渲染 Skeleton(由外层 ExerciseThumbnail 套上首字符 fallback)
  *
  * props:
@@ -57,20 +57,27 @@ export function ExerciseGifImage({
 }: ExerciseGifImageProps) {
   const kind = classifyGifSource(gifUrl);
 
-  // bundled → 同步解析;remote → null 等异步;none → null(Skeleton 兜底)
-  const [source, setSource] = useState<ImageSourcePropType | null>(() =>
-    kind === 'asset' ? resolveGifSource(gifUrl) ?? null : null,
-  );
+  // Keep downloaded results associated with their URL so a previous image is
+  // never shown while the next one is loading. Bundled assets are resolved
+  // directly from the current props on every render.
+  const [remoteSource, setRemoteSource] = useState<{
+    url: string;
+    source: ImageSourcePropType;
+  } | null>(null);
+  const source = kind === 'asset'
+    ? resolveGifSource(gifUrl) ?? null
+    : kind === 'remote' && remoteSource && remoteSource.url === gifUrl
+      ? remoteSource.source
+      : null;
 
-  // remote 路径:异步下载 → setSource
+  // remote 路径:异步下载，卸载或切换 URL 时忽略旧结果
   useEffect(() => {
     if (kind !== 'remote' || !gifUrl) return;
     let cancelled = false;
-    setSource(null);
     getCachedOrDownload(gifUrl)
       .then((uri) => {
         if (cancelled || !uri) return;
-        setSource({ uri });
+        setRemoteSource({ url: gifUrl, source: { uri } });
       })
       .catch(() => {
         // exerciseGifCache 内部已 console.warn,这里静默
@@ -97,8 +104,7 @@ export function ExerciseGifImage({
       source={source}
       style={[{ width: size, height: size }, style]}
       contentFit={resizeMode}
-      // transition 仅对 ImageSource 变化时生效;这里每次 useEffect 触发 setSource({uri})
-      // 也会触发 fade-in。Skeletion → Image 的瞬切被 transition=200 抹平。
+      // 远程图片加载完成后渐入，减少占位到图片的突变。
       transition={200}
       cachePolicy="memory-disk"
       accessible

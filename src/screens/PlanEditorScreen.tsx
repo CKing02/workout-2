@@ -141,6 +141,7 @@ export function PlanEditorScreen() {
   const [name, setName] = useState<string>('');
   const [nameTouchedFromDB, setNameTouchedFromDB] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
   const scrollViewRef = useRef<ScrollView>(null);
   const setRowRefs = useRef(new Map<string, View>());
   const pendingInputRowRef = useRef<string | null>(null);
@@ -149,8 +150,12 @@ export function PlanEditorScreen() {
     const target = setRowRefs.current.get(localId);
     const scrollView = scrollViewRef.current;
     if (!target || !scrollView) return;
+    // Fabric's measureLayout requires the native view ref, not its numeric
+    // tag (nor the composite ScrollView instance).
+    const content = (scrollView as unknown as { getInnerViewRef: () => View | null }).getInnerViewRef();
+    if (!content) return;
     target.measureLayout(
-      scrollView as unknown as number,
+      content as unknown as number,
       (_x, y) => {
         scrollViewRef.current?.scrollTo({
           y: Math.max(0, y - 112),
@@ -171,11 +176,19 @@ export function PlanEditorScreen() {
 
   useEffect(() => {
     const eventName = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const subscription = Keyboard.addListener(eventName, () => {
+    const subscription = Keyboard.addListener(eventName, (event) => {
+      if (Platform.OS === 'android') setKeyboardHeight(event.endCoordinates.height);
       const localId = pendingInputRowRef.current;
       if (localId) requestAnimationFrame(() => scrollSetRowIntoView(localId));
     });
-    return () => subscription.remove();
+    const hideSubscription = Keyboard.addListener('keyboardDidHide', () => {
+      pendingInputRowRef.current = null;
+      setKeyboardHeight(0);
+    });
+    return () => {
+      subscription.remove();
+      hideSubscription.remove();
+    };
   }, [scrollSetRowIntoView]);
 
   // ----------------------------------------------------------------
@@ -585,10 +598,20 @@ export function PlanEditorScreen() {
         ref={scrollViewRef}
         contentContainerStyle={{
           padding: spacing.lg,
-          paddingBottom: insets.bottom + spacing.xxxxl,
+          paddingBottom: insets.bottom + spacing.xxxxl + keyboardHeight,
           gap: spacing.lg,
         }}
         keyboardShouldPersistTaps="handled"
+        onLayout={() => {
+          const localId = pendingInputRowRef.current;
+          if (localId) requestAnimationFrame(() => scrollSetRowIntoView(localId));
+        }}
+        onContentSizeChange={() => {
+          const localId = pendingInputRowRef.current;
+          if (keyboardHeight > 0 && localId) {
+            requestAnimationFrame(() => scrollSetRowIntoView(localId));
+          }
+        }}
       >
         <Input
           label="计划名称"
@@ -1129,7 +1152,7 @@ function SetRow({
   }));
 
   return (
-    <View ref={rowRef} style={{ position: 'relative' }}>
+    <View ref={rowRef} collapsable={false} style={{ position: 'relative' }}>
       <Animated.View
         pointerEvents="box-none"
         style={[
