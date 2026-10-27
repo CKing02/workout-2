@@ -73,6 +73,7 @@ import { Sheet } from '@/components/Sheet';
 import { SET_TYPES, type SetTypeValue } from '@/constants/setTypes';
 import { findMetricType, type MetricField } from '@/constants/metricTypes';
 import { resolveExerciseSwipeDirection } from '@/features/training/exerciseSwipe';
+import { previousSetValues } from '@/features/training/previousSet';
 import { RestTimerOverlay } from '@/features/training/RestTimerOverlay';
 import { RestTimerNotificationBridge } from '@/features/training/RestTimerNotificationBridge';
 import { triggerRestTimer } from '@/features/training/restTimerTrigger';
@@ -145,7 +146,7 @@ export function ActiveTrainingScreen() {
 
   const defaultRestSeconds = useSettingsStore((s) => s.defaultRestSeconds);
 
-  // G17: 训练中显示"上次数据"—— 一次性查全部动作最近 3 组。
+  // 训练中按组展示上一次训练的数据。
   const loadLastSetsForExercises = useTrainingStore(
     (s) => s.loadLastSetsForExercises,
   );
@@ -157,7 +158,7 @@ export function ActiveTrainingScreen() {
   useEffect(() => {
     if (!activeTraining) return;
     const ids = activeTraining.exercises.map((e) => e.exercise.id);
-    void loadLastSetsForExercises(ids, 3);
+    void loadLastSetsForExercises(ids, 1000);
     // 故意不依赖 lastSetsByExerciseId：避免每次 store 重写都触发重查。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTraining?.id]);
@@ -1060,7 +1061,7 @@ export function ActiveTrainingScreen() {
           <Text
             style={[
               typography.numeric,
-              { color: colors.text, fontVariant: ['tabular-nums'] },
+              { color: colors.textSecondary, fontSize: 18, lineHeight: 24, fontVariant: ['tabular-nums'] },
             ]}
             accessibilityLabel={`已训练 ${formatElapsed(elapsed)}`}
           >
@@ -1174,7 +1175,7 @@ export function ActiveTrainingScreen() {
               style={{ flex: 1, gap: spacing.xs }}
             >
               <Text
-                style={[typography.h1, { color: colors.text }]}
+                style={[typography.h2, { color: colors.text }]}
                 numberOfLines={2}
                 accessibilityRole="header"
               >
@@ -1251,6 +1252,10 @@ export function ActiveTrainingScreen() {
                     ? lastSetsByExerciseId[ex.exercise.id]
                     : undefined
                 }
+                onUsePrevious={(previous) => {
+                  updateSet(currentExerciseIndex, s.clientId, previousSetValues(previous, fields));
+                  haptic.selection();
+                }}
                 onPressNumber={() =>
                   handleOpenTypeSheet(currentExerciseIndex, idx)
                 }
@@ -1622,6 +1627,8 @@ interface LastSetsPreviewProps {
   exerciseId: string;
   metricType: string;
   lastSets: TrainingSet[] | undefined;
+  setIndex: number;
+  onUsePrevious: (previous: TrainingSet) => void;
 }
 
 const SET_TYPE_SHORT: Record<string, string> = {
@@ -1648,6 +1655,9 @@ function formatLastSetRow(set: TrainingSet, metricType: string, unit: Unit): str
   if (m === 'km') {
     return `${prefix}${(set.distanceKm ?? 0).toFixed(2)}km`;
   }
+  if (m === 'reps') {
+    return `${prefix}${set.reps ?? 0} 次`;
+  }
   // kg / reps / +kg / -kg 都需要显示 weight
   if (m === 'kg') {
     return `${prefix}${formatWeight(set.weight ?? 0, unit)}`;
@@ -1655,57 +1665,43 @@ function formatLastSetRow(set: TrainingSet, metricType: string, unit: Unit): str
   return `${prefix}${formatWeight(set.weight ?? 0, unit)} × ${set.reps ?? 0}`;
 }
 
-function LastSetsPreview({ exerciseId, metricType, lastSets }: LastSetsPreviewProps) {
+function LastSetsPreview({ exerciseId, metricType, lastSets, setIndex, onUsePrevious }: LastSetsPreviewProps) {
   const { colors, spacing, typography } = useTheme();
   const unit = useSettingsStore((s) => s.unit);
 
   // 缓存未填充 = 加载中，不渲染占位（避免闪烁）
   if (lastSets === undefined) return null;
   // 加载完成但为空 = 无历史
-  if (lastSets.length === 0) {
+  const previous = lastSets.find((item) =>
+    item.setIndex === setIndex &&
+    (!item.metricTypeSnapshot || item.metricTypeSnapshot === metricType),
+  );
+  if (!previous) {
     return (
       <Text
         accessibilityLabel={`${exerciseId} 无历史数据`}
         style={[typography.caption, { color: colors.textTertiary }]}
       >
-        上次：无历史数据
+        上次：这一组暂无记录
       </Text>
     );
   }
   return (
     <View
-      accessibilityLabel={`${exerciseId} 最近 ${lastSets.length} 组数据`}
-      style={{
-        backgroundColor: colors.surfaceMuted,
-        borderRadius: 8,
-        paddingHorizontal: spacing.sm,
-        paddingVertical: spacing.xs + 2,
-        gap: 2,
-      }}
+      style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}
     >
-      <Text style={[typography.caption, { color: colors.textTertiary }]}>
-        上次
+      <Text style={[typography.caption, { color: colors.textSecondary, flex: 1 }]}>
+        {`上次 · ${formatLastSetRow(previous, metricType, unit)}`}
       </Text>
-      {lastSets.map((s, i) => (
-        <Text
-          // G21 真正根因已于 2026-09-27 定位并修掉（见 trainingSetRepo.ts
-          // `getLastSetsForExercises`）：不是 DB 里有重复行，是该查询用了
-          // `SELECT *` + JOIN，`trainings.id` 覆盖了 `training_sets.id`，
-          // 同一场训练的每组拿到同一个 id。**之前的注释把根因归给"DB 里存在
-          // 重复 training_sets.id 行"，是错的**，别再照着它查。
-          //
-          // `#{i}` 后缀保留：现在 `s.id` 已恢复唯一，但同一 id 若因别的原因
-          // 再次进入列表（或未来这个查询又回归），这个后缀能保证兄弟节点唯一，
-          // 不会再把 warning 升级成红屏 overlay。代价仅为 key 稳定性略降。
-          key={`${s.id}#${i}`}
-          style={[
-            typography.body,
-            { color: colors.textSecondary, fontSize: 13 },
-          ]}
-        >
-          {`${i + 1}. ${formatLastSetRow(s, metricType, unit)}`}
-        </Text>
-      ))}
+      {(previous.weight != null || previous.reps != null || previous.distanceKm != null) ? <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`带入第 ${setIndex} 组上次数据`}
+        onPress={() => onUsePrevious(previous)}
+        hitSlop={8}
+        style={({ pressed }) => ({ minHeight: 40, justifyContent: 'center', opacity: pressed ? 0.6 : 1 })}
+      >
+        <Text style={[typography.label, { color: colors.primaryPressed }]}>带入</Text>
+      </Pressable> : null}
     </View>
   );
 }
@@ -1889,6 +1885,7 @@ interface SetRowProps {
   fields: MetricField[];
   /** Only passed when isActive — keeps the inactive rows cheap. */
   lastSets: TrainingSet[] | undefined;
+  onUsePrevious: (previous: TrainingSet) => void;
   /** Tap on the set number `②` — opens the type sheet for this set. */
   onPressNumber: () => void;
   /** Tap on the row body (when not active) — focuses this set. */
@@ -1936,6 +1933,7 @@ function SetRow({
   metricType,
   fields,
   lastSets,
+  onUsePrevious,
   onPressNumber,
   onTapRow,
   onChangeField,
@@ -1960,7 +1958,7 @@ function SetRow({
   const rowBg = justActivated
     ? colors.primaryMuted
     : isActive
-    ? colors.primaryMuted
+    ? colors.surfaceElevated
     : completed
     ? colors.surfaceMuted
     : colors.surface;
@@ -2135,6 +2133,8 @@ function SetRow({
             exerciseId={setRow.exerciseId}
             metricType={metricType}
             lastSets={lastSets}
+            setIndex={setRow.setIndex}
+            onUsePrevious={onUsePrevious}
           />
         </View>
       ) : (

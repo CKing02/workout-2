@@ -124,6 +124,36 @@ function setRow(over: Record<string, unknown> = {}) {
 }
 
 describe('getLastSetsForExercises — 行为契约', () => {
+  it('只显示每个动作上一次训练的已完成组，不混入旧训练或进行中训练', async () => {
+    const { DatabaseSync } = require('node:sqlite') as typeof import('node:sqlite');
+    const sqlite = new DatabaseSync(':memory:');
+    sqlite.exec(`
+      CREATE TABLE trainings (id TEXT, started_at INTEGER, ended_at INTEGER);
+      CREATE TABLE training_sets (
+        id TEXT, training_id TEXT, exercise_id TEXT, exercise_name_snapshot TEXT,
+        metric_type_snapshot TEXT, position INTEGER, set_index INTEGER, weight REAL,
+        reps INTEGER, duration_seconds INTEGER, distance_km REAL, set_type TEXT, completed INTEGER
+      );
+      INSERT INTO trainings VALUES ('old', 10, 20), ('latest', 30, 40), ('open', 50, NULL);
+      INSERT INTO training_sets VALUES
+        ('old-1', 'old', 'e1', '动作', 'weight_reps', 0, 1, 20, 8, NULL, NULL, 'normal', 1),
+        ('old-3', 'old', 'e1', '动作', 'weight_reps', 0, 3, 30, 8, NULL, NULL, 'normal', 1),
+        ('new-1', 'latest', 'e1', '动作', 'weight_reps', 0, 1, 40, 8, NULL, NULL, 'normal', 1),
+        ('new-2', 'latest', 'e1', '动作', 'weight_reps', 0, 2, 45, 8, NULL, NULL, 'normal', 1),
+        ('open-1', 'open', 'e1', '动作', 'weight_reps', 0, 1, 50, 8, NULL, NULL, 'normal', 1),
+        ('other', 'old', 'e2', '动作二', 'reps', 0, 1, NULL, 10, NULL, NULL, 'normal', 1);
+    `);
+    const db = {
+      getAllAsync: async (sql: string, args: string[]) => sqlite.prepare(sql).all(...args),
+    } as unknown as SQLiteDatabase;
+    try {
+      const out = await getLastSetsForExercises(db, ['e1', 'e2'], 1000);
+      expect(out.e1.map((s) => s.id)).toEqual(['new-1', 'new-2']);
+      expect(out.e2.map((s) => s.id)).toEqual(['other']);
+    } finally {
+      sqlite.close();
+    }
+  });
   it('按 exercise_id 分组返回 Record', async () => {
     const { db } = makeMockDB([
       setRow({ id: 's1', exercise_id: 'e1', rn: 1, set_index: 2 }),

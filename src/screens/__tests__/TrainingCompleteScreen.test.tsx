@@ -87,7 +87,7 @@ describe('G48 completion integration', () => {
     act(() => mockTransitionEnd({ data: { closing: true } }));
     expect(mockHeavy).not.toHaveBeenCalled();
     act(() => mockTransitionEnd({ data: { closing: false } }));
-    expect(tree.root.findAllByType(CountUp).map((n) => n.props.value)).toEqual([120, 400, 3]);
+    expect(tree.root.findAllByType(CountUp).map((n) => n.props.value)).toEqual([120, 400, 2]);
     expect(mockHeavy).toHaveBeenCalledTimes(1);
     act(() => mockTransitionEnd({ data: { closing: false } }));
     expect(mockHeavy).toHaveBeenCalledTimes(1);
@@ -97,9 +97,9 @@ describe('G48 completion integration', () => {
   it('三处真实 CountUp 目标值来自 store，260ms，最终格式正确', () => {
     render();
     const counters = tree.root.findAllByType(CountUp);
-    expect(counters.map((n) => n.props.value)).toEqual([120, 400, 3]);
+    expect(counters.map((n) => n.props.value)).toEqual([120, 400, 2]);
     expect(counters.every((n) => n.props.duration === 260)).toBe(true);
-    for (const [id, value] of [['summary-duration', '02:00'], ['summary-volume', '400'], ['summary-sets', '3']]) {
+    for (const [id, value] of [['summary-duration', '02:00'], ['summary-volume', '400'], ['summary-sets', '2']]) {
       const node = tree.root.findAllByType(Text).find((n) => n.props.testID === id);
       expect(node?.props.children).toBe(value);
     }
@@ -110,7 +110,7 @@ describe('G48 completion integration', () => {
     render();
 
     const counters = tree.root.findAllByType(CountUp);
-    expect(counters.map((n) => n.props.value)).toEqual([120, 881.84, 3]);
+    expect(counters.map((n) => n.props.value)).toEqual([120, 881.84, 2]);
     const volume = tree.root.findAllByType(Text).find((n) => n.props.testID === 'summary-volume');
     expect(volume?.props.children).toBe('881.8');
     expect(tree.root.findAllByType(Text).some((n) =>

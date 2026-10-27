@@ -360,7 +360,7 @@ export function TrainingScreen() {
           <View style={{ gap: spacing.md, marginBottom: spacing.lg }}>
             <Button
               variant="primary"
-              size="lg"
+              size="md"
               style={{ alignSelf: 'stretch' }}
               onPress={handleOpenFreeTraining}
               // Design-system loading state: swaps the label for a spinner
@@ -373,13 +373,13 @@ export function TrainingScreen() {
             </Button>
             <Button
               variant="secondary"
-              size="lg"
+              size="md"
               style={{ alignSelf: 'stretch' }}
               onPress={handleOpenRecommendations}
               accessibilityLabel="浏览推荐训练计划"
               accessibilityHint="选择预设并添加到私人计划"
             >
-              浏览推荐训练计划
+              推荐训练计划
             </Button>
             {editMode ? (
               <View
@@ -516,6 +516,11 @@ function PlanListItem({
             >
               {subtitle}
             </Text>
+            {!editMode ? (
+              <Text style={[typography.caption, { color: colors.textSecondary, marginTop: spacing.xs }]}>
+                点击编辑计划
+              </Text>
+            ) : null}
           </View>
 
           {editMode ? (
@@ -551,16 +556,16 @@ function PlanListItem({
             </>
           ) : (
             <>
-              <IconButton
-                icon={<AppIcon name="play" size={20} color={colors.onPrimary} strokeWidth={2.2} />}
+              <Button
                 variant="primary"
                 size="md"
                 accessibilityLabel={`开始训练 ${item.name}`}
                 accessibilityHint="进入全屏训练中页"
                 onPress={() => onRequestStart(item)}
                 disabled={item.exerciseCount === 0}
-              />
-              <AppIcon name="chevron" size={18} color={colors.textTertiary} />
+              >
+                开始
+              </Button>
             </>
           )}
         </View>

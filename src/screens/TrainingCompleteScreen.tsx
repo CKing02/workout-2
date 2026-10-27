@@ -14,8 +14,7 @@
  *   - 用户必须显式选一条路径才能离开 —— 没有左上"返回"
  *
  * 设计:
- *   - 居中 ✓ 图标: Reanimated scale 1.0 → 1.15 → 1.0 循环;颜色循环
- *     primary ↔ success,营造"完成"庆祝感
+ *   - 居中 ✓ 图标与简洁的训练结果，减少持续动态效果
  *   - 4 个统计卡用 Card 组件组合:矢量图标 + label + value
  *   - 保存成功后:spring 弹簧(380/0.7,"Expressive" 弹簧)scale 1.0→1.08→1.0
  *     庆祝 overshoot + 背景 primary → success + 文案 "✓ 已保存",保持 900ms
@@ -47,13 +46,11 @@ import {
 } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Animated, {
-  cancelAnimation,
   Easing,
   interpolateColor,
   useAnimatedStyle,
   useReducedMotion,
   useSharedValue,
-  withRepeat,
   withSequence,
   withSpring,
   withTiming,
@@ -102,7 +99,6 @@ export function TrainingCompleteScreen() {
     planNameSnapshot,
   } = { ...params, ...currentSummary };
   const bestSet = currentSummary?.bestSet ?? null;
-  const totalAllSets = currentSummary?.totalAllSets ?? setCount;
   const [showBestSet, setShowBestSet] = useState(false);
   const celebratedRef = useRef<string | null>(null);
   const [entryReady, setEntryReady] = useState(false);
@@ -164,26 +160,10 @@ export function TrainingCompleteScreen() {
   }, [cancelTraining, navigation]);
 
   // ----------------------------------------------------------------
-  // Animation: ✓ icon does a soft scale + color cycle to evoke "celebration"
-  // without Lottie. Reanimated 4 worklet runs on the UI thread.
+  // Keep the completion mark still; the numeric counters supply the brief
+  // entry feedback and respect the system's reduced-motion setting.
   // ----------------------------------------------------------------
   const pulse = useSharedValue(0);
-
-  useEffect(() => {
-    if (reduceMotion) {
-      pulse.value = 0;
-      return () => cancelAnimation(pulse);
-    }
-    pulse.value = withRepeat(
-      withSequence(
-        withTiming(1, { duration: 900, easing: Easing.inOut(Easing.quad) }),
-        withTiming(0, { duration: 900, easing: Easing.inOut(Easing.quad) }),
-      ),
-      -1, // loop forever
-      false,
-    );
-    return () => cancelAnimation(pulse);
-  }, [pulse, reduceMotion]);
 
   const iconAnimatedStyle = useAnimatedStyle(() => {
     const scale = 1 + 0.12 * pulse.value;
@@ -230,7 +210,7 @@ export function TrainingCompleteScreen() {
         <View
           style={[
             styles.iconAnchor,
-            { width: 192, height: 192, marginBottom: spacing.xl },
+            { width: 116, height: 116, marginBottom: spacing.lg },
           ]}
         >
           <Animated.View
@@ -254,7 +234,7 @@ export function TrainingCompleteScreen() {
             ]}
             accessibilityElementsHidden
           >
-            <AppIcon name="check" size={72} color={colors.onPrimary} strokeWidth={2.2} />
+            <AppIcon name="check" size={48} color={colors.onPrimary} strokeWidth={2.2} />
           </Animated.View>
         </View>
 
@@ -274,7 +254,7 @@ export function TrainingCompleteScreen() {
             { color: colors.textSecondary, textAlign: 'center', marginBottom: spacing.xl },
           ]}
         >
-          {planNameSnapshot ? `${planNameSnapshot} · 干得漂亮` : '干得漂亮'}
+          {`${planNameSnapshot ? `${planNameSnapshot} · ` : ''}完成 ${exerciseCount} 个动作 · ${setCount} 组`}
         </Text>
 
         {/* ====== 2x2 stat grid ====== */}
@@ -309,9 +289,9 @@ export function TrainingCompleteScreen() {
           />
           <StatCard
             icon="list"
-            label="总组数"
-            value={String(totalAllSets)}
-            animatedValue={entryReady ? totalAllSets : 0}
+            label="完成组数"
+            value={String(setCount)}
+            animatedValue={entryReady ? setCount : 0}
             testID="summary-sets"
             unit="组"
             countUpDuration={reduceMotion ? 0 : motion.duration.base}
@@ -668,8 +648,8 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   iconCircle: {
-    width: 128,
-    height: 128,
+    width: 80,
+    height: 80,
     alignItems: 'center',
     justifyContent: 'center',
     ...Platform.select({

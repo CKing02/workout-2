@@ -129,7 +129,7 @@ export async function getLastSetsForExercise(
 }
 
 /**
- * G17: 一次性查多个动作的最近 N 组。返回 Record<exerciseId, TrainingSet[]>。
+ * 取每个动作上一次完成训练中的组，避免把更早训练的组混入“上次”。
  * 用一条 IN 查询，避免 N+1。
  */
 export async function getLastSetsForExercises(
@@ -159,13 +159,20 @@ export async function getLastSetsForExercises(
   const rows = await db.getAllAsync<TrainingSetRow & { rn: number }>(
     `SELECT ts.*, ROW_NUMBER() OVER (
        PARTITION BY ts.exercise_id
-       ORDER BY t.started_at DESC, ts.set_index DESC
+       ORDER BY ts.set_index ASC
      ) AS rn
        FROM training_sets ts
        JOIN trainings t ON t.id = ts.training_id
        WHERE ts.exercise_id IN (${placeholders})
          AND ts.completed = 1
-         AND t.ended_at IS NOT NULL;`,
+         AND t.ended_at IS NOT NULL
+         AND t.id = (
+           SELECT t2.id FROM trainings t2
+           JOIN training_sets ts2 ON ts2.training_id = t2.id
+           WHERE ts2.exercise_id = ts.exercise_id
+             AND ts2.completed = 1 AND t2.ended_at IS NOT NULL
+           ORDER BY t2.started_at DESC, t2.id DESC LIMIT 1
+         );`,
     exerciseIds,
   );
   for (const r of rows) {
@@ -176,9 +183,7 @@ export async function getLastSetsForExercises(
   // SQL 没保证顺序，再排一次稳定。
   for (const id of Object.keys(out)) {
     out[id] = out[id].sort((a, b) => {
-      // 按 startedAt 倒序，再按 setIndex 倒序——和 SQL 保持一致。
-      // 但 TrainingSet 没有 startedAt 字段，只能用 setIndex DESC 来近似（最近组的 setIndex 较大）。
-      return b.setIndex - a.setIndex;
+      return a.setIndex - b.setIndex;
     });
   }
   return out;

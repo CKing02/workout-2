@@ -108,6 +108,14 @@ export function HomeScreen() {
     return out;
   }, [history]);
 
+  const thisWeekCount = useMemo(() => {
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    start.setDate(start.getDate() - (start.getDay() + 6) % 7);
+    const now = Date.now();
+    return history.filter((training) => training.startedAt >= start.getTime() && training.startedAt <= now).length;
+  }, [history]);
+
   // ----------------------------------------------------------------
   // Handlers
   // ----------------------------------------------------------------
@@ -192,6 +200,16 @@ export function HomeScreen() {
         }}
         ListHeaderComponent={
           <View style={{ marginBottom: spacing.lg }}>
+            {!historyLoading ? (
+              <View style={{ marginBottom: spacing.md, paddingHorizontal: spacing.xxs }}>
+                <Text accessibilityRole="header" style={[typography.h2, { color: colors.text }]}>
+                  {thisWeekCount > 0 ? `本周已训练 ${thisWeekCount} 次` : '你的训练日记'}
+                </Text>
+                <Text style={[typography.bodySmall, { color: colors.textSecondary, marginTop: spacing.xs }]}>
+                  {thisWeekCount > 0 ? '每一次训练，都留下自己的记录。' : '记录每一次训练，慢慢看见变化。'}
+                </Text>
+              </View>
+            ) : null}
             <HeatmapCard onOpenFull={onOpenHeatmap} />
           </View>
         }

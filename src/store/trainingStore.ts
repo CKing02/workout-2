@@ -321,6 +321,7 @@ export const useTrainingStore = create<TrainingStoreState>((set, get) => ({
     if (missing.length === 0) return [];
     const db = await getDatabase();
     const fresh = await getLastSetsForExercises(db, missing, limit);
+    for (const id of missing) fresh[id] ??= [];
     set((state) => ({
       lastSetsByExerciseId: { ...state.lastSetsByExerciseId, ...fresh },
     }));
@@ -331,6 +332,7 @@ export const useTrainingStore = create<TrainingStoreState>((set, get) => ({
     if (exerciseId in get().lastSetsByExerciseId) return;
     const db = await getDatabase();
     const sets = await getLastSetsForExercises(db, [exerciseId], limit);
+    sets[exerciseId] ??= [];
     set((state) => ({
       lastSetsByExerciseId: { ...state.lastSetsByExerciseId, ...sets },
     }));

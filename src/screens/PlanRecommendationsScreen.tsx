@@ -117,14 +117,14 @@ export function PlanRecommendationsScreen() {
           padding: spacing.lg,
         }}
       >
-        <Text style={[typography.h3, { color: colors.text }]}>选一个起点，再练成自己的版本</Text>
+        <Text style={[typography.h3, { color: colors.text }]}>找到适合你的计划</Text>
         <Text
           style={[
             typography.body,
             { color: colors.textSecondary, marginTop: spacing.xs },
           ]}
         >
-          添加后会生成独立的私人计划。动作、顺序、组数、目标次数和休息时长都可以继续修改。
+          添加后可以自由编辑。
         </Text>
       </View>
 
@@ -133,7 +133,7 @@ export function PlanRecommendationsScreen() {
         const loading = importingId === template.id;
         const disabled = !!importingId || added;
         return (
-          <Card key={template.id} elevated padding="lg">
+          <Card key={template.id} elevated padding="md">
             <View style={styles.titleRow}>
               <View style={{ flex: 1 }}>
                 <Text accessibilityRole="header" style={[typography.h3, { color: colors.text }]}>
@@ -141,7 +141,7 @@ export function PlanRecommendationsScreen() {
                 </Text>
                 <Text
                   style={[
-                    typography.body,
+                    typography.bodySmall,
                     { color: colors.textSecondary, marginTop: spacing.xs },
                   ]}
                 >
@@ -193,7 +193,7 @@ export function PlanRecommendationsScreen() {
 
             <Button
               variant={added ? 'secondary' : 'primary'}
-              size="lg"
+              size="md"
               loading={loading}
               disabled={disabled}
               onPress={() => void handleAdd(template)}
@@ -201,7 +201,7 @@ export function PlanRecommendationsScreen() {
               accessibilityLabel={added ? `已添加 ${template.name}` : `添加 ${template.name} 到私人计划`}
               accessibilityHint={added ? undefined : '添加后可在锻炼页继续编辑'}
             >
-              {added ? '已添加到私人计划' : '添加到私人计划'}
+              {added ? '已添加' : '添加计划'}
             </Button>
           </Card>
         );

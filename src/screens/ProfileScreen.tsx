@@ -4,8 +4,7 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, useWindowDi
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
 
-import { AppIcon, Avatar, Card, Dialog, type AppIconName } from '@/components';
-import { clearAllData } from '@/features/profile/clearAllData';
+import { AppIcon, Avatar, Card, type AppIconName } from '@/components';
 import { ProfileEditSheet } from '@/features/profile/ProfileEditSheet';
 import { toast } from '@/hooks/useToast';
 import type { RootStackParamList, TabParamList } from '@/navigation/types';
@@ -26,7 +25,6 @@ export function ProfileScreen({ navigation }: { navigation?: ProfileNav }) {
   const avatarUri = useAvatarStore((state) => state.uri);
   const appVersion = getAppVersion();
   const [profileSheetOpen, setProfileSheetOpen] = useState(false);
-  const [clearDialogOpen, setClearDialogOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
 
   const handleExport = useCallback(async () => {
@@ -90,8 +88,7 @@ export function ProfileScreen({ navigation }: { navigation?: ProfileNav }) {
               <ProfileRow icon="export" title="导出训练数据" loading={exporting} onPress={() => {
                 haptic.selection();
                 void handleExport();
-              }} divider />
-              <ProfileRow icon="trash" title="清除全部数据" danger onPress={() => setClearDialogOpen(true)} />
+              }} />
             </Card>
           </View>
 
@@ -109,15 +106,6 @@ export function ProfileScreen({ navigation }: { navigation?: ProfileNav }) {
       </ScrollView>
 
       <ProfileEditSheet visible={profileSheetOpen} onClose={() => setProfileSheetOpen(false)} />
-      <Dialog
-        visible={clearDialogOpen}
-        variant="danger"
-        title="清除全部数据？"
-        message="所有训练计划、历史记录与自定义设置将被删除，内置动作库会重新初始化。此操作不可撤销。"
-        confirmText="清除"
-        onCancel={() => setClearDialogOpen(false)}
-        onConfirm={async () => { setClearDialogOpen(false); await clearAllData(); }}
-      />
     </SafeAreaView>
   );
 }
