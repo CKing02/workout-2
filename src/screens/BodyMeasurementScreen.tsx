@@ -32,6 +32,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 import { Card } from '@/components/Card';
+import { AppIcon } from '@/components/AppIcon';
 import { Dialog } from '@/components/Dialog';
 import { EmptyState } from '@/components/EmptyState';
 import { LineChart, type LineChartPoint } from '@/components/LineChart';
@@ -423,7 +424,7 @@ function MeasurementRow({
           </Text>
         </View>
         {/* 编辑 chevron */}
-        <Text style={[typography.subtitle, { color: colors.textTertiary }]}>›</Text>
+        <AppIcon name="chevron" size={18} color={colors.textTertiary} />
       </View>
     </Pressable>
   );

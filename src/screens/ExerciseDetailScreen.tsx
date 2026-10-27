@@ -45,6 +45,7 @@ import {
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 import { Badge } from '@/components/Badge';
+import { AppIcon } from '@/components/AppIcon';
 import { Card } from '@/components/Card';
 import { Dialog } from '@/components/Dialog';
 import { EmptyState } from '@/components/EmptyState';
@@ -107,7 +108,7 @@ export function ExerciseDetailScreen() {
     navigation.setOptions({
       headerRight: () => (
         <IconButton
-          icon="⋯"
+          icon={<AppIcon name="more" size={22} color={colors.primary} />}
           variant="ghost"
           size="sm"
           accessibilityLabel="更多操作"
@@ -247,9 +248,7 @@ export function ExerciseDetailScreen() {
         ) : (
           <Card padding="md" elevated>
             <View style={styles.gifFrame}>
-              <Text style={[typography.body, { color: colors.textTertiary }]}>
-                🏋
-              </Text>
+              <AppIcon name="dumbbell" size={36} color={colors.textTertiary} />
             </View>
             <Text
               style={[

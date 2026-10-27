@@ -60,6 +60,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Animated, { cancelAnimation, useAnimatedStyle, useSharedValue, withSequence, withSpring } from 'react-native-reanimated';
 
 import { Badge } from '@/components/Badge';
+import { AppIcon } from '@/components/AppIcon';
 import { Button } from '@/components/Button';
 import { Card } from '@/components/Card';
 import { Dialog } from '@/components/Dialog';
@@ -734,6 +735,34 @@ export function ActiveTrainingScreen() {
     ],
   );
 
+  const exerciseSwipeGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .enabled((activeTraining?.exercises.length ?? 0) > 1)
+        // The existing title sits inside the page margin, away from system
+        // edge gestures. Vertical movement fails early so ScrollView wins.
+        .activeOffsetX([-18, 18])
+        .failOffsetY([-10, 10])
+        .runOnJS(true)
+        .onEnd((event) => {
+          const exerciseCount = activeTraining?.exercises.length ?? 0;
+          const direction = resolveExerciseSwipeDirection({
+            translationX: event.translationX,
+            velocityX: event.velocityX,
+            canPrevious: currentExerciseIndex > 0,
+            canNext: currentExerciseIndex < exerciseCount - 1,
+          });
+          if (direction !== 0) {
+            handleSelectExercise(currentExerciseIndex + direction);
+          }
+        }),
+    [
+      activeTraining?.exercises.length,
+      currentExerciseIndex,
+      handleSelectExercise,
+    ],
+  );
+
   const handleJumpToExercise = useCallback(
     (exIndex: number) => {
       handleSelectExercise(exIndex);
@@ -1022,7 +1051,7 @@ export function ActiveTrainingScreen() {
         accessibilityRole="header"
       >
         <IconButton
-          icon="×"
+          icon={<AppIcon name="close" size={22} color={colors.primary} />}
           variant="ghost"
           accessibilityLabel="取消训练"
           onPress={handleRequestCancel}
@@ -1042,7 +1071,7 @@ export function ActiveTrainingScreen() {
             symmetry (both are navigator-style controls); 结束训练 stays
             on the right as the "commit and exit" action. */}
         <IconButton
-          icon="▾"
+          icon={<AppIcon name="chevronDown" size={20} color={colors.primary} />}
           variant="ghost"
           accessibilityLabel="动作总览"
           accessibilityHint="弹出本训练所有动作的进度列表"
@@ -1102,26 +1131,17 @@ export function ActiveTrainingScreen() {
         }}
         keyboardShouldPersistTaps="handled"
       >
-        {totalExercises > 1 ? (
-          <ExerciseSwipeNavigator
-            currentIndex={currentExerciseIndex}
-            exerciseNames={activeTraining.exercises.map(
-              (item) => item.exercise.name,
-            )}
-            onSelect={handleSelectExercise}
-          />
-        ) : null}
-
-        {/* ----- Exercise title (with "动作 X/Y" + "+ 添加组") ----- */}
-        <View style={{ gap: spacing.xs }}>
-          <View
-            style={{
-              flexDirection: 'row',
-              alignItems: 'flex-start',
-              justifyContent: 'space-between',
-              gap: spacing.sm,
-            }}
-          >
+        {/* ----- Exercise title (invisible horizontal swipe target) ----- */}
+        <GestureDetector gesture={exerciseSwipeGesture}>
+          <View style={{ gap: spacing.xs }}>
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'flex-start',
+                justifyContent: 'space-between',
+                gap: spacing.sm,
+              }}
+            >
             {/* G36: 头像 + 名称都可点击 → 跳详情屏。 */}
             <Pressable
               onPress={() =>
@@ -1196,8 +1216,9 @@ export function ActiveTrainingScreen() {
                 + 添加组
               </Text>
             </Pressable>
+            </View>
           </View>
-        </View>
+        </GestureDetector>
 
         {/* ----- G29: Vertical set list -----
             每个 set 一行：左是 `②` 序号 tap target，右是状态相关内容。
@@ -1817,178 +1838,6 @@ function ProgressBarEdgeToEdge({
   );
 }
 
-/* ---------- Adjacent exercise navigation ---------- */
-
-interface ExerciseSwipeNavigatorProps {
-  currentIndex: number;
-  exerciseNames: string[];
-  onSelect: (index: number) => void;
-}
-
-/**
- * A dedicated gesture lane keeps horizontal exercise switching away from the
- * vertical set list and every editable control. The two arrow buttons make the
- * same action visible and keyboard/screen-reader reachable; swipe is an
- * acceleration, never the only way to navigate.
- */
-function ExerciseSwipeNavigator({
-  currentIndex,
-  exerciseNames,
-  onSelect,
-}: ExerciseSwipeNavigatorProps) {
-  const { colors, radius, spacing, typography } = useTheme();
-  const total = exerciseNames.length;
-  const canPrevious = currentIndex > 0;
-  const canNext = currentIndex < total - 1;
-  const currentName = exerciseNames[currentIndex] ?? '';
-
-  const selectPrevious = useCallback(() => {
-    if (canPrevious) onSelect(currentIndex - 1);
-  }, [canPrevious, currentIndex, onSelect]);
-
-  const selectNext = useCallback(() => {
-    if (canNext) onSelect(currentIndex + 1);
-  }, [canNext, currentIndex, onSelect]);
-
-  const swipeGesture = useMemo(
-    () =>
-      Gesture.Pan()
-        // The center lane begins well inside the screen edge, and a vertical
-        // move wins before horizontal activation so ScrollView keeps its feel.
-        .activeOffsetX([-18, 18])
-        .failOffsetY([-10, 10])
-        .runOnJS(true)
-        .onEnd((event) => {
-          const direction = resolveExerciseSwipeDirection({
-            translationX: event.translationX,
-            velocityX: event.velocityX,
-            canPrevious,
-            canNext,
-          });
-          if (direction !== 0) onSelect(currentIndex + direction);
-        }),
-    [canNext, canPrevious, currentIndex, onSelect],
-  );
-
-  const arrowStyle = (enabled: boolean, pressed: boolean) => ({
-    width: 48,
-    minHeight: 48,
-    alignItems: 'center' as const,
-    justifyContent: 'center' as const,
-    borderRadius: radius.md,
-    backgroundColor:
-      enabled && pressed ? colors.primaryMuted : colors.transparent,
-    opacity: enabled ? 1 : 0.3,
-  });
-
-  return (
-    <View
-      style={{
-        minHeight: 56,
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingHorizontal: spacing.xs,
-        borderRadius: radius.lg,
-        borderWidth: StyleSheet.hairlineWidth,
-        borderColor: colors.border,
-        backgroundColor: colors.surface,
-      }}
-    >
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={
-          canPrevious
-            ? `上一个动作，${exerciseNames[currentIndex - 1]}`
-            : '已经是第一个动作'
-        }
-        accessibilityState={{ disabled: !canPrevious }}
-        disabled={!canPrevious}
-        hitSlop={4}
-        onPress={selectPrevious}
-        style={({ pressed }) => arrowStyle(canPrevious, pressed)}
-      >
-        <Text
-          style={{
-            color: colors.primaryPressed,
-            fontSize: 28,
-            lineHeight: 30,
-          }}
-        >
-          ‹
-        </Text>
-      </Pressable>
-
-      <GestureDetector gesture={swipeGesture}>
-        <View
-          accessible
-          accessibilityRole="adjustable"
-          accessibilityLabel={`当前动作 ${currentIndex + 1}/${total}，${currentName}`}
-          accessibilityHint="左右滑动，或使用两侧按钮切换动作"
-          accessibilityValue={{
-            min: 1,
-            max: total,
-            now: currentIndex + 1,
-            text: currentName,
-          }}
-          accessibilityActions={[
-            { name: 'decrement', label: '上一个动作' },
-            { name: 'increment', label: '下一个动作' },
-          ]}
-          onAccessibilityAction={(event) => {
-            if (event.nativeEvent.actionName === 'decrement') selectPrevious();
-            if (event.nativeEvent.actionName === 'increment') selectNext();
-          }}
-          style={{
-            flex: 1,
-            minHeight: 54,
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 2,
-          }}
-        >
-          <Text
-            style={[
-              typography.label,
-              { color: colors.text, fontVariant: ['tabular-nums'] },
-            ]}
-          >
-            动作 {currentIndex + 1}/{total}
-          </Text>
-          <Text
-            style={[typography.caption, { color: colors.textTertiary }]}
-          >
-            左右滑动切换
-          </Text>
-        </View>
-      </GestureDetector>
-
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={
-          canNext
-            ? `下一个动作，${exerciseNames[currentIndex + 1]}`
-            : '已经是最后一个动作'
-        }
-        accessibilityState={{ disabled: !canNext }}
-        disabled={!canNext}
-        hitSlop={4}
-        onPress={selectNext}
-        style={({ pressed }) => arrowStyle(canNext, pressed)}
-      >
-        <Text
-          style={{
-            color: colors.primaryPressed,
-            fontSize: 28,
-            lineHeight: 30,
-          }}
-        >
-          ›
-        </Text>
-      </Pressable>
-    </View>
-  );
-}
-
 /* ---------- G29: SetRow (vertical set list) ---------- */
 
 function DurationSetHeader() {
@@ -2436,25 +2285,19 @@ function DurationSetRowBody({
                 : colors.surfaceMuted,
           })}
         >
-          <Text
-            style={{
-              color: timerRunning ? colors.onPrimary : colors.primaryPressed,
-              fontSize: 18,
-              fontWeight: '800',
-            }}
-          >
-            {timerRunning ? '■' : '▶'}
-          </Text>
+          <AppIcon
+            name={timerRunning ? 'stop' : 'play'}
+            size={20}
+            color={timerRunning ? colors.onPrimary : colors.primaryPressed}
+            strokeWidth={2.2}
+          />
         </Pressable>
       ) : (
         <View style={{ width: 48, alignItems: 'center' }}>
           {completed ? (
-            <Text
-              accessibilityLabel="已完成"
-              style={{ color: colors.success, fontSize: 16, fontWeight: '700' }}
-            >
-              ✓
-            </Text>
+            <View accessible accessibilityLabel="已完成">
+              <AppIcon name="check" size={18} color={colors.success} strokeWidth={2.2} />
+            </View>
           ) : null}
         </View>
       )}

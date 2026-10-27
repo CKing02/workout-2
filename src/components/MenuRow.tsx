@@ -9,6 +9,7 @@ import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { useTheme } from '@/theme';
+import { AppIcon } from './AppIcon';
 
 export interface MenuRowProps {
   label: string;
@@ -60,7 +61,7 @@ export function MenuRow({ label, hint, onPress, danger }: MenuRowProps) {
           </Text>
         ) : null}
       </View>
-      <Text style={{ color: colors.textTertiary, fontSize: 18 }}>›</Text>
+      <AppIcon name="chevron" size={18} color={colors.textTertiary} />
     </Pressable>
   );
 }

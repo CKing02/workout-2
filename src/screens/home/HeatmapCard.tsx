@@ -15,6 +15,7 @@ import React, { useMemo } from 'react';
 import { StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 
 import { Card } from '@/components/Card';
+import { AppIcon } from '@/components/AppIcon';
 import { HeatmapCalendar } from '@/features/data/charts/HeatmapCalendar';
 import { useDataAggregates } from '@/features/data/useDataAggregates';
 import { useSettingsStore } from '@/store/settingsStore';
@@ -70,13 +71,12 @@ export function HeatmapCard({ onOpenFull }: HeatmapCardProps) {
               ? '暂无训练记录，去锻炼 Tab 完成第一次'
               : `${totalDays} 天训练 · ${formatWeight(totalVolume, unit)}`}
           </Text>
-          <Text
-            style={[typography.h3, { color: colors.textTertiary }]}
+          <View
             accessibilityElementsHidden
             importantForAccessibility="no"
           >
-            ›
-          </Text>
+            <AppIcon name="chevron" size={18} color={colors.textTertiary} />
+          </View>
         </View>
       </View>
     </Card>

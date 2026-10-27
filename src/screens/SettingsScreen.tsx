@@ -33,6 +33,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import { File } from 'expo-file-system';
 
 import { Card } from '@/components/Card';
+import { AppIcon } from '@/components/AppIcon';
 import { Dialog } from '@/components/Dialog';
 import { Input } from '@/components/Input';
 import { ListItem } from '@/components/ListItem';
@@ -320,9 +321,12 @@ export function SettingsScreen() {
             title="头像与用户名"
             subtitle="纯本地显示"
             rightSlot={
-              <Text style={[typography.subtitle, { color: colors.textSecondary }]}>
-                {username || '未设置'} ›
-              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
+                <Text style={[typography.subtitle, { color: colors.textSecondary }]}>
+                  {username || '未设置'}
+                </Text>
+                <AppIcon name="chevron" size={18} color={colors.textTertiary} />
+              </View>
             }
             onPress={() => setProfileSheetOpen(true)}
             accessibilityLabel={`头像与用户名，当前 ${username || '未设置'}`}
@@ -344,7 +348,7 @@ export function SettingsScreen() {
             title="数据导出"
             subtitle="导出全部训练数据为 JSON"
             rightSlot={
-              <Text style={[typography.subtitle, { color: colors.textTertiary }]}>›</Text>
+              <AppIcon name="chevron" size={18} color={colors.textTertiary} />
             }
             onPress={() => {
               haptic.selection();
@@ -358,7 +362,7 @@ export function SettingsScreen() {
             title="数据导入"
             subtitle="从 JSON 备份还原所有数据"
             rightSlot={
-              <Text style={[typography.subtitle, { color: colors.textTertiary }]}>›</Text>
+              <AppIcon name="chevron" size={18} color={colors.textTertiary} />
             }
             onPress={() => {
               haptic.selection();

@@ -4,13 +4,12 @@
  * Three tabs: 首页 / 锻炼 / 我的, each wired to its real screen
  * (HomeScreen / TrainingScreen / ProfileScreen — G5 / G9 / G10 long landed).
  *
- * No external icon dependency: we use unicode glyphs so the app stays
- * dependency-light while still showing a clear, recognizable bottom bar.
- * The visual treatment is delegated to the active theme.
+ * Navigation icons share the same rounded-outline SVG language used across
+ * the rest of the app, so they stay crisp and consistent on every device.
  */
 
 import React, { useEffect } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { useNavigation } from '@react-navigation/native';
 import type { NavigationProp } from '@react-navigation/native';
@@ -18,6 +17,7 @@ import type { NavigationProp } from '@react-navigation/native';
 import { HomeScreen } from '@/screens/HomeScreen';
 import { ProfileScreen } from '@/screens/ProfileScreen';
 import { TrainingScreen } from '@/screens/TrainingScreen';
+import { AppIcon, type AppIconName } from '@/components';
 import { useTheme } from '@/theme';
 
 import type { RootStackParamList, TabParamList } from './types';
@@ -38,24 +38,29 @@ const IMMERSIVE_ROUTES: ReadonlyArray<keyof RootStackParamList> = [
 ];
 
 interface TabIconProps {
-  glyph: string;
+  name: AppIconName;
   focused: boolean;
   color: string;
 }
 
-function TabIcon({ glyph, focused, color }: TabIconProps) {
-  const { radius } = useTheme();
+function TabIcon({ name, focused, color }: TabIconProps) {
+  const { colors, radius } = useTheme();
   return (
     <View
       style={[
         styles.iconWrap,
         {
-          backgroundColor: focused ? color : 'transparent',
+          backgroundColor: focused ? colors.primaryMuted : colors.transparent,
           borderRadius: radius.full,
         },
       ]}
     >
-      <Text style={[styles.iconGlyph, { color: focused ? '#FFFFFF' : color }]}>{glyph}</Text>
+      <AppIcon
+        name={name}
+        size={22}
+        color={focused ? colors.primaryPressed : color}
+        strokeWidth={focused ? 2.2 : 1.8}
+      />
     </View>
   );
 }
@@ -137,7 +142,7 @@ export function TabNavigator() {
         options={{
           title: '首页',
           tabBarIcon: ({ focused, color }) => (
-            <TabIcon glyph="●" focused={focused} color={color} />
+            <TabIcon name="home" focused={focused} color={color} />
           ),
         }}
       />
@@ -147,7 +152,7 @@ export function TabNavigator() {
         options={{
           title: '锻炼',
           tabBarIcon: ({ focused, color }) => (
-            <TabIcon glyph="▲" focused={focused} color={color} />
+            <TabIcon name="dumbbell" focused={focused} color={color} />
           ),
         }}
       />
@@ -157,7 +162,7 @@ export function TabNavigator() {
         options={{
           title: '我的',
           tabBarIcon: ({ focused, color }) => (
-            <TabIcon glyph="◆" focused={focused} color={color} />
+            <TabIcon name="profile" focused={focused} color={color} />
           ),
         }}
       />
@@ -167,13 +172,9 @@ export function TabNavigator() {
 
 const styles = StyleSheet.create({
   iconWrap: {
-    width: 28,
+    width: 40,
     height: 28,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  iconGlyph: {
-    fontSize: 14,
-    fontWeight: '700',
   },
 });

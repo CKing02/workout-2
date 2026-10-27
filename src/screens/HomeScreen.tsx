@@ -41,6 +41,7 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import { Card } from '@/components/Card';
+import { AppIcon } from '@/components/AppIcon';
 import { EmptyState } from '@/components/EmptyState';
 import { Dialog } from '@/components/Dialog';
 import { toast } from '@/hooks/useToast';
@@ -345,7 +346,7 @@ function TrainingCard({
           </Text>
         </View>
 
-        <Text style={[typography.h3, { color: colors.textTertiary }]}>›</Text>
+        <AppIcon name="chevron" size={18} color={colors.textTertiary} />
       </View>
     </Card>
   );

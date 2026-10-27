@@ -10,6 +10,7 @@ import React from 'react';
 import { Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import { useTheme } from '@/theme';
+import { AppIcon } from './AppIcon';
 import type { ButtonSize, ButtonVariant } from './Button';
 
 export interface IconButtonProps {
@@ -28,8 +29,8 @@ export interface IconButtonProps {
 }
 
 const BOX: Record<ButtonSize, number> = {
-  sm: 32,
-  md: 40,
+  sm: 40,
+  md: 44,
   lg: 48,
 };
 
@@ -82,6 +83,7 @@ export function IconButton({
       accessibilityHint={accessibilityHint}
       accessibilityState={{ disabled }}
       onPress={disabled ? undefined : onPress}
+      hitSlop={size === 'sm' ? 4 : size === 'md' ? 2 : undefined}
       android_ripple={{
         color:
           variant === 'ghost' || variant === 'secondary'
@@ -149,14 +151,14 @@ const styles = StyleSheet.create({
 /* Story                                                                     */
 /* -------------------------------------------------------------------------- */
 export function IconButtonStory() {
-  const { spacing } = useTheme();
+  const { spacing, colors } = useTheme();
   return (
     <View style={{ flexDirection: 'row', gap: spacing.sm, flexWrap: 'wrap' }}>
-      <IconButton accessibilityLabel="close" icon="×" variant="ghost" />
-      <IconButton accessibilityLabel="add" icon="+" variant="primary" />
-      <IconButton accessibilityLabel="delete" icon="🗑" variant="danger" />
-      <IconButton accessibilityLabel="settings" icon="⚙" variant="secondary" size="lg" />
-      <IconButton accessibilityLabel="disabled" icon="•" disabled />
+      <IconButton accessibilityLabel="close" icon={<AppIcon name="close" color={colors.primary} />} variant="ghost" />
+      <IconButton accessibilityLabel="add" icon={<AppIcon name="add" color={colors.onPrimary} />} variant="primary" />
+      <IconButton accessibilityLabel="delete" icon={<AppIcon name="trash" color={colors.onPrimary} />} variant="danger" />
+      <IconButton accessibilityLabel="settings" icon={<AppIcon name="settings" color={colors.text} />} variant="secondary" size="lg" />
+      <IconButton accessibilityLabel="disabled" icon={<AppIcon name="more" color={colors.primary} />} disabled />
     </View>
   );
 }

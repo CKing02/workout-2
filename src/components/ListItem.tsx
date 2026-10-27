@@ -16,6 +16,7 @@ import {
 } from 'react-native';
 
 import { useTheme } from '@/theme';
+import { AppIcon } from './AppIcon';
 
 export interface ListItemProps {
   title: string;
@@ -50,7 +51,7 @@ export function ListItem({
   const containerStyle: ViewStyle = {
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
-    backgroundColor: colors.background,
+    backgroundColor: colors.transparent,
     borderBottomWidth: divider ? StyleSheet.hairlineWidth : 0,
     borderBottomColor: divider ? colors.divider : colors.transparent,
   };
@@ -91,7 +92,7 @@ export function ListItem({
         style={({ pressed }) => [
           styles.row,
           containerStyle,
-          { opacity: pressed ? 0.85 : 1 },
+          { backgroundColor: pressed ? colors.surfaceMuted : colors.transparent },
           style,
         ]}
       >
@@ -141,7 +142,7 @@ export function ListItemStory() {
         title="杠铃卧推"
         subtitle="胸 · 杠铃 · 上次 60kg × 8"
         leftSlot={<Avatar text="卧" />}
-        rightSlot={<Text style={{ color: colors.textTertiary }}>›</Text>}
+        rightSlot={<AppIcon name="chevron" size={18} color={colors.textTertiary} />}
         divider
         onPress={() => undefined}
       />
@@ -153,8 +154,8 @@ export function ListItemStory() {
       />
       <ListItem
         title="设置"
-        leftSlot={<Avatar text="⚙" />}
-        rightSlot={<Text style={{ color: colors.textTertiary }}>›</Text>}
+        leftSlot={<AppIcon name="settings" size={20} color={colors.primary} />}
+        rightSlot={<AppIcon name="chevron" size={18} color={colors.textTertiary} />}
         onPress={() => undefined}
       />
     </View>

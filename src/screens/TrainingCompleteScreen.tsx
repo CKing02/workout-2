@@ -16,7 +16,7 @@
  * 设计:
  *   - 居中 ✓ 图标: Reanimated scale 1.0 → 1.15 → 1.0 循环;颜色循环
  *     primary ↔ success,营造"完成"庆祝感
- *   - 4 个统计卡用 Card 组件组合:图标(emoji)+ label + value
+ *   - 4 个统计卡用 Card 组件组合:矢量图标 + label + value
  *   - 保存成功后:spring 弹簧(380/0.7,"Expressive" 弹簧)scale 1.0→1.08→1.0
  *     庆祝 overshoot + 背景 primary → success + 文案 "✓ 已保存",保持 900ms
  *     让用户看到落库成功的视觉锚点,然后 popToTop() 回首页
@@ -61,6 +61,7 @@ import Animated, {
 import { haptic } from '@/utils/haptics';
 
 import { Button } from '@/components/Button';
+import { AppIcon, type AppIconName } from '@/components/AppIcon';
 import { Card } from '@/components/Card';
 import { Dialog } from '@/components/Dialog';
 import { CountUp } from '@/components/CountUp';
@@ -253,13 +254,7 @@ export function TrainingCompleteScreen() {
             ]}
             accessibilityElementsHidden
           >
-            <Text
-              style={styles.checkmark}
-              accessibilityElementsHidden
-              importantForAccessibility="no"
-            >
-              ✓
-            </Text>
+            <AppIcon name="check" size={72} color={colors.onPrimary} strokeWidth={2.2} />
           </Animated.View>
         </View>
 
@@ -285,7 +280,7 @@ export function TrainingCompleteScreen() {
         {/* ====== 2x2 stat grid ====== */}
         <View style={[styles.statsGrid, { gap: spacing.md, marginBottom: spacing.xl }]}>
           <StatCard
-            icon="⏱"
+            icon="clock"
             label="时长"
             value={formattedDuration}
             animatedValue={entryReady ? durationSeconds : 0}
@@ -295,7 +290,7 @@ export function TrainingCompleteScreen() {
             accessibilityHint={`本次训练总时长 ${formattedDuration}`}
           />
           <StatCard
-            icon="💪"
+            icon="trend"
             label="训练量"
             value={formatAmount(displayVolume)}
             animatedValue={entryReady ? displayVolume : 0}
@@ -306,14 +301,14 @@ export function TrainingCompleteScreen() {
             accessibilityHint={`总训练量 ${formattedVolume}`}
           />
           <StatCard
-            icon="🏋️"
+            icon="dumbbell"
             label="动作数"
             value={String(exerciseCount)}
             unit={exerciseCount === 1 ? '个' : '个'}
             accessibilityHint={`共完成 ${exerciseCount} 个动作`}
           />
           <StatCard
-            icon="✓"
+            icon="list"
             label="总组数"
             value={String(totalAllSets)}
             animatedValue={entryReady ? totalAllSets : 0}
@@ -544,7 +539,7 @@ function SaveButton({
  * ========================================================================== */
 
 interface StatCardProps {
-  icon: string;
+  icon: AppIconName;
   label: string;
   value: string;
   animatedValue?: number;
@@ -566,7 +561,7 @@ function StatCard({
   countUpDuration = motion.duration.base,
   accessibilityHint,
 }: StatCardProps) {
-  const { colors, spacing, typography } = useTheme();
+  const { colors, spacing, typography, radius } = useTheme();
   return (
     <Card padding="md" style={{ flexBasis: '45%', flexGrow: 1, minWidth: 0 }}>
       <View
@@ -576,9 +571,20 @@ function StatCard({
         accessibilityHint={accessibilityHint}
         style={{ gap: spacing.xs, alignItems: 'flex-start' }}
       >
-        <Text style={{ fontSize: 24 }} accessibilityElementsHidden>
-          {icon}
-        </Text>
+        <View
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+          style={{
+            width: 36,
+            height: 36,
+            alignItems: 'center',
+            justifyContent: 'center',
+            borderRadius: radius.md,
+            backgroundColor: colors.primaryMuted,
+          }}
+        >
+          <AppIcon name={icon} size={21} color={colors.primaryPressed} />
+        </View>
         <Text
           style={[
             typography.caption,
@@ -677,12 +683,6 @@ const styles = StyleSheet.create({
         elevation: 6,
       },
     }),
-  },
-  checkmark: {
-    color: '#FFFFFF',
-    fontSize: 84,
-    fontWeight: '700',
-    lineHeight: 92,
   },
   statsGrid: {
     width: '100%',

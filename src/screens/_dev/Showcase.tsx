@@ -16,6 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '@/theme';
 
 import { Badge } from '@/components/Badge';
+import { AppIcon } from '@/components/AppIcon';
 import { Button } from '@/components/Button';
 import { Card } from '@/components/Card';
 import { CheckableRow } from '@/components/CheckableRow';
@@ -179,15 +180,15 @@ function ButtonGrid() {
 /* IconButton                                                          */
 /* ------------------------------------------------------------------ */
 function IconButtonGrid() {
-  const { spacing } = useTheme();
+  const { spacing, colors } = useTheme();
   return (
     <View style={{ flexDirection: 'row', gap: spacing.sm, flexWrap: 'wrap' }}>
-      <IconButton accessibilityLabel="close" icon="×" variant="ghost" />
-      <IconButton accessibilityLabel="add" icon="+" variant="primary" />
-      <IconButton accessibilityLabel="delete" icon="🗑" variant="danger" />
-      <IconButton accessibilityLabel="settings" icon="⚙" variant="secondary" size="lg" />
-      <IconButton accessibilityLabel="disabled" icon="•" disabled />
-      <IconButton accessibilityLabel="star" icon="★" variant="secondary" size="sm" />
+      <IconButton accessibilityLabel="close" icon={<AppIcon name="close" color={colors.primary} />} variant="ghost" />
+      <IconButton accessibilityLabel="add" icon={<AppIcon name="add" color={colors.onPrimary} />} variant="primary" />
+      <IconButton accessibilityLabel="delete" icon={<AppIcon name="trash" color={colors.onPrimary} />} variant="danger" />
+      <IconButton accessibilityLabel="settings" icon={<AppIcon name="settings" color={colors.text} />} variant="secondary" size="lg" />
+      <IconButton accessibilityLabel="disabled" icon={<AppIcon name="more" color={colors.primary} />} disabled />
+      <IconButton accessibilityLabel="star" icon={<AppIcon name="star" color={colors.text} />} variant="secondary" size="sm" />
     </View>
   );
 }
@@ -319,7 +320,7 @@ function SurfaceGrid() {
               <Text style={{ color: colors.primaryPressed, fontWeight: '700' }}>卧</Text>
             </View>
           }
-          rightSlot={<Text style={{ color: colors.textTertiary, fontSize: 22 }}>›</Text>}
+          rightSlot={<AppIcon name="chevron" size={18} color={colors.textTertiary} />}
           divider
           onPress={() => undefined}
         />
@@ -337,10 +338,10 @@ function SurfaceGrid() {
                 justifyContent: 'center',
               }}
             >
-              <Text style={{ fontSize: 18 }}>⚙</Text>
+              <AppIcon name="settings" size={20} color={colors.textSecondary} />
             </View>
           }
-          rightSlot={<Text style={{ color: colors.textTertiary, fontSize: 22 }}>›</Text>}
+          rightSlot={<AppIcon name="chevron" size={18} color={colors.textTertiary} />}
         />
       </View>
 

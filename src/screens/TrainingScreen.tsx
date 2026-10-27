@@ -42,6 +42,7 @@ import {
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 import { Badge } from '@/components/Badge';
+import { AppIcon } from '@/components/AppIcon';
 import { Button } from '@/components/Button';
 import { Card } from '@/components/Card';
 import { Dialog } from '@/components/Dialog';
@@ -427,7 +428,7 @@ export function TrainingScreen() {
           ]}
         >
           <IconButton
-            icon="+"
+            icon={<AppIcon name="add" size={24} color={colors.onPrimary} strokeWidth={2.2} />}
             size="lg"
             variant="primary"
             accessibilityLabel="新建训练计划"
@@ -533,15 +534,14 @@ function PlanListItem({
                   justifyContent: 'center',
                 })}
               >
-                <Text
-                  style={{
-                    color: colors.danger,
-                    fontWeight: '700',
-                    fontSize: 18,
-                  }}
-                >
-                  −
-                </Text>
+                {({ pressed }) => (
+                  <AppIcon
+                    name="minus"
+                    size={20}
+                    color={pressed ? colors.onPrimary : colors.danger}
+                    strokeWidth={2.2}
+                  />
+                )}
               </Pressable>
               <Badge
                 label="点击删除"
@@ -552,7 +552,7 @@ function PlanListItem({
           ) : (
             <>
               <IconButton
-                icon="▶"
+                icon={<AppIcon name="play" size={20} color={colors.onPrimary} strokeWidth={2.2} />}
                 variant="primary"
                 size="md"
                 accessibilityLabel={`开始训练 ${item.name}`}
@@ -560,9 +560,7 @@ function PlanListItem({
                 onPress={() => onRequestStart(item)}
                 disabled={item.exerciseCount === 0}
               />
-              <Text style={[typography.body, { color: colors.textTertiary }]}>
-                ›
-              </Text>
+              <AppIcon name="chevron" size={18} color={colors.textTertiary} />
             </>
           )}
         </View>

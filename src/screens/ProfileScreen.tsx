@@ -1,27 +1,26 @@
 /**
- * ProfileScreen — 我的 Tab（G10 升级）。
+ * ProfileScreen — “我的”Tab。
  *
- * 布局：
- *  - 顶部：头像（可点，弹资料编辑抽屉）+ 用户名 + 编辑按钮
- *  - 中部：3 个 ListItem 入口（设置 / 动作库占位 / 数据导出占位）
- *  - 底部：版本号 + 清除全部数据按钮（二次确认 → 占位行为）
+ * 视觉层级：个人资料 → 高频训练工具 → 数据管理 → 危险操作。
  */
 
 import React, { useCallback, useState } from 'react';
 import {
+  ActivityIndicator,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
 
-import { Avatar, Button, Card, Dialog, ListItem } from '@/components';
-import { toast } from '@/hooks/useToast';
+import { AppIcon, Avatar, Card, Dialog, type AppIconName } from '@/components';
 import { clearAllData } from '@/features/profile/clearAllData';
 import { ProfileEditSheet } from '@/features/profile/ProfileEditSheet';
+import { toast } from '@/hooks/useToast';
 import type { RootStackParamList, TabParamList } from '@/navigation/types';
 import { useAvatarStore } from '@/store/avatarStore';
 import { useSettingsStore } from '@/store/settingsStore';
@@ -38,53 +37,59 @@ interface ProfileScreenProps {
 }
 
 export function ProfileScreen({ navigation }: ProfileScreenProps) {
-  const { colors, typography, spacing } = useTheme();
-  // 从 app.json 读，不再硬编码（见 utils/appVersion.ts）。
+  const { colors, typography, spacing, radius } = useTheme();
+  const { width } = useWindowDimensions();
+  const contentWidth = Math.max(0, Math.min(width - spacing.lg * 2, 640));
   const appVersion = getAppVersion();
-  const username = useSettingsStore((s) => s.username);
-  const avatarUri = useAvatarStore((s) => s.uri);
+  const username = useSettingsStore((state) => state.username);
+  const avatarUri = useAvatarStore((state) => state.uri);
 
   const [profileSheetOpen, setProfileSheetOpen] = useState(false);
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
 
-  // G14: 清库 + 头像文件 + GIF 缓存 + 4 个 store 的同步，全在
-  // clearAllData 里（两个入口共用，避免这份收尾清单又被抄成两份）。
   const handleClearAll = async () => {
     setClearDialogOpen(false);
     await clearAllData();
   };
 
   const handleGoSettings = () => {
-    // 从 Tab 跳到 Stack 屏：navigation 实际类型是 CompositeNavigationProp，
-    // 这里只需要知道存在 navigate 方法，TS 上做一次宽松断言。
-    (navigation as unknown as { navigate: (s: 'Settings') => void } | undefined)?.navigate(
-      'Settings',
-    );
+    (
+      navigation as
+        | { navigate: (screen: 'Settings') => void }
+        | undefined
+    )?.navigate('Settings');
   };
 
   const handleGoDataOverview = () => {
-    (navigation as unknown as { navigate: (s: 'DataOverview') => void } | undefined)?.navigate(
-      'DataOverview',
-    );
+    (
+      navigation as
+        | { navigate: (screen: 'DataOverview') => void }
+        | undefined
+    )?.navigate('DataOverview');
   };
 
   const handleGoExerciseLibrary = () => {
-    // G26: 进入动作库浏览模式（不进入选择态、不显示 ☑/完成 切换）。
-    (navigation as unknown as {
-      navigate: (s: 'ExerciseLibrary', p: { title: string; mode: 'browse' }) => void;
-    } | undefined)?.navigate('ExerciseLibrary', { title: '动作库', mode: 'browse' });
+    (
+      navigation as
+        | {
+            navigate: (
+              screen: 'ExerciseLibrary',
+              params: { title: string; mode: 'browse' },
+            ) => void;
+          }
+        | undefined
+    )?.navigate('ExerciseLibrary', { title: '动作库', mode: 'browse' });
   };
 
-  // US-12 — 身体测量（体重 + 体脂）。
   const handleGoBodyMeasurement = () => {
-    (navigation as unknown as { navigate: (s: 'BodyMeasurement') => void } | undefined)?.navigate(
-      'BodyMeasurement',
-    );
+    (
+      navigation as
+        | { navigate: (screen: 'BodyMeasurement') => void }
+        | undefined
+    )?.navigate('BodyMeasurement');
   };
 
-  // G19: 真实导出 —— 全表读 → 写文件 → 弹分享面板。
-  // 数据导出不像清除那么不可逆，无二次确认；失败时 toast 错误并保留页面。
   const handleExport = useCallback(async () => {
     if (exporting) return;
     setExporting(true);
@@ -92,167 +97,264 @@ export function ProfileScreen({ navigation }: ProfileScreenProps) {
     try {
       const { fileName } = await exportBackup();
       toast.show(`已导出：${fileName}`, 'success');
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      toast.show(`导出失败：${msg}`, 'error');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      toast.show(`导出失败：${message}`, 'error');
     } finally {
       setExporting(false);
     }
   }, [exporting]);
 
+  const openProfileEditor = () => setProfileSheetOpen(true);
+
   return (
-    <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]} edges={['bottom']}>
+    <SafeAreaView
+      style={[styles.safe, { backgroundColor: colors.background }]}
+      edges={['bottom']}
+    >
       <ScrollView
         contentContainerStyle={{
-          padding: spacing.lg,
+          paddingHorizontal: spacing.lg,
+          paddingTop: spacing.md,
           paddingBottom: spacing.xxxxl,
+          alignItems: 'center',
         }}
         keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
       >
-        {/* ---------------------- 头像 + 用户名卡片 ---------------------- */}
-        <Card padding="lg" elevated style={{ marginBottom: spacing.lg }}>
-          <View
-            style={{
+        <View style={{ width: contentWidth }}>
+          <Card
+            padding="lg"
+            elevated
+            style={{ borderColor: colors.primaryMuted }}
+          >
+            <View
+              style={{
+                width: 40,
+                height: 4,
+                borderRadius: radius.full,
+                backgroundColor: colors.primary,
+                marginBottom: spacing.lg,
+              }}
+            />
+            <View style={styles.profileRow}>
+              <View
+                style={{
+                  padding: 3,
+                  borderRadius: radius.full,
+                  backgroundColor: colors.primaryMuted,
+                  borderWidth: StyleSheet.hairlineWidth,
+                  borderColor: colors.primary,
+                }}
+              >
+                <Avatar
+                  uri={avatarUri}
+                  text={username}
+                  size={66}
+                  onPress={openProfileEditor}
+                  accessibilityLabel="更换头像"
+                />
+              </View>
+
+              <View
+                style={[styles.profileCopy, { marginLeft: spacing.lg }]}
+              >
+                <Text
+                  style={[typography.label, { color: colors.primary }]}
+                >
+                  训练者档案
+                </Text>
+                <Text
+                  accessibilityRole="header"
+                  style={[
+                    typography.h2,
+                    {
+                      color: username ? colors.text : colors.textSecondary,
+                      marginTop: spacing.xs,
+                    },
+                  ]}
+                  numberOfLines={1}
+                >
+                  {username || '设置你的昵称'}
+                </Text>
+                <Text
+                  style={[
+                    typography.bodySmall,
+                    { color: colors.textSecondary, marginTop: spacing.xs },
+                  ]}
+                  numberOfLines={2}
+                >
+                  管理训练数据、身体记录与应用偏好
+                </Text>
+              </View>
+            </View>
+
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="编辑个人资料"
+              accessibilityHint="编辑头像与用户名"
+              onPress={openProfileEditor}
+              style={({ pressed }) => ({
+                minHeight: 44,
+                marginTop: spacing.lg,
+                paddingHorizontal: spacing.md,
+                borderRadius: radius.md,
+                backgroundColor: pressed
+                  ? colors.primary
+                  : colors.primaryMuted,
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexDirection: 'row',
+                gap: spacing.xs,
+              })}
+            >
+              {({ pressed }) => (
+                <>
+                  <AppIcon
+                    name="edit"
+                    size={16}
+                    color={pressed ? colors.onPrimary : colors.primaryPressed}
+                  />
+                  <Text
+                    style={[
+                      typography.label,
+                      {
+                        color: pressed
+                          ? colors.onPrimary
+                          : colors.primaryPressed,
+                      },
+                    ]}
+                  >
+                    编辑个人资料
+                  </Text>
+                </>
+              )}
+            </Pressable>
+          </Card>
+
+          <ProfileSectionHeader title="训练与数据" subtitle="快速进入常用工具" />
+          <View style={[styles.quickGrid, { gap: spacing.md }]}>
+            <QuickActionTile
+              icon="chart"
+              title="数据中心"
+              subtitle="训练趋势与表现"
+              onPress={handleGoDataOverview}
+              accessibilityHint="打开训练数据总览"
+            />
+            <QuickActionTile
+              icon="scale"
+              title="身体测量"
+              subtitle="体重与体脂趋势"
+              onPress={handleGoBodyMeasurement}
+              accessibilityHint="打开身体测量记录"
+            />
+            <QuickActionTile
+              icon="dumbbell"
+              title="动作库"
+              subtitle="按肌群与器械浏览"
+              onPress={handleGoExerciseLibrary}
+              accessibilityHint="打开动作库浏览页"
+            />
+            <QuickActionTile
+              icon="settings"
+              title="设置"
+              subtitle="主题、单位与休息"
+              onPress={handleGoSettings}
+              accessibilityHint="打开应用设置"
+            />
+          </View>
+
+          <ProfileSectionHeader title="数据管理" subtitle="备份和迁移训练记录" />
+          <Card padding="sm">
+            <ProfileActionRow
+              icon="export"
+              title="导出训练数据"
+              subtitle="生成 JSON 备份并通过系统分享"
+              onPress={() => {
+                haptic.selection();
+                void handleExport();
+              }}
+              loading={exporting}
+              disabled={exporting}
+              accessibilityHint="导出全部训练数据并打开系统分享面板"
+            />
+          </Card>
+
+          <ProfileSectionHeader title="危险操作" subtitle="删除后无法恢复" />
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="清除全部数据"
+            accessibilityHint="打开二次确认对话框"
+            onPress={() => setClearDialogOpen(true)}
+            android_ripple={{ color: colors.surfaceMuted, borderless: false }}
+            style={({ pressed }) => ({
+              minHeight: 64,
+              paddingHorizontal: spacing.md,
+              paddingVertical: spacing.sm,
+              borderRadius: radius.lg,
+              borderWidth: StyleSheet.hairlineWidth,
+              borderColor: colors.border,
+              backgroundColor: pressed ? colors.surfaceMuted : colors.surface,
               flexDirection: 'row',
               alignItems: 'center',
               gap: spacing.md,
-            }}
+            })}
           >
-            {/* 头像本身可点 —— 比多一个隐形入口更好发现。用户名编辑仍走右边的「编辑」。 */}
-            <Avatar
-              uri={avatarUri}
-              text={username}
-              size={56}
-              onPress={() => setProfileSheetOpen(true)}
-              accessibilityLabel="更换头像"
-            />
+            <IconBadge name="trash" color={colors.danger} muted />
             <View style={{ flex: 1 }}>
-              <Text style={[typography.label, { color: colors.textTertiary }]}>训练者</Text>
+              <Text
+                style={[typography.title, { color: colors.danger }]}
+              >
+                清除全部数据
+              </Text>
               <Text
                 style={[
-                  typography.h2,
-                  { color: username ? colors.text : colors.textTertiary, marginTop: 2 },
+                  typography.caption,
+                  { color: colors.textTertiary, marginTop: spacing.xs },
                 ]}
-                numberOfLines={1}
               >
-                {username || '未设置'}
+                永久删除训练计划、历史记录与自定义设置
               </Text>
             </View>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="编辑资料"
-              accessibilityHint="弹出编辑头像与用户名的底部抽屉"
-              onPress={() => setProfileSheetOpen(true)}
-              hitSlop={8}
-              style={({ pressed }) => ({
-                paddingVertical: spacing.xs,
-                paddingHorizontal: spacing.xs,
-                opacity: pressed ? 0.6 : 1,
-              })}
-            >
-              <Text
-                style={[typography.label, { color: colors.primary }]}
-              >
-                编辑
-              </Text>
-            </Pressable>
-          </View>
-        </Card>
+          </Pressable>
 
-        {/* ---------------------- 入口列表 ---------------------- */}
-        <Card padding="sm">
-          <ListItem
-            title="设置"
-            subtitle="主题 / 单位 / 休息时间 / 数据"
-            leftSlot={<Glyph text="⚙" colors={colors} spacing={spacing} />}
-            rightSlot={<Chevron colors={colors} typography={typography} />}
-            onPress={handleGoSettings}
-            divider
-            accessibilityLabel="设置"
-            accessibilityHint="打开设置页"
-          />
-          <ListItem
-            title="动作库"
-            subtitle="按肌群 / 器械浏览"
-            leftSlot={<Glyph text="●" colors={colors} spacing={spacing} />}
-            rightSlot={<Chevron colors={colors} typography={typography} />}
-            onPress={handleGoExerciseLibrary}
-            divider
-            accessibilityLabel="动作库入口"
-            accessibilityHint="打开动作库浏览页"
-          />
-          <ListItem
-            title="数据"
-            subtitle="热力图 / 训练量 / 肌群分布 / 1RM"
-            leftSlot={<Glyph text="📊" colors={colors} spacing={spacing} />}
-            rightSlot={<Chevron colors={colors} typography={typography} />}
-            onPress={handleGoDataOverview}
-            divider
-            accessibilityLabel="数据可视化"
-            accessibilityHint="打开数据可视化总览页"
-          />
-          <ListItem
-            title="数据导出"
-            subtitle="导出全部训练数据为 JSON"
-            leftSlot={<Glyph text="↗" colors={colors} spacing={spacing} />}
-            rightSlot={<Chevron colors={colors} typography={typography} />}
-            onPress={() => {
-              haptic.selection();
-              void handleExport();
-            }}
-            divider
-            accessibilityLabel="数据导出"
-            accessibilityHint="把所有训练数据导出为 JSON 文件，弹出系统分享面板"
-          />
-          {/* US-12 — 身体测量（体重 + 体脂）。 */}
-          <ListItem
-            title="身体测量"
-            subtitle="体重 / 体脂记录与趋势"
-            leftSlot={<Glyph text="⚖" colors={colors} spacing={spacing} />}
-            rightSlot={<Chevron colors={colors} typography={typography} />}
-            onPress={handleGoBodyMeasurement}
-            accessibilityLabel="身体测量"
-            accessibilityHint="打开身体测量记录与趋势页"
-          />
-        </Card>
-
-        {/* ---------------------- 底部操作 ---------------------- */}
-        <View style={{ marginTop: spacing.xl, gap: spacing.md }}>
-          <Button
-            variant="danger"
-            onPress={() => setClearDialogOpen(true)}
-            style={{ alignSelf: 'stretch' }}
-          >
-            清除全部数据
-          </Button>
-          <Text
-            onPress={() => {
-              // G20: 长按 → 进入组件 Showcase（开发期自检页）。
-              // 隐藏入口：普通用户不会发现，开发者通过版本号进入。
-              (navigation as unknown as { navigate: (s: 'Showcase') => void } | undefined)?.navigate(
-                'Showcase',
-              );
-            }}
-            accessibilityLabel={`锻炼2点零，版本 ${appVersion}。长按进入组件 Showcase。`}
+          <Pressable
             accessibilityRole="button"
-            style={[
-              typography.caption,
-              { color: colors.textTertiary, textAlign: 'center' },
-            ]}
+            accessibilityLabel={`锻炼2点零，版本 ${appVersion}。长按进入组件 Showcase。`}
+            accessibilityHint="开发者调试入口"
+            delayLongPress={600}
+            onLongPress={() => {
+              (
+                navigation as
+                  | { navigate: (screen: 'Showcase') => void }
+                  | undefined
+              )?.navigate('Showcase');
+            }}
+            style={({ pressed }) => ({
+              minHeight: 48,
+              marginTop: spacing.xl,
+              alignItems: 'center',
+              justifyContent: 'center',
+              opacity: pressed ? 0.6 : 1,
+            })}
           >
-            锻炼2点零 · v{appVersion}
-          </Text>
+            <Text
+              style={[
+                typography.caption,
+                { color: colors.textTertiary, textAlign: 'center' },
+              ]}
+            >
+              锻炼2点零 · v{appVersion}
+            </Text>
+          </Pressable>
         </View>
       </ScrollView>
 
-      {/* ---------------------- 用户名 Sheet ---------------------- */}
-      {/* ---------------------- 资料编辑抽屉 ---------------------- */}
       <ProfileEditSheet
         visible={profileSheetOpen}
         onClose={() => setProfileSheetOpen(false)}
       />
 
-      {/* ---------------------- Dialogs ---------------------- */}
       <Dialog
         visible={clearDialogOpen}
         variant="danger"
@@ -266,50 +368,200 @@ export function ProfileScreen({ navigation }: ProfileScreenProps) {
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* 子组件                                                                    */
-/* -------------------------------------------------------------------------- */
-
-function Glyph({
-  text,
-  colors,
-  spacing,
-}: {
-  text: string;
-  colors: ReturnType<typeof useTheme>['colors'];
-  spacing: ReturnType<typeof useTheme>['spacing'];
-}) {
+function ProfileSectionHeader({ title, subtitle }: { title: string; subtitle: string }) {
+  const { colors, typography, spacing } = useTheme();
   return (
     <View
       style={{
-        width: 32,
-        height: 32,
-        borderRadius: 16,
-        backgroundColor: colors.surfaceMuted,
-        alignItems: 'center',
-        justifyContent: 'center',
-        marginRight: spacing.xs,
+        marginTop: spacing.xl,
+        marginBottom: spacing.sm,
+        paddingHorizontal: spacing.xs,
       }}
     >
-      <Text style={{ color: colors.text, fontSize: 14, fontWeight: '700' }}>
-        {text}
+      <Text accessibilityRole="header" style={[typography.h3, { color: colors.text }]}>
+        {title}
+      </Text>
+      <Text
+        style={[
+          typography.bodySmall,
+          { color: colors.textSecondary, marginTop: spacing.xs },
+        ]}
+      >
+        {subtitle}
       </Text>
     </View>
   );
 }
 
-function Chevron({
-  colors,
-  typography,
-}: {
-  colors: ReturnType<typeof useTheme>['colors'];
-  typography: ReturnType<typeof useTheme>['typography'];
-}) {
+interface QuickActionTileProps {
+  icon: AppIconName;
+  title: string;
+  subtitle: string;
+  onPress: () => void;
+  accessibilityHint: string;
+}
+
+function QuickActionTile({
+  icon,
+  title,
+  subtitle,
+  onPress,
+  accessibilityHint,
+}: QuickActionTileProps) {
+  const { colors, typography, spacing, radius } = useTheme();
   return (
-    <Text style={[typography.subtitle, { color: colors.textTertiary }]}>›</Text>
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={title}
+      accessibilityHint={accessibilityHint}
+      onPress={onPress}
+      android_ripple={{ color: colors.primaryMuted, borderless: false }}
+      style={({ pressed }) => ({
+        flexBasis: 148,
+        flexGrow: 1,
+        minWidth: 0,
+        minHeight: 116,
+        padding: spacing.md,
+        borderRadius: radius.lg,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: pressed ? colors.primary : colors.border,
+        backgroundColor: pressed ? colors.primaryMuted : colors.surfaceElevated,
+      })}
+    >
+      <View style={styles.tileTopRow}>
+        <IconBadge name={icon} />
+        <AppIcon name="chevron" size={18} color={colors.textTertiary} />
+      </View>
+      <Text
+        style={[
+          typography.title,
+          { color: colors.text, marginTop: spacing.md },
+        ]}
+      >
+        {title}
+      </Text>
+      <Text
+        style={[
+          typography.caption,
+          { color: colors.textSecondary, marginTop: spacing.xs },
+        ]}
+        numberOfLines={2}
+      >
+        {subtitle}
+      </Text>
+    </Pressable>
+  );
+}
+
+interface ProfileActionRowProps {
+  icon: AppIconName;
+  title: string;
+  subtitle: string;
+  onPress: () => void;
+  accessibilityHint: string;
+  disabled?: boolean;
+  loading?: boolean;
+}
+
+function ProfileActionRow({
+  icon,
+  title,
+  subtitle,
+  onPress,
+  accessibilityHint,
+  disabled = false,
+  loading = false,
+}: ProfileActionRowProps) {
+  const { colors, typography, spacing, radius } = useTheme();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={loading ? `${title}，正在处理` : title}
+      accessibilityHint={accessibilityHint}
+      accessibilityState={{ disabled, busy: loading }}
+      disabled={disabled}
+      onPress={onPress}
+      android_ripple={{ color: colors.primaryMuted, borderless: false }}
+      style={({ pressed }) => ({
+        minHeight: 68,
+        paddingHorizontal: spacing.sm,
+        paddingVertical: spacing.sm,
+        borderRadius: radius.md,
+        backgroundColor: pressed ? colors.surfaceMuted : colors.transparent,
+        opacity: disabled ? 0.55 : 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.md,
+      })}
+    >
+      <IconBadge name={icon} />
+      <View style={{ flex: 1 }}>
+        <Text style={[typography.title, { color: colors.text }]}>{title}</Text>
+        <Text
+          style={[
+            typography.caption,
+            { color: colors.textSecondary, marginTop: spacing.xs },
+          ]}
+          numberOfLines={2}
+        >
+          {subtitle}
+        </Text>
+      </View>
+      {loading ? (
+        <ActivityIndicator size="small" color={colors.primary} />
+      ) : (
+        <AppIcon name="chevron" size={18} color={colors.textTertiary} />
+      )}
+    </Pressable>
+  );
+}
+
+function IconBadge({
+  name,
+  color,
+  muted = false,
+}: {
+  name: AppIconName;
+  color?: string;
+  muted?: boolean;
+}) {
+  const { colors, radius } = useTheme();
+  return (
+    <View
+      accessible={false}
+      style={{
+        width: 40,
+        height: 40,
+        borderRadius: radius.md,
+        backgroundColor: muted ? colors.surfaceMuted : colors.primaryMuted,
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      <AppIcon name={name} size={22} color={color ?? colors.primaryPressed} />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1 },
+  safe: {
+    flex: 1,
+  },
+  profileRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  profileCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  quickGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  tileTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
 });

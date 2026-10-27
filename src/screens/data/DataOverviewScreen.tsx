@@ -24,6 +24,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import { Card } from '@/components/Card';
+import { AppIcon, type AppIconName } from '@/components/AppIcon';
 import { EmptyState } from '@/components/EmptyState';
 import { ListItem } from '@/components/ListItem';
 import { SegmentedControl } from '@/components/SegmentedControl';
@@ -194,8 +195,8 @@ function OverviewTab({
         <ListItem
           title="日历热力图"
           subtitle="过去 12 周每日训练量"
-          leftSlot={<Glyph emoji="🗓" />}
-          rightSlot={<Chevron colors={colors} typography={typography} />}
+          leftSlot={<Glyph icon="calendar" />}
+          rightSlot={<Chevron />}
           onPress={() => navigation.navigate('CalendarHeatmap')}
           divider
           accessibilityLabel="打开日历热力图"
@@ -203,8 +204,8 @@ function OverviewTab({
         <ListItem
           title="训练量趋势"
           subtitle="过去 12 周每周训练量"
-          leftSlot={<Glyph emoji="📈" />}
-          rightSlot={<Chevron colors={colors} typography={typography} />}
+          leftSlot={<Glyph icon="trend" />}
+          rightSlot={<Chevron />}
           onPress={() => navigation.navigate('VolumeTrend')}
           divider
           accessibilityLabel="打开训练量趋势"
@@ -212,8 +213,8 @@ function OverviewTab({
         <ListItem
           title="肌群分布"
           subtitle="按主要肌群聚合训练量"
-          leftSlot={<Glyph emoji="🥩" />}
-          rightSlot={<Chevron colors={colors} typography={typography} />}
+          leftSlot={<Glyph icon="body" />}
+          rightSlot={<Chevron />}
           onPress={() => navigation.navigate('MuscleGroupDistribution')}
           divider
           accessibilityLabel="打开肌群分布"
@@ -221,8 +222,8 @@ function OverviewTab({
         <ListItem
           title="1RM 记录"
           subtitle="按 Epley 公式估算每个动作最高 1RM"
-          leftSlot={<Glyph emoji="🏆" />}
-          rightSlot={<Chevron colors={colors} typography={typography} />}
+          leftSlot={<Glyph icon="trophy" />}
+          rightSlot={<Chevron />}
           onPress={() => navigation.navigate('OneRMRecords')}
           accessibilityLabel="打开 1RM 记录"
         />
@@ -364,34 +365,29 @@ function SummaryStat({
   );
 }
 
-function Glyph({ emoji }: { emoji: string }) {
-  const { colors } = useTheme();
+function Glyph({ icon }: { icon: AppIconName }) {
+  const { colors, radius } = useTheme();
   return (
     <View
       style={{
         width: 32,
         height: 32,
-        borderRadius: 16,
-        backgroundColor: colors.surfaceMuted,
+        borderRadius: radius.md,
+        backgroundColor: colors.primaryMuted,
         alignItems: 'center',
         justifyContent: 'center',
         marginRight: 4,
       }}
     >
-      <Text style={{ fontSize: 16 }}>{emoji}</Text>
+      <AppIcon name={icon} size={18} color={colors.primaryPressed} />
     </View>
   );
 }
 
-function Chevron({
-  colors,
-  typography,
-}: {
-  colors: ReturnType<typeof useTheme>['colors'];
-  typography: ReturnType<typeof useTheme>['typography'];
-}) {
+function Chevron() {
+  const { colors } = useTheme();
   return (
-    <Text style={[typography.subtitle, { color: colors.textTertiary }]}>›</Text>
+    <AppIcon name="chevron" size={18} color={colors.textTertiary} />
   );
 }
 

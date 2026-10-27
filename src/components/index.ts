@@ -12,6 +12,9 @@ export type { ButtonProps, ButtonVariant, ButtonSize } from './Button';
 export { IconButton } from './IconButton';
 export type { IconButtonProps } from './IconButton';
 
+export { AppIcon } from './AppIcon';
+export type { AppIconName, AppIconProps } from './AppIcon';
+
 export { Input } from './Input';
 export type { InputProps } from './Input';
 

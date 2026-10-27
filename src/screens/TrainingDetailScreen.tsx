@@ -34,6 +34,7 @@ import {
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 import { Badge } from '@/components/Badge';
+import { AppIcon } from '@/components/AppIcon';
 import { Card } from '@/components/Card';
 import { Dialog } from '@/components/Dialog';
 import { IconButton } from '@/components/IconButton';
@@ -193,7 +194,7 @@ export function TrainingDetailScreen() {
       headerRight: () =>
         training ? (
           <IconButton
-            icon="🗑"
+            icon={<AppIcon name="trash" size={20} color={colors.danger} />}
             variant="ghost"
             size="sm"
             accessibilityLabel="删除训练"
