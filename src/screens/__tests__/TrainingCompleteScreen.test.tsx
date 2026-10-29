@@ -1,5 +1,5 @@
 import React from 'react';
-import { Alert, Text } from 'react-native';
+import { Alert, BackHandler, Text } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 import type { TrainingSummary } from '@/store/trainingStore';
 
@@ -19,6 +19,7 @@ const mockNavigation = {
 };
 jest.mock('@react-navigation/native', () => ({
   useNavigation: () => mockNavigation,
+  useFocusEffect: (callback: () => void) => require('react').useEffect(callback, [callback]),
   useRoute: () => ({ params: { trainingId: 'session', durationSeconds: 120,
     totalVolume: 400, exerciseCount: 1, setCount: 2, planNameSnapshot: '测试训练' } }),
 }));
@@ -79,6 +80,22 @@ beforeEach(() => {
 afterEach(() => { act(() => tree?.unmount()); jest.clearAllTimers(); jest.useRealTimers(); });
 
 describe('G48 completion integration', () => {
+  it('系统返回键被拦截，离开页面时移除监听', () => {
+    const remove = jest.fn();
+    let onBack: (() => boolean) | undefined;
+    const listener = jest.spyOn(BackHandler, 'addEventListener').mockImplementation((_event, callback) => {
+      onBack = callback as () => boolean;
+      return { remove };
+    });
+    render();
+    expect(onBack?.()).toBe(true);
+    expect(mockPop).not.toHaveBeenCalled();
+    expect(mockSave).not.toHaveBeenCalled();
+    expect(mockCancel).not.toHaveBeenCalled();
+    act(() => tree.unmount());
+    expect(remove).toHaveBeenCalledTimes(1);
+    listener.mockRestore();
+  });
   it('原生淡入结束后才启动计数与庆祝，退出及重复事件不重播', () => {
     render(false);
     expect(tree.root.findAllByType(CountUp).map((n) => n.props.value)).toEqual([0, 0, 0]);

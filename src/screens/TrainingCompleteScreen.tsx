@@ -31,6 +31,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
+  BackHandler,
   Platform,
   Pressable,
   ScrollView,
@@ -41,6 +42,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   useNavigation,
+  useFocusEffect,
   useRoute,
   type RouteProp,
 } from '@react-navigation/native';
@@ -102,6 +104,12 @@ export function TrainingCompleteScreen() {
   const [showBestSet, setShowBestSet] = useState(false);
   const celebratedRef = useRef<string | null>(null);
   const [entryReady, setEntryReady] = useState(false);
+
+  // Android 系统返回不能绕过保存或放弃的选择。
+  useFocusEffect(useCallback(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => true);
+    return () => subscription.remove();
+  }, []));
 
   // 原生淡入期间页面尚不可见，等入场完成再播放 260ms 计数与庆祝。
   useEffect(() => navigation.addListener('transitionEnd', (event) => {
